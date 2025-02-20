@@ -1,14 +1,10 @@
-Complete Bot Implementation
-
 import os
 import signal
 import asyncio
 import logging
+import traceback
 from datetime import datetime, timedelta
-from functools import wraps
 from typing import Optional, List, Dict, Any
-import re
-from bson import ObjectId
 
 from aiohttp import web
 from telegram import Update, Message, InlineKeyboardButton, InlineKeyboardMarkup
@@ -29,6 +25,12 @@ from utils import (
     validate_regex,
     get_media_type,
     format_duration
+)
+from config import (
+    TELEGRAM_TOKEN, 
+    MONGODB_URI, 
+    MONGODB_DB, 
+    DEFAULT_SUPERADMINS
 )
 
 # 加载环境变量
@@ -104,6 +106,7 @@ class KeywordManager:
         keywords = await self.get_keywords(group_id)
         for kw in keywords:
             try:
+                import re
                 if kw['type'] == 'regex':
                     pattern = re.compile(kw['pattern'])
                     if pattern.search(text):
@@ -128,9 +131,7 @@ class KeywordManager:
             
     async def get_keywords(self, group_id: int) -> List[Dict[str, Any]]:
         """获取群组的关键词列表"""
-        return await self.db.keywords.find({
-            'group_id': group_id
-        }).to_list(None)
+        return await self.db.get_keywords(group_id)
 
 class BroadcastManager:
     def __init__(self, db, bot):
@@ -168,7 +169,7 @@ class BroadcastManager:
             try:
                 # 获取所有活跃的轮播消息
                 now = datetime.now()
-                broadcasts = await self.db.broadcasts.find({
+                broadcasts = await self.db.db.broadcasts.find({
                     'start_time': {'$lte': now.isoformat()},
                     'end_time': {'$gt': now.isoformat()}
                 }).to_list(None)
@@ -186,7 +187,7 @@ class BroadcastManager:
                         await self._send_broadcast(bc)
                         
                         # 更新发送时间
-                        await self.db.broadcasts.update_one(
+                        await self.db.db.broadcasts.update_one(
                             {'_id': bc['_id']},
                             {'$set': {'last_broadcast': now.isoformat()}}
                         )
@@ -195,7 +196,7 @@ class BroadcastManager:
                         logger.error(f"Error sending broadcast {bc['_id']}: {e}")
                 
                 # 清理过期的轮播消息
-                await self.db.broadcasts.delete_many({
+                await self.db.db.broadcasts.delete_many({
                     'end_time': {'$lte': now.isoformat()}
                 })
                 
@@ -254,10 +255,10 @@ class StatsManager:
             {'$limit': limit}
         ]
         
-        results = await self.db.message_stats.aggregate(pipeline).to_list(None)
+        results = await self.db.db.message_stats.aggregate(pipeline).to_list(None)
         
         # 获取总页数
-        total_users = len(await self.db.message_stats.distinct('user_id', {
+        total_users = len(await self.db.db.message_stats.distinct('user_id', {
             'group_id': group_id,
             'date': datetime.now().strftime('%Y-%m-%d')
         }))
@@ -293,10 +294,10 @@ class StatsManager:
             {'$limit': limit}
         ]
         
-        results = await self.db.message_stats.aggregate(pipeline).to_list(None)
+        results = await self.db.db.message_stats.aggregate(pipeline).to_list(None)
         
         # 获取总页数
-        total_users = len(await self.db.message_stats.distinct('user_id', {
+        total_users = len(await self.db.db.message_stats.distinct('user_id', {
             'group_id': group_id,
             'date': {'$gte': thirty_days_ago}
         }))
@@ -357,46 +358,41 @@ class TelegramBot:
         """初始化机器人"""
         logger.info("Initializing bot...")
         
-        try:
-            # 初始化数据库连接
-            mongodb_uri = os.getenv('MONGODB_URI')
-            if not mongodb_uri:
-                raise ValueError("MONGODB_URI environment variable is not set")
-            
-            logger.info("Connecting to database...")
-            await self.db.connect(mongodb_uri, 'telegram_bot')
-            logger.info("Database connected successfully")
-            
-            # 确保默认超级管理员存在
-            for admin_id in [358987879, 502226686, 883253093]:
-                await self.db.add_user({
-                    'user_id': admin_id,
-                    'role': UserRole.SUPERADMIN.value,
-                    'created_at': datetime.now().isoformat(),
-                    'created_by': None
-                })
-            
-            # 初始化 Telegram 应用
-            self.application = (
-                Application.builder()
-                .token(os.getenv('TELEGRAM_TOKEN'))
-                .build()
-            )
-            
-            # 启动轮播管理器
-            await self.broadcast_manager.start()
-            
-            # 添加处理器
-            self._add_handlers()
-            
-            # 启动后台任务
-            self.cleanup_task = asyncio.create_task(self.cleanup_old_stats())
-            
-            logger.info("Bot initialization completed")
-            
-        except Exception as e:
-            logger.error(f"Error during initialization: {e}")
-            raise
+        # 连接数据库
+        await self.db.connect(
+            mongodb_uri=MONGODB_URI, 
+            database=MONGODB_DB
+        )
+        
+        # 初始化数据库索引
+        await self.db.init_indexes()
+        
+        # 确保默认超级管理员存在
+        for admin_id in DEFAULT_SUPERADMINS:
+            await self.db.add_user({
+                'user_id': admin_id,
+                'role': UserRole.SUPERADMIN.value,
+                'created_at': datetime.now().isoformat(),
+                'created_by': None
+            })
+        
+        # 初始化 Telegram 应用
+        self.application = (
+            Application.builder()
+            .token(TELEGRAM_TOKEN)
+            .build()
+        )
+        
+        # 启动轮播管理器
+        await self.broadcast_manager.start()
+        
+        # 添加处理器
+        self._add_handlers()
+        
+        # 启动后台任务
+        self.cleanup_task = asyncio.create_task(self.cleanup_old_stats())
+        
+        logger.info("Bot initialization completed")
         
     def _add_handlers(self):
         """添加命令处理器"""
@@ -419,8 +415,7 @@ class TelegramBot:
         self.application.add_handler(
             CallbackQueryHandler(self._handle_settings_callback, pattern="^settings_")
         )
-        self.application.add_handler(
-            CallbackQueryHandler(self._handle_keyword_callback, pattern="^keyword_")
+        self.application.add_handler(, pattern="^keyword_")
         )
         self.application.add_handler(
             CallbackQueryHandler(self._handle_broadcast_callback, pattern="^broadcast_")
@@ -433,6 +428,8 @@ class TelegramBot:
         """启动机器人"""
         try:
             logger.info("Starting services...")
+            logger.info(f"MongoDB URI: {MONGODB_URI}")
+            logger.info(f"Database Name: {MONGODB_DB}")
             
             # 首先启动 web 服务器
             logger.info("Starting web server...")
@@ -453,6 +450,7 @@ class TelegramBot:
                 
         except Exception as e:
             logger.error(f"Error during startup: {e}")
+            logger.error(traceback.format_exc())
             raise
         finally:
             logger.info("Initiating shutdown...")
@@ -530,16 +528,20 @@ class TelegramBot:
             self.web_runner = web.AppRunner(app)
             await self.web_runner.setup()
             
-            # 获取端口
+            # 获取主机和端口
+            host = os.getenv('WEB_HOST', '0.0.0.0')
             port = int(os.getenv("PORT", "8080"))
             
+            logger.info(f"Attempting to start web server on {host}:{port}")
+            
             # 创建站点并启动
-            site = web.TCPSite(self.web_runner, host='0.0.0.0', port=port)
+            site = web.TCPSite(self.web_runner, host=host, port=port)
             await site.start()
             
-            logger.info(f"Web server started successfully on port {port}")
+            logger.info(f"Web server started successfully on {host}:{port}")
         except Exception as e:
             logger.error(f"Failed to start web server: {e}")
+            logger.error(traceback.format_exc())
             raise
 
     async def _handle_message(self, update: Update, context):
@@ -580,7 +582,8 @@ class TelegramBot:
                 
         except Exception as e:
             logger.error(f"Error handling message: {e}")
-            
+            logger.error(traceback.format_exc())
+
     async def _handle_rank_command(self, update: Update, context):
         """处理统计命令（tongji/tongji30）"""
         if not update.effective_chat or not update.effective_user or not update.message:
@@ -626,7 +629,7 @@ class TelegramBot:
             for i, stat in enumerate(stats, start=(page-1)*15+1):
                 try:
                     user = await context.bot.get_chat_member(group_id, stat['_id'])
-                    name = user.user.full_name
+                    name = user.user.full_name or user.user.username or f"用户{stat['_id']}"
                 except Exception:
                     name = f"用户{stat['_id']}"
                 
@@ -646,6 +649,7 @@ class TelegramBot:
             
         except Exception as e:
             logger.error(f"Error handling rank command: {e}")
+            logger.error(traceback.format_exc())
             await update.message.reply_text("❌ 获取排行榜时出错")
 
     async def cleanup_old_stats(self):
@@ -661,7 +665,7 @@ class TelegramBot:
                     await asyncio.sleep(3600)  # 出错后等待1小时再试
         except asyncio.CancelledError:
             logger.info("Cleanup task cancelled")
-            
+        
     async def is_superadmin(self, user_id: int) -> bool:
         """检查是否是超级管理员"""
         user = await self.db.get_user(user_id)
@@ -739,6 +743,7 @@ async def main():
         
     except Exception as e:
         logger.error(f"Bot startup failed: {e}")
+        logger.error(traceback.format_exc())
         if bot:
             await bot.stop()
         raise
@@ -753,4 +758,5 @@ if __name__ == '__main__':
         logger.info("Bot stopped by user")
     except Exception as e:
         logger.error(f"Bot stopped due to error: {e}")
+        logger.error(traceback.format_exc())
         raise
