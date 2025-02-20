@@ -31,7 +31,10 @@ from config import (
     TELEGRAM_TOKEN, 
     MONGODB_URI, 
     MONGODB_DB, 
-    DEFAULT_SUPERADMINS
+    DEFAULT_SUPERADMINS,
+    DEFAULT_SETTINGS,
+    BROADCAST_SETTINGS,
+    KEYWORD_SETTINGS
 )
 
 # 配置日志
@@ -43,6 +46,105 @@ logger = logging.getLogger(__name__)
 
 # 加载环境变量
 load_dotenv()
+
+class BroadcastManager:
+    def __init__(self, db, bot):
+        self.db = db
+        self.bot = bot
+
+class StatsManager:
+    def __init__(self, db):
+        self.db = db
+
+    async def add_message_stat(self, group_id: int, user_id: int, message: Message):
+        """添加消息统计"""
+        media_type = get_media_type(message)
+        message_size = len(message.text or '') if message.text else 0
+        
+        if media_type and message.effective_attachment:
+            try:
+                file_size = getattr(message.effective_attachment, 'file_size', 0) or 0
+                message_size += file_size
+            except Exception:
+                pass
+
+        stat_data = {
+            'group_id': group_id,
+            'user_id': user_id,
+            'date': datetime.now().strftime('%Y-%m-%d'),
+            'total_messages': 1,
+            'total_size': message_size,
+            'media_type': media_type
+        }
+        await self.db.add_message_stat(stat_data)
+
+    async def get_daily_stats(self, group_id: int, page: int = 1) -> Tuple[List[Dict], int]:
+        """获取每日统计"""
+        today = datetime.now().strftime('%Y-%m-%d')
+        pipeline = [
+            {'$match': {
+                'group_id': group_id,
+                'date': today
+            }},
+            {'$group': {
+                '_id': '$user_id',
+                'total_messages': {'$sum': '$total_messages'},
+                'total_size': {'$sum': '$total_size'}
+            }},
+            {'$sort': {'total_messages': -1}},
+            {'$skip': (page - 1) * 15},
+            {'$limit': 15}
+        ]
+        stats = await self.db.db.message_stats.aggregate(pipeline).to_list(None)
+        
+        total_count_pipeline = [
+            {'$match': {
+                'group_id': group_id,
+                'date': today
+            }},
+            {'$group': {
+                '_id': '$user_id'
+            }},
+            {'$count': 'total_users'}
+        ]
+        total_count_result = await self.db.db.message_stats.aggregate(total_count_pipeline).to_list(1)
+        total_pages = (total_count_result[0]['total_users'] + 14) // 15 if total_count_result else 1
+        
+        return stats, total_pages
+
+    async def get_monthly_stats(self, group_id: int, page: int = 1) -> Tuple[List[Dict], int]:
+        """获取月度统计"""
+        thirty_days_ago = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+        pipeline = [
+            {'$match': {
+                'group_id': group_id,
+                'date': {'$gte': thirty_days_ago}
+            }},
+            {'$group': {
+                '_id': '$user_id',
+                'total_messages': {'$sum': '$total_messages'},
+                'total_size': {'$sum': '$total_size'}
+            }},
+            {'$sort': {'total_messages': -1}},
+            {'$skip': (page - 1) * 15},
+            {'$limit': 15}
+        ]
+        stats = await self.db.db.message_stats.aggregate(pipeline).to_list(None)
+        
+        total_count_pipeline = [
+            {'$match': {
+                'group_id': group_id,
+                'date': {'$gte': thirty_days_ago}
+            }},
+            {'$group': {
+                '_id': '$user_id'
+            }},
+            {'$count': 'total_users'}
+        ]
+        total_count_result = await self.db.db.message_stats.aggregate(total_count_pipeline).to_list(1)
+        total_pages = (total_count_result[0]['total_users'] + 14) // 15 if total_count_result else 1
+        
+        return stats, total_pages
 
 class SettingsManager:
     def __init__(self, db):
@@ -157,6 +259,122 @@ class TelegramBot:
         self.broadcast_manager = BroadcastManager(self.db, self)
         self.stats_manager = StatsManager(self.db)
 
+    async def initialize(self):
+        """初始化机器人"""
+        # 连接数据库
+        await self.db.connect(MONGODB_URI, MONGODB_DB)
+        
+        # 初始化超级管理员
+        for admin_id in DEFAULT_SUPERADMINS:
+            user = await self.db.get_user(admin_id)
+            if not user:
+                await self.db.add_user({
+                    'user_id': admin_id,
+                    'role': UserRole.SUPERADMIN.value
+                })
+        
+        # 创建Telegram Bot应用
+        self.application = (
+            Application.builder()
+            .token(TELEGRAM_TOKEN)
+            .build()
+        )
+        
+        # 注册处理器
+        await self._register_handlers()
+        
+    async def _register_handlers(self):
+        """注册各种事件处理器"""
+        # 命令处理器
+        self.application.add_handler(CommandHandler("settings", self._handle_settings))
+        
+        # 消息处理器
+        self.application.add_handler(MessageHandler(
+            filters.TEXT & ~filters.COMMAND, 
+            self._handle_message
+        ))
+        
+        # 回调查询处理器
+        self.application.add_handler(CallbackQueryHandler(
+            self._handle_settings_callback, 
+            pattern=r'^settings_'
+        ))
+        self.application.add_handler(CallbackQueryHandler(
+            self._handle_keyword_callback, 
+            pattern=r'^keyword_'
+        ))
+        self.application.add_handler(CallbackQueryHandler(
+            self._handle_keyword_response_type_callback, 
+            pattern=r'^keyword_response_'
+        ))
+        self.application.add_handler(CallbackQueryHandler(
+            self._handle_broadcast_callback, 
+            pattern=r'^broadcast_'
+        ))
+        self.application.add_handler(CallbackQueryHandler(
+            self._handle_stats_edit_callback, 
+            pattern=r'^stats_'
+        ))
+        
+    async def start(self):
+        """启动机器人"""
+        if not self.application:
+            raise RuntimeError("Bot not initialized. Call initialize() first.")
+        
+        await self.application.initialize()
+        await self.application.start()
+        self.running = True
+        
+        # 启动轮播消息和清理任务
+        await self._start_broadcast_task()
+        await self._start_cleanup_task()
+        
+        # 等待关闭信号
+        await self.shutdown_event.wait()
+        
+    async def _start_broadcast_task(self):
+        """启动轮播消息任务"""
+        # TODO: 实现轮播消息逻辑
+        pass
+    
+    async def _start_cleanup_task(self):
+        """启动数据清理任务"""
+        # 每天清理一次旧的统计数据
+        async def cleanup_routine():
+            while self.running:
+                try:
+                    await self.db.cleanup_old_stats(
+                        days=DEFAULT_SETTINGS.get('cleanup_days', 30)
+                    )
+                    await asyncio.sleep(24 * 60 * 60)  # 每24小时运行一次
+                except Exception as e:
+                    logger.error(f"Cleanup task error: {e}")
+                    await asyncio.sleep(1 * 60 * 60)  # 如果出错，等待1小时后重试
+        
+        self.cleanup_task = asyncio.create_task(cleanup_routine())
+        
+    async def stop(self):
+        """停止机器人"""
+        self.running = False
+        self.shutdown_event.set()
+        
+        # 停止清理任务
+        if self.cleanup_task:
+            self.cleanup_task.cancel()
+        
+        # 停止应用
+        if self.application:
+            await self.application.stop()
+            await self.application.shutdown()
+        
+        # 关闭数据库连接
+        self.db.close()
+        
+    async def shutdown(self):
+        """完全关闭机器人"""
+        await self.stop()
+
+    # 以下为消息处理方法
     async def _handle_settings(self, update: Update, context):
         """处理设置命令"""
         if not update.effective_user:
@@ -356,7 +574,7 @@ class TelegramBot:
             logger.error(traceback.format_exc())
             await query.edit_message_text(f"❌ 处理{section}设置时出错")
 
-async def _handle_keyword_callback(self, update: Update, context):
+    async def _handle_keyword_callback(self, update: Update, context):
         """处理关键词相关回调"""
         query = update.callback_query
         await query.answer()
@@ -660,7 +878,7 @@ async def _handle_keyword_callback(self, update: Update, context):
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 处理统计设置时出错")
 
-async def _handle_message(self, update: Update, context):
+    async def _handle_message(self, update: Update, context):
         """处理消息，包括关键词添加流程和多媒体关键词响应"""
         if not update.effective_chat or not update.effective_user or not update.message:
             return
@@ -718,7 +936,7 @@ async def _handle_message(self, update: Update, context):
         except Exception as e:
             logger.error(f"Error handling message: {e}")
             logger.error(traceback.format_exc())
-    
+
     async def _process_keyword_adding(self, update: Update, context, setting_state):
         """处理关键词添加流程的各个步骤"""
         try:
@@ -730,8 +948,8 @@ async def _handle_message(self, update: Update, context):
                 pattern = update.message.text
                 
                 # 验证关键词模式
-                if len(pattern) > 100:  # 假设最大长度为100
-                    await update.message.reply_text("❌ 关键词过长，请不要超过100个字符")
+                if len(pattern) > KEYWORD_SETTINGS['max_pattern_length']:
+                    await update.message.reply_text(f"❌ 关键词过长，请不要超过 {KEYWORD_SETTINGS['max_pattern_length']} 个字符")
                     return
                 
                 setting_state['data']['pattern'] = pattern
@@ -758,8 +976,8 @@ async def _handle_message(self, update: Update, context):
                 
                 if response_type == 'text':
                     response = update.message.text
-                    if len(response) > 1000:  # 假设最大响应长度为1000
-                        await update.message.reply_text("❌ 响应内容过长，请不要超过1000个字符")
+                    if len(response) > KEYWORD_SETTINGS['max_response_length']:
+                        await update.message.reply_text(f"❌ 响应内容过长，请不要超过 {KEYWORD_SETTINGS['max_response_length']} 个字符")
                         return
                     file_id = response
                 elif response_type in ['photo', 'video', 'document']:
@@ -776,6 +994,12 @@ async def _handle_message(self, update: Update, context):
                         return
                 else:
                     await update.message.reply_text("❌ 未知的响应类型")
+                    return
+                
+                # 检查关键词数量是否超过限制
+                keywords = await self.db.get_keywords(group_id)
+                if len(keywords) >= KEYWORD_SETTINGS['max_keywords']:
+                    await update.message.reply_text(f"❌ 关键词数量已达到上限 {KEYWORD_SETTINGS['max_keywords']} 个")
                     return
                 
                 # 添加关键词
@@ -869,6 +1093,19 @@ async def _handle_message(self, update: Update, context):
                     await update.message.reply_text("❌ 间隔时间必须是正整数")
                     return
                 
+                # 检查轮播消息数量是否超过限制
+                broadcasts = await self.db.db.broadcasts.find({
+                    'group_id': group_id
+                }).to_list(None)
+                if len(broadcasts) >= BROADCAST_SETTINGS['max_broadcasts']:
+                    await update.message.reply_text(f"❌ 轮播消息数量已达到上限 {BROADCAST_SETTINGS['max_broadcasts']} 个")
+                    return
+                
+                # 检查间隔是否符合最小要求
+                if interval < BROADCAST_SETTINGS['min_interval']:
+                    await update.message.reply_text(f"❌ 轮播间隔不能小于 {BROADCAST_SETTINGS['min_interval']} 秒")
+                    return
+                
                 # 添加轮播消息
                 await self.db.db.broadcasts.insert_one({
                     'group_id': group_id,
@@ -932,7 +1169,7 @@ async def _handle_message(self, update: Update, context):
             logger.error(traceback.format_exc())
             await update.message.reply_text("❌ 处理统计设置时出错")
 
-async def _handle_rank_command(self, update: Update, context):
+    async def _handle_rank_command(self, update: Update, context):
         """处理统计命令（tongji/tongji30）"""
         if not update.effective_chat or not update.effective_user or not update.message:
             return
@@ -993,7 +1230,16 @@ async def _handle_rank_command(self, update: Update, context):
             if total_pages > 1:
                 text += f"\n使用 /{command} <页码> 查看其他页"
             
-            await update.message.reply_text(text)
+            keyboard = self._create_navigation_keyboard(
+                page, 
+                total_pages, 
+                f"{'today' if command == 'tongji' else 'monthly'}_{group_id}"
+            )
+            
+            await update.message.reply_text(
+                text,
+                reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None
+            )
             
         except Exception as e:
             logger.error(f"Error handling rank command: {e}")
@@ -1042,31 +1288,20 @@ async def _handle_rank_command(self, update: Update, context):
             if min_bytes > 0:
                 text += f"\n注：仅统计大于 {format_file_size(min_bytes)} 的消息"
             
-            # 添加分页按钮
-            keyboard = []
-            if page > 1:
-                keyboard.append(
-                    InlineKeyboardButton(
-                        "◀️ 上一页", 
-                        callback_data=f"{callback_base}_{page-1}"
-                    )
-                )
-            
-            if page < total_pages:
-                keyboard.append(
-                    InlineKeyboardButton(
-                        "下一页 ▶️", 
-                        callback_data=f"{callback_base}_{page+1}"
-                    )
-                )
-            
             # 添加分页信息
             text += f"\n\n第 {page}/{total_pages} 页"
+            
+            # 创建导航键盘
+            keyboard = self._create_navigation_keyboard(
+                page, 
+                total_pages, 
+                callback_base
+            )
             
             # 更新消息
             await query.edit_message_text(
                 text, 
-                reply_markup=InlineKeyboardMarkup([keyboard]) if keyboard else None
+                reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None
             )
             
         except Exception as e:
