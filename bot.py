@@ -248,7 +248,8 @@ class TelegramBot:
     def __init__(self):
         self.db = Database()
         self.application = None
-        self.web_runner = None
+        self.web_app = None  # 新增: web应用实例
+        self.web_runner = None  # 新增: web runner
         self.cleanup_task = None
         self.shutdown_event = asyncio.Event()
         self.running = False
@@ -258,6 +259,25 @@ class TelegramBot:
         self.keyword_manager = KeywordManager(self.db)
         self.broadcast_manager = BroadcastManager(self.db, self)
         self.stats_manager = StatsManager(self.db)
+
+    async def setup_web_server(self):
+        """新增: 设置健康检查web服务器"""
+        self.web_app = web.Application()
+        self.web_app.router.add_get('/', self.handle_healthcheck)
+        self.web_app.router.add_get('/health', self.handle_healthcheck)
+        
+        self.web_runner = web.AppRunner(self.web_app)
+        await self.web_runner.setup()
+        
+        # 使用环境变量PORT或默认值
+        port = int(os.environ.get('PORT', 8080))
+        site = web.TCPSite(self.web_runner, '0.0.0.0', port)
+        await site.start()
+        logger.info(f"Web server started on port {port}")
+
+    async def handle_healthcheck(self, request):
+        """新增: 处理健康检查请求"""
+        return web.Response(text="Healthy", status=200)
 
     async def initialize(self):
         """初始化机器人"""
@@ -283,6 +303,9 @@ class TelegramBot:
         # 注册处理器
         await self._register_handlers()
         
+        # 新增: 设置web服务器
+        await self.setup_web_server()
+
     async def _register_handlers(self):
         """注册各种事件处理器"""
         # 命令处理器
@@ -315,7 +338,7 @@ class TelegramBot:
             self._handle_stats_edit_callback, 
             pattern=r'^stats_'
         ))
-        
+
     async def start(self):
         """启动机器人"""
         if not self.application:
@@ -331,7 +354,7 @@ class TelegramBot:
         
         # 等待关闭信号
         await self.shutdown_event.wait()
-        
+
     async def _start_broadcast_task(self):
         """启动轮播消息任务"""
         # TODO: 实现轮播消息逻辑
@@ -362,6 +385,10 @@ class TelegramBot:
         if self.cleanup_task:
             self.cleanup_task.cancel()
         
+        # 新增: 停止web服务器
+        if self.web_runner:
+            await self.web_runner.cleanup()
+        
         # 停止应用
         if self.application:
             await self.application.stop()
@@ -369,7 +396,7 @@ class TelegramBot:
         
         # 关闭数据库连接
         self.db.close()
-        
+
     async def shutdown(self):
         """完全关闭机器人"""
         await self.stop()
