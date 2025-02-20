@@ -308,11 +308,22 @@ class TelegramBot:
 
     async def _register_handlers(self):
         """注册各种事件处理器"""
-        # 命令处理器
+        # 普通命令（所有用户可用）
         self.application.add_handler(CommandHandler("start", self._handle_start))
-        self.application.add_handler(CommandHandler("settings", self._handle_settings))
         self.application.add_handler(CommandHandler("tongji", self._handle_rank_command))
         self.application.add_handler(CommandHandler("tongji30", self._handle_rank_command))
+        
+        # 管理员命令
+        self.application.add_handler(CommandHandler("settings", self._handle_settings))
+        self.application.add_handler(CommandHandler("admingroups", self._handle_admin_groups))
+        
+        # 超级管理员命令
+        self.application.add_handler(CommandHandler("addsuperadmin", self._handle_add_superadmin))
+        self.application.add_handler(CommandHandler("delsuperadmin", self._handle_del_superadmin))
+        self.application.add_handler(CommandHandler("addadmin", self._handle_add_admin))
+        self.application.add_handler(CommandHandler("deladmin", self._handle_del_admin))
+        self.application.add_handler(CommandHandler("authgroup", self._handle_auth_group))
+        self.application.add_handler(CommandHandler("deauthgroup", self._handle_deauth_group))
         
         # 消息处理器
         self.application.add_handler(MessageHandler(
@@ -422,6 +433,293 @@ class TelegramBot:
         )
         
         await update.message.reply_text(welcome_text)
+
+    async def _handle_add_admin(self, update: Update, context):
+        """处理添加管理员命令"""
+        if not update.effective_user or not update.message:
+            return
+            
+        # 检查是否是超级管理员
+        if not await self.is_superadmin(update.effective_user.id):
+            await update.message.reply_text("❌ 只有超级管理员可以添加管理员")
+            return
+            
+        # 检查命令格式
+        if not context.args:
+            await update.message.reply_text("❌ 请使用正确的格式：/addadmin <用户ID>")
+            return
+            
+        try:
+            user_id = int(context.args[0])
+            
+            # 检查用户是否已经是管理员
+            user = await self.db.get_user(user_id)
+            if user and user['role'] in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]:
+                await update.message.reply_text("❌ 该用户已经是管理员")
+                return
+                
+            # 添加管理员
+            await self.db.add_user({
+                'user_id': user_id,
+                'role': UserRole.ADMIN.value
+            })
+            
+            await update.message.reply_text(f"✅ 已将用户 {user_id} 设置为管理员")
+            
+        except ValueError:
+            await update.message.reply_text("❌ 用户ID必须是数字")
+        except Exception as e:
+            logger.error(f"Error adding admin: {e}")
+            await update.message.reply_text("❌ 添加管理员时出错")
+
+    async def _handle_del_admin(self, update: Update, context):
+        """处理删除管理员命令"""
+        if not update.effective_user or not update.message:
+            return
+            
+        # 检查是否是超级管理员
+        if not await self.is_superadmin(update.effective_user.id):
+            await update.message.reply_text("❌ 只有超级管理员可以删除管理员")
+            return
+            
+        # 检查命令格式
+        if not context.args:
+            await update.message.reply_text("❌ 请使用正确的格式：/deladmin <用户ID>")
+            return
+            
+        try:
+            user_id = int(context.args[0])
+            
+            # 检查不能删除超级管理员
+            user = await self.db.get_user(user_id)
+            if not user:
+                await update.message.reply_text("❌ 该用户不是管理员")
+                return
+                
+            if user['role'] == UserRole.SUPERADMIN.value:
+                await update.message.reply_text("❌ 不能删除超级管理员")
+                return
+                
+            # 删除管理员
+            await self.db.remove_user(user_id)
+            
+            await update.message.reply_text(f"✅ 已删除管理员 {user_id}")
+            
+        except ValueError:
+            await update.message.reply_text("❌ 用户ID必须是数字")
+        except Exception as e:
+            logger.error(f"Error removing admin: {e}")
+            await update.message.reply_text("❌ 删除管理员时出错")
+
+    async def _handle_admin_groups(self, update: Update, context):
+        """处理管理员群组管理命令"""
+        if not update.effective_user or not update.message:
+            return
+            
+        # 检查是否是管理员
+        if not await self.is_admin(update.effective_user.id):
+            await update.message.reply_text("❌ 只有管理员可以使用此命令")
+            return
+            
+        try:
+            # 获取可管理的群组
+            groups = await self.db.get_manageable_groups(update.effective_user.id)
+            
+            if not groups:
+                await update.message.reply_text("📝 你目前没有可管理的群组")
+                return
+                
+            # 生成群组列表
+            text = "📝 你可以管理的群组：\n\n"
+            for group in groups:
+                try:
+                    group_info = await context.bot.get_chat(group['group_id'])
+                    group_name = group_info.title
+                except Exception:
+                    group_name = f"群组 {group['group_id']}"
+                    
+                text += f"• {group_name}\n"
+                text += f"  ID: {group['group_id']}\n"
+                text += f"  权限: {', '.join(group.get('permissions', []))}\n\n"
+                
+            await update.message.reply_text(text)
+            
+        except Exception as e:
+            logger.error(f"Error listing admin groups: {e}")
+            await update.message.reply_text("❌ 获取群组列表时出错")
+
+    async def _handle_add_superadmin(self, update: Update, context):
+        """处理添加超级管理员命令"""
+        if not update.effective_user or not update.message:
+            return
+            
+        # 检查是否是超级管理员
+        if not await self.is_superadmin(update.effective_user.id):
+            await update.message.reply_text("❌ 只有超级管理员可以添加超级管理员")
+            return
+            
+        # 检查命令格式
+        if not context.args:
+            await update.message.reply_text("❌ 请使用正确的格式：/addsuperadmin <用户ID>")
+            return
+            
+        try:
+            user_id = int(context.args[0])
+            
+            # 检查用户是否已经是超级管理员
+            user = await self.db.get_user(user_id)
+            if user and user['role'] == UserRole.SUPERADMIN.value:
+                await update.message.reply_text("❌ 该用户已经是超级管理员")
+                return
+                
+            # 添加超级管理员
+            await self.db.add_user({
+                'user_id': user_id,
+                'role': UserRole.SUPERADMIN.value
+            })
+            
+            await update.message.reply_text(f"✅ 已将用户 {user_id} 设置为超级管理员")
+            
+        except ValueError:
+            await update.message.reply_text("❌ 用户ID必须是数字")
+        except Exception as e:
+            logger.error(f"Error adding superadmin: {e}")
+            await update.message.reply_text("❌ 添加超级管理员时出错")
+
+    async def _handle_del_superadmin(self, update: Update, context):
+        """处理删除超级管理员命令"""
+        if not update.effective_user or not update.message:
+            return
+            
+        # 检查是否是超级管理员
+        if not await self.is_superadmin(update.effective_user.id):
+            await update.message.reply_text("❌ 只有超级管理员可以删除超级管理员")
+            return
+            
+        # 检查命令格式
+        if not context.args:
+            await update.message.reply_text("❌ 请使用正确的格式：/delsuperadmin <用户ID>")
+            return
+            
+        try:
+            user_id = int(context.args[0])
+            
+            # 不能删除自己
+            if user_id == update.effective_user.id:
+                await update.message.reply_text("❌ 不能删除自己的超级管理员权限")
+                return
+            
+            # 检查用户是否是超级管理员
+            user = await self.db.get_user(user_id)
+            if not user or user['role'] != UserRole.SUPERADMIN.value:
+                await update.message.reply_text("❌ 该用户不是超级管理员")
+                return
+                
+            # 删除超级管理员
+            await self.db.remove_user(user_id)
+            
+            await update.message.reply_text(f"✅ 已删除超级管理员 {user_id}")
+            
+        except ValueError:
+            await update.message.reply_text("❌ 用户ID必须是数字")
+        except Exception as e:
+            logger.error(f"Error removing superadmin: {e}")
+            await update.message.reply_text("❌ 删除超级管理员时出错")
+
+    async def _handle_auth_group(self, update: Update, context):
+        """处理授权群组命令"""
+        if not update.effective_user or not update.message:
+            return
+            
+        # 检查是否是超级管理员
+        if not await self.is_superadmin(update.effective_user.id):
+            await update.message.reply_text("❌ 只有超级管理员可以授权群组")
+            return
+            
+        # 检查命令格式
+        if len(context.args) < 2:
+            await update.message.reply_text(
+                "❌ 请使用正确的格式：\n"
+                "/authgroup <群组ID> <权限1> [权限2] ...\n"
+                "可用权限：keywords, stats, broadcast"
+            )
+            return
+            
+        try:
+            group_id = int(context.args[0])
+            permissions = context.args[1:]
+            
+            # 验证权限是否有效
+            valid_permissions = {'keywords', 'stats', 'broadcast'}
+            invalid_permissions = set(permissions) - valid_permissions
+            if invalid_permissions:
+                await update.message.reply_text(
+                    f"❌ 无效的权限：{', '.join(invalid_permissions)}\n"
+                    f"可用权限：{', '.join(valid_permissions)}"
+                )
+                return
+            
+            # 获取群组信息
+            try:
+                group_info = await context.bot.get_chat(group_id)
+                group_name = group_info.title
+            except Exception:
+                await update.message.reply_text("❌ 无法获取群组信息，请确保机器人已加入该群组")
+                return
+            
+            # 更新群组权限
+            await self.db.add_group({
+                'group_id': group_id,
+                'permissions': permissions
+            })
+            
+            await update.message.reply_text(
+                f"✅ 已更新群组权限\n"
+                f"群组：{group_name}\n"
+                f"ID：{group_id}\n"
+                f"权限：{', '.join(permissions)}"
+            )
+            
+        except ValueError:
+            await update.message.reply_text("❌ 群组ID必须是数字")
+        except Exception as e:
+            logger.error(f"Error authorizing group: {e}")
+            await update.message.reply_text("❌ 授权群组时出错")
+
+    async def _handle_deauth_group(self, update: Update, context):
+        """处理解除群组授权命令"""
+        if not update.effective_user or not update.message:
+            return
+            
+        # 检查是否是超级管理员
+        if not await self.is_superadmin(update.effective_user.id):
+            await update.message.reply_text("❌ 只有超级管理员可以解除群组授权")
+            return
+            
+        # 检查命令格式
+        if not context.args:
+            await update.message.reply_text("❌ 请使用正确的格式：/deauthgroup <群组ID>")
+            return
+            
+        try:
+            group_id = int(context.args[0])
+            
+            # 检查群组是否已授权
+            group = await self.db.get_group(group_id)
+            if not group:
+                await update.message.reply_text("❌ 该群组未授权")
+                return
+            
+            # 删除群组
+            await self.db.remove_group(group_id)
+            
+            await update.message.reply_text(f"✅ 已解除群组 {group_id} 的所有授权")
+            
+        except ValueError:
+            await update.message.reply_text("❌ 群组ID必须是数字")
+        except Exception as e:
+            logger.error(f"Error deauthorizing group: {e}")
+            await update.message.reply_text("❌ 解除群组授权时出错")
 
     async def _handle_settings(self, update: Update, context):
         """处理设置命令"""
