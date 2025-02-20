@@ -309,7 +309,10 @@ class TelegramBot:
     async def _register_handlers(self):
         """注册各种事件处理器"""
         # 命令处理器
+        self.application.add_handler(CommandHandler("start", self._handle_start))
         self.application.add_handler(CommandHandler("settings", self._handle_settings))
+        self.application.add_handler(CommandHandler("tongji", self._handle_rank_command))
+        self.application.add_handler(CommandHandler("tongji30", self._handle_rank_command))
         
         # 消息处理器
         self.application.add_handler(MessageHandler(
@@ -402,6 +405,24 @@ class TelegramBot:
         await self.stop()
 
     # 以下为消息处理方法
+    async def _handle_start(self, update: Update, context):
+        """处理 start 命令"""
+        if not update.effective_user or not update.message:
+            return
+
+        welcome_text = (
+            f"👋 你好 {update.effective_user.first_name}！\n\n"
+            "我是一个群组管理机器人，主要功能包括：\n"
+            "• 关键词自动回复\n"
+            "• 消息统计\n"
+            "• 轮播消息\n\n"
+            "🔧 使用 /settings 来配置机器人\n"
+            "📊 使用 /tongji 查看今日统计\n"
+            "📈 使用 /tongji30 查看月度统计"
+        )
+        
+        await update.message.reply_text(welcome_text)
+
     async def _handle_settings(self, update: Update, context):
         """处理设置命令"""
         if not update.effective_user:
