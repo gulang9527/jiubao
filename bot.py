@@ -1,3 +1,5 @@
+Complete Bot Implementation
+
 import os
 import signal
 import asyncio
@@ -355,35 +357,46 @@ class TelegramBot:
         """初始化机器人"""
         logger.info("Initializing bot...")
         
-        # 初始化数据库
-        await self.db.init_indexes()
-        
-        # 确保默认超级管理员存在
-        for admin_id in [358987879, 502226686, 883253093]:
-            await self.db.add_user({
-                'user_id': admin_id,
-                'role': UserRole.SUPERADMIN.value,
-                'created_at': datetime.now().isoformat(),
-                'created_by': None
-            })
-        
-        # 初始化 Telegram 应用
-        self.application = (
-            Application.builder()
-            .token(os.getenv('TELEGRAM_TOKEN'))
-            .build()
-        )
-        
-        # 启动轮播管理器
-        await self.broadcast_manager.start()
-        
-        # 添加处理器
-        self._add_handlers()
-        
-        # 启动后台任务
-        self.cleanup_task = asyncio.create_task(self.cleanup_old_stats())
-        
-        logger.info("Bot initialization completed")
+        try:
+            # 初始化数据库连接
+            mongodb_uri = os.getenv('MONGODB_URI')
+            if not mongodb_uri:
+                raise ValueError("MONGODB_URI environment variable is not set")
+            
+            logger.info("Connecting to database...")
+            await self.db.connect(mongodb_uri, 'telegram_bot')
+            logger.info("Database connected successfully")
+            
+            # 确保默认超级管理员存在
+            for admin_id in [358987879, 502226686, 883253093]:
+                await self.db.add_user({
+                    'user_id': admin_id,
+                    'role': UserRole.SUPERADMIN.value,
+                    'created_at': datetime.now().isoformat(),
+                    'created_by': None
+                })
+            
+            # 初始化 Telegram 应用
+            self.application = (
+                Application.builder()
+                .token(os.getenv('TELEGRAM_TOKEN'))
+                .build()
+            )
+            
+            # 启动轮播管理器
+            await self.broadcast_manager.start()
+            
+            # 添加处理器
+            self._add_handlers()
+            
+            # 启动后台任务
+            self.cleanup_task = asyncio.create_task(self.cleanup_old_stats())
+            
+            logger.info("Bot initialization completed")
+            
+        except Exception as e:
+            logger.error(f"Error during initialization: {e}")
+            raise
         
     def _add_handlers(self):
         """添加命令处理器"""
@@ -607,7 +620,7 @@ class TelegramBot:
                 
             # 生成排行榜文本
             text = f"{title}\n\n"
-            settings = await self.settings_manager.get_settings(group_id)
+            settings = await self.db.get_group_settings(group_id)
             min_bytes = settings.get('min_bytes', 0)
             
             for i, stat in enumerate(stats, start=(page-1)*15+1):
@@ -634,80 +647,6 @@ class TelegramBot:
         except Exception as e:
             logger.error(f"Error handling rank command: {e}")
             await update.message.reply_text("❌ 获取排行榜时出错")
-
-    async def _handle_settings_callback(self, update: Update, context):
-        """处理设置回调"""
-        query = update.callback_query
-        await query.answer()
-        
-        try:
-            data = query.data
-            parts = data.split('_')
-            action = parts[1]
-            
-            if action == "select":
-                # 处理群组选择
-                group_id = int(parts[2])
-                if not await self.db.can_manage_group(update.effective_user.id, group_id):
-                    await query.edit_message_text("❌ 无权限管理此群组")
-                    return
-                    
-                # 显示设置菜单
-                await self._show_settings_menu(query, context, group_id)
-                
-            elif action in ["keywords", "broadcast", "stats"]:
-                # 处理具体设置项
-                group_id = int(parts[2])
-                await self._handle_settings_section(query, context, group_id, action)
-                
-        except Exception as e:
-            logger.error(f"Error handling settings callback: {e}")
-            await query.edit_message_text("❌ 处理设置回调时出错")
-            
-    async def _show_settings_menu(self, query, context, group_id: int):
-        """显示设置菜单"""
-        try:
-            keyboard = [
-                [
-                    InlineKeyboardButton(
-                        "关键词管理",
-                        callback_data=f"settings_keywords_{group_id}"
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        "轮播设置",
-                        callback_data=f"settings_broadcast_{group_id}"
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        "统计设置",
-                        callback_data=f"settings_stats_{group_id}"
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        "返回群组选择",
-                        callback_data="settings_groups"
-                    )
-                ]
-            ]
-            
-            try:
-                group_info = await context.bot.get_chat(group_id)
-                group_name = group_info.title or f"群组 {group_id}"
-            except Exception:
-                group_name = f"群组 {group_id}"
-            
-            await query.edit_message_text(
-                f"⚙️ {group_name} 的设置\n"
-                "请选择要修改的设置项：",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-        except Exception as e:
-            logger.error(f"Error showing settings menu: {e}")
-            await query.edit_message_text("❌ 显示设置菜单时出错")
 
     async def cleanup_old_stats(self):
         """定期清理旧统计数据"""
