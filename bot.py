@@ -1110,6 +1110,10 @@ async def stop(self):
             if not manageable_groups:
                 await update.message.reply_text("❌ 你没有权限管理任何群组")
                 return
+
+        except Exception as e:
+            logger.error(f"设置命令处理错误: {e}")
+            await update.message.reply_text("❌ 处理设置命令时出错")
             
             # 创建群组选择键盘
             keyboard = []
