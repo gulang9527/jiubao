@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Optional, Tuple, Dict, Any
 import re
 import pytz
+import logging
 from config import TIMEZONE
 
 def validate_time_format(time_str: str) -> Optional[datetime]:
@@ -122,3 +123,79 @@ def format_error_message(error: Exception) -> str:
     error_type = type(error).__name__
     error_message = str(error)
     return f"❌ {error_type}: {error_message}"
+
+def validate_delete_timeout(
+    timeout: Optional[int] = None, 
+    message_type: Optional[str] = None
+) -> int:
+    """
+    验证并返回有效的删除超时时间
+    
+    :param timeout: 超时时间（秒）
+    :param message_type: 消息类型，可用于差异化超时
+    :return: 有效的超时时间
+    """
+    from config import AUTO_DELETE_SETTINGS
+    
+    # 如果未启用自动删除，返回0（不删除）
+    if not AUTO_DELETE_SETTINGS.get('enabled', False):
+        return 0
+    
+    # 如果未提供超时时间，返回默认值
+    if timeout is None:
+        # 可以根据消息类型设置不同的默认超时
+        type_timeouts = {
+            'text': AUTO_DELETE_SETTINGS['default_timeout'],
+            'photo': AUTO_DELETE_SETTINGS['default_timeout'] * 2,
+            'video': AUTO_DELETE_SETTINGS['default_timeout'] * 3,
+            'document': AUTO_DELETE_SETTINGS['default_timeout'] * 1.5
+        }
+        timeout = type_timeouts.get(
+            message_type, 
+            AUTO_DELETE_SETTINGS['default_timeout']
+        )
+    
+    # 检查超时时间是否在允许范围内
+    timeout = max(
+        AUTO_DELETE_SETTINGS['min_timeout'], 
+        min(timeout, AUTO_DELETE_SETTINGS['max_timeout'])
+    )
+    
+    return timeout
+
+def is_auto_delete_exempt(user_role: str, command: Optional[str] = None) -> bool:
+    """
+    检查用户是否免除自动删除
+    
+    :param user_role: 用户角色
+    :param command: 命令（可选）
+    :return: 是否免除自动删除
+    """
+    from config import AUTO_DELETE_SETTINGS
+    
+    # 检查用户角色
+    if user_role in AUTO_DELETE_SETTINGS.get('exempt_roles', []):
+        return True
+    
+    # 检查命令前缀
+    if command and any(
+        command.startswith(prefix) 
+        for prefix in AUTO_DELETE_SETTINGS.get('exempt_command_prefixes', [])
+    ):
+        return True
+    
+    return False
+
+def get_message_metadata(message) -> Dict[str, Any]:
+    """
+    获取消息的元数据，用于自动删除判断
+    
+    :param message: 消息对象
+    :return: 消息元数据字典
+    """
+    metadata = {
+        'type': get_media_type(message) or 'text',
+        'length': len(message.text or '') if message.text else 0,
+        'contains_media': bool(message.photo or message.video or message.document)
+    }
+    return metadata
