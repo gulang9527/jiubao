@@ -448,7 +448,7 @@ class TelegramBot:
             logger.error(traceback.format_exc())
             return False
 
-    async def _register_handlers(self):
+async def _register_handlers(self):
         """注册各种事件处理器"""
         # 普通命令（所有用户可用）
         self.application.add_handler(CommandHandler("start", self._handle_start))
@@ -1072,10 +1072,36 @@ async def _handle_start(self, update: Update, context):
         
         await update.message.reply_text(welcome_text)
 
-async def _handle_settings(self, update: Update, context):
-        """处理设置命令"""
-        if not update.effective_user:
-            return
+    async def shutdown(self):
+        """完全关闭机器人"""
+        await self.stop()
+
+    # 确保 stop 方法也在类内部
+    async def stop(self):
+        """停止机器人"""
+        self.running = False
+        self.shutdown_event.set()
+        
+        # 停止清理任务
+        if self.cleanup_task:
+            self.cleanup_task.cancel()
+        
+        # 停止web服务器
+        if self.web_runner:
+            await self.web_runner.cleanup()
+        
+        # 停止应用
+        if self.application:
+            try:
+                await self.application.stop()
+                await self.application.shutdown()
+            except Exception as e:
+                logger.error(f"停止应用时出错: {e}")
+        
+        # 关闭数据库连接
+        self.db.close()
+        
+        logger.info("机器人已停止")
 
         try:
             # 获取用户可管理的群组
