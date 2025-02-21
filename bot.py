@@ -495,7 +495,7 @@ async def _register_handlers(self):
             pattern=r'^stats_'
         ))
 
-    async def _handle_message(self, update: Update, context):
+async def _handle_message(self, update: Update, context):
         """处理消息"""
         if not update.effective_chat or not update.effective_user or not update.message:
             return
