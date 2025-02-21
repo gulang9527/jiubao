@@ -500,7 +500,106 @@ class TelegramBot:
             filters.TEXT & ~filters.COMMAND, 
             self._handle_message
         ))
+
+            async def _handle_keyword_callback(self, update: Update, context):
+        """处理关键词回调"""
+        query = update.callback_query
+        await query.answer()
         
+        try:
+            data = query.data
+            parts = data.split('_')
+            action = parts[1]
+            
+            if action == "add":
+                # 处理添加关键词
+                group_id = int(parts[2])
+                
+                # 检查权限
+                if not await self.db.can_manage_group(update.effective_user.id, group_id):
+                    await query.edit_message_text("❌ 无权限管理此群组")
+                    return
+                    
+                # 开始关键词添加流程
+                self.settings_manager.start_setting(
+                    update.effective_user.id,
+                    'keyword',
+                    group_id
+                )
+                
+                await query.edit_message_text(
+                    "请输入要添加的关键词：\n"
+                    "支持两种模式：\n"
+                    "1. 精确匹配：直接输入关键词\n"
+                    "2. 正则匹配：输入正则表达式"
+                )
+            
+            elif action == "detail":
+                # 处理关键词详情
+                group_id = int(parts[2])
+                keyword_id = parts[3]
+                
+                # 获取关键词信息
+                keyword = await self.keyword_manager.get_keyword_by_id(group_id, keyword_id)
+                if not keyword:
+                    await query.edit_message_text("❌ 未找到该关键词")
+                    return
+                
+                # 创建关键词信息展示
+                info = f"关键词信息：\n\n"
+                info += f"模式：{keyword['pattern']}\n"
+                info += f"类型：{'正则匹配' if keyword['type'] == 'regex' else '精确匹配'}\n"
+                info += f"响应类型：{keyword['response_type']}\n"
+                
+                # 创建操作按钮
+                keyboard = [
+                    [
+                        InlineKeyboardButton(
+                            "🗑️ 删除",
+                            callback_data=f"keyword_delete_{group_id}_{keyword_id}"
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "返回列表",
+                            callback_data=f"settings_keywords_{group_id}"
+                        )
+                    ]
+                ]
+                
+                await query.edit_message_text(
+                    info,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            
+            elif action == "delete":
+                # 处理删除关键词
+                group_id = int(parts[2])
+                keyword_id = parts[3]
+                
+                # 检查权限
+                if not await self.db.can_manage_group(update.effective_user.id, group_id):
+                    await query.edit_message_text("❌ 无权限管理此群组")
+                    return
+                
+                # 删除关键词
+                await self.db.remove_keyword(group_id, keyword_id)
+                
+                await query.edit_message_text(
+                    "✅ 关键词已删除",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton(
+                            "返回列表",
+                            callback_data=f"settings_keywords_{group_id}"
+                        )
+                    ]])
+                )
+            
+        except Exception as e:
+            logger.error(f"处理关键词回调错误: {e}")
+            logger.error(traceback.format_exc())
+            await query.edit_message_text("❌ 处理关键词操作时出错")
+            
         # 回调查询处理器
         self.application.add_handler(CallbackQueryHandler(
             self._handle_settings_callback, 
@@ -514,6 +613,48 @@ class TelegramBot:
             self._handle_keyword_response_type_callback, 
             pattern=r'^keyword_response_'
         ))
+
+            async def _handle_keyword_response_type_callback(self, update: Update, context):
+        """处理关键词响应类型回调"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # 获取设置状态
+            setting_state = self.settings_manager.get_setting_state(
+                update.effective_user.id,
+                'keyword'
+            )
+            
+            if not setting_state:
+                await query.edit_message_text("❌ 设置会话已过期，请重新开始")
+                return
+            
+            # 获取响应类型
+            response_type = query.data.split('_')[-1]
+            
+            # 更新设置状态
+            setting_state['data']['response_type'] = response_type
+            
+            # 提示用户输入响应内容
+            if response_type == 'text':
+                message = "请输入关键词的文本回复："
+            elif response_type == 'photo':
+                message = "请发送一张图片作为回复："
+            elif response_type == 'video':
+                message = "请发送一个视频作为回复："
+            elif response_type == 'document':
+                message = "请发送一个文件作为回复："
+            else:
+                message = "❌ 不支持的响应类型"
+                
+            await query.edit_message_text(message)
+            
+        except Exception as e:
+            logger.error(f"处理关键词响应类型回调错误: {e}")
+            logger.error(traceback.format_exc())
+            await query.edit_message_text("❌ 处理关键词响应类型时出错")
+            
         self.application.add_handler(CallbackQueryHandler(
             self._handle_broadcast_callback, 
             pattern=r'^broadcast_'
