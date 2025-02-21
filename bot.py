@@ -1609,7 +1609,7 @@ async def _process_keyword_adding(self, update: Update, context, setting_state):
             logger.error(f"处理关键词添加错误: {e}")
             logger.error(traceback.format_exc())
             await update.message.reply_text("❌ 添加关键词时出错")
-    async def stop(self):
+async def stop(self):
         """停止机器人"""
         self.running = False
         self.shutdown_event.set()
@@ -1635,26 +1635,26 @@ async def _process_keyword_adding(self, update: Update, context, setting_state):
         
         logger.info("机器人已停止")
 
-    async def shutdown(self):
+async def shutdown(self):
         """完全关闭机器人"""
         await self.stop()
 
-    async def is_superadmin(self, user_id: int) -> bool:
+async def is_superadmin(self, user_id: int) -> bool:
         """检查是否是超级管理员"""
         user = await self.db.get_user(user_id)
         return user and user['role'] == UserRole.SUPERADMIN.value
         
-    async def is_admin(self, user_id: int) -> bool:
+async def is_admin(self, user_id: int) -> bool:
         """检查是否是管理员"""
         user = await self.db.get_user(user_id)
         return user and user['role'] in {UserRole.ADMIN.value, UserRole.SUPERADMIN.value}
         
-    async def has_permission(self, group_id: int, permission: GroupPermission) -> bool:
+async def has_permission(self, group_id: int, permission: GroupPermission) -> bool:
         """检查群组权限"""
         group = await self.db.get_group(group_id)
         return group and permission.value in group.get('permissions', [])
 
-    async def update_stats_setting(self, group_id: int, setting_type: str, value: int):
+async def update_stats_setting(self, group_id: int, setting_type: str, value: int):
         """更新统计设置"""
         settings = await self.db.get_group_settings(group_id)
         if setting_type == 'stats_min_bytes':
