@@ -1072,12 +1072,12 @@ async def _handle_start(self, update: Update, context):
         
         await update.message.reply_text(welcome_text)
 
-    async def shutdown(self):
+async def shutdown(self):
         """完全关闭机器人"""
         await self.stop()
 
     # 确保 stop 方法也在类内部
-    async def stop(self):
+async def stop(self):
         """停止机器人"""
         self.running = False
         self.shutdown_event.set()
