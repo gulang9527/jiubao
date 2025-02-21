@@ -1261,7 +1261,7 @@ async def _handle_add_superadmin(self, update: Update, context):
             logger.error(f"添加超级管理员错误: {e}")
             await update.message.reply_text("❌ 添加超级管理员时出错")
 
-    async def _handle_del_superadmin(self, update: Update, context):
+async def _handle_del_superadmin(self, update: Update, context):
         """处理删除超级管理员命令"""
         if not update.effective_user or not update.message:
             return
