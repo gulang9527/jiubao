@@ -1669,7 +1669,7 @@ async def update_stats_setting(self, group_id: int, setting_type: str, value: in
         await self.db.update_group_settings(group_id, settings)
         return tips
 
-    def _create_navigation_keyboard(
+def _create_navigation_keyboard(
         self,
         current_page: int,
         total_pages: int,
