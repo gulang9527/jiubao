@@ -320,7 +320,7 @@ class TelegramBot:
     async def initialize(self):
         try:
             logger.info("开始初始化机器人")
-        try:
+        
             # 连接数据库
             await self.db.connect(MONGODB_URI, MONGODB_DB)
             
