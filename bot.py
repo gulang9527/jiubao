@@ -1047,7 +1047,22 @@ class TelegramBot:
         except Exception as e:
             logger.error(f"处理消息错误: {e}")
             logger.error(traceback.format_exc())
-
+            
+    async def _start_broadcast_task(self):
+        """启动轮播消息任务"""
+        while self.running:
+            try:
+                # 获取所有需要发送的轮播消息
+                now = datetime.now()
+                broadcasts = await self.db.db.broadcasts.find({
+                    'start_time': {'$lte': now},
+                    'end_time': {'$gt': now},
+                    '$or': [
+                        {'last_broadcast': {'$exists': False}},
+                        {'last_broadcast': {'$lte': now - timedelta(seconds=lambda b: b['interval'])}}
+                    ]
+                }).to_list(None)
+                
     async def _handle_keyword_response(
         self, 
         chat_id: int, 
