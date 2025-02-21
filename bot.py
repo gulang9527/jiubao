@@ -647,7 +647,7 @@ async def _handle_keyword_callback(self, update: Update, context):
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 处理关键词操作时出错")
 
-    async def _handle_keyword_response_type_callback(self, update: Update, context):
+async def _handle_keyword_response_type_callback(self, update: Update, context):
         """处理关键词响应类型的回调"""
         query = update.callback_query
         await query.answer()
@@ -698,7 +698,7 @@ async def _handle_keyword_callback(self, update: Update, context):
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 处理响应类型选择时出错")
 
-    async def _handle_broadcast_callback(self, update: Update, context):
+async def _handle_broadcast_callback(self, update: Update, context):
         """处理轮播消息回调"""
         query = update.callback_query
         await query.answer()
@@ -819,7 +819,7 @@ async def _handle_keyword_callback(self, update: Update, context):
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 处理轮播消息操作时出错")
 
-    async def _handle_settings_section(self, query, context, group_id: int, section: str):
+async def _handle_settings_section(self, query, context, group_id: int, section: str):
         """处理设置分区显示"""
         try:
             if section == "stats":
@@ -940,7 +940,7 @@ async def _handle_keyword_callback(self, update: Update, context):
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 显示设置分区时出错")
 
-    async def _handle_stats_edit_callback(self, update: Update, context):
+async def _handle_stats_edit_callback(self, update: Update, context):
         """处理统计设置编辑回调"""
         query = update.callback_query
         await query.answer()
@@ -998,7 +998,7 @@ async def _handle_keyword_callback(self, update: Update, context):
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 处理统计设置编辑时出错")
 
-    async def _start_broadcast_task(self):
+async def _start_broadcast_task(self):
         """启动轮播消息任务"""
         while self.running:
             try:
@@ -1039,7 +1039,7 @@ async def _handle_keyword_callback(self, update: Update, context):
                 logger.error(f"轮播任务出错: {e}")
                 await asyncio.sleep(60)  # 如果出错，等待1分钟后重试
 
-    async def _start_cleanup_task(self):
+async def _start_cleanup_task(self):
         """启动数据清理任务"""
         async def cleanup_routine():
             while self.running:
