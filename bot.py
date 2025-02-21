@@ -318,7 +318,8 @@ class TelegramBot:
         self.message_deletion_manager = self.MessageDeletionManager(self)
 
     async def initialize(self):
-        """初始化机器人"""
+        try:
+            logger.info("开始初始化机器人")
         try:
             # 连接数据库
             await self.db.connect(MONGODB_URI, MONGODB_DB)
@@ -366,8 +367,9 @@ class TelegramBot:
             self.web_app.router.add_post(webhook_path, self._handle_webhook)
             
             logger.info(f"Webhook已设置为 {webhook_url}")
-            return True
+            logger.info(f"处理器数量: {len(self.application.handlers.get(0, []))}")
         
+            return True
         except Exception as e:
             logger.error(f"机器人初始化失败: {e}")
             logger.error(traceback.format_exc())
