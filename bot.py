@@ -1296,7 +1296,6 @@ async def _process_stats_setting(self, update: Update, context, setting_state, s
     try:
         group_id = setting_state['group_id']
         
-        # 获取用户输入的值
         try:
             value = int(update.message.text)
             if value < 0:
@@ -1305,10 +1304,8 @@ async def _process_stats_setting(self, update: Update, context, setting_state, s
             await update.message.reply_text("❌ 请输入一个有效的正整数")
             return
         
-        # 获取当前设置
         settings = await self.db.get_group_settings(group_id)
         
-        # 根据不同的设置类型更新配置
         if setting_type == 'stats_min_bytes':
             settings['min_bytes'] = value
             tips = f"最小统计字节数已设置为 {value} 字节"
@@ -1319,17 +1316,9 @@ async def _process_stats_setting(self, update: Update, context, setting_state, s
             settings['monthly_rank_size'] = value
             tips = f"月排行显示数量已设置为 {value}"
         
-        # 更新群组设置
         await self.db.update_group_settings(group_id, settings)
-        
-        # 发送成功提示
         await update.message.reply_text(f"✅ {tips}")
-        
-        # 清除设置状态
-        self.settings_manager.clear_setting_state(
-            update.effective_user.id,
-            setting_type
-        )
+        self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
     
     except Exception as e:
         logger.error(f"Error processing stats setting: {e}")
