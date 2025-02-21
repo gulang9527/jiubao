@@ -1473,7 +1473,7 @@ async def _handle_rank_command(self, update: Update, context):
             logger.error(traceback.format_exc())
             await update.message.reply_text("❌ 获取排行榜时出错")
 
-    async def _handle_keyword_response(
+async def _handle_keyword_response(
         self, 
         chat_id: int, 
         response: str, 
@@ -1526,7 +1526,7 @@ async def _handle_rank_command(self, update: Update, context):
         
         return sent_message
         
-    async def _process_keyword_adding(self, update: Update, context, setting_state):
+async def _process_keyword_adding(self, update: Update, context, setting_state):
         """处理关键词添加流程的各个步骤"""
         try:
             step = setting_state['step']
