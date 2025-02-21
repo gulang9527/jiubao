@@ -1291,7 +1291,23 @@ class TelegramBot:
             logger.error(traceback.format_exc())
             await update.message.reply_text("❌ 添加轮播消息时出错")
 
+    async def update_stats_setting(self, group_id: int, setting_type: str, value: int):
+        """Update a specific stats setting"""
+        settings = await self.db.get_group_settings(group_id)
+        if setting_type == 'stats_min_bytes':
+            settings['min_bytes'] = value
+            tips = f"最小统计字节数已设置为 {value} 字节"
+        elif setting_type == 'stats_daily_rank':
+            settings['daily_rank_size'] = value
+            tips = f"日排行显示数量已设置为 {value}"
+        elif setting_type == 'stats_monthly_rank':
+            settings['monthly_rank_size'] = value
+            tips = f"月排行显示数量已设置为 {value}"
+        await self.db.update_group_settings(group_id, settings)
+        return tips
+
     async def _process_stats_setting(self, update, context, setting_state, setting_type):
+        """Process stats setting update"""
         try:
             group_id = setting_state['group_id']
             try:
@@ -1301,19 +1317,10 @@ class TelegramBot:
             except ValueError:
                 await update.message.reply_text("❌ 请输入一个有效的正整数")
                 return
-            settings = await self.db.get_group_settings(group_id)
-            if setting_type == 'stats_min_bytes':
-                settings['min_bytes'] = value
-                tips = f"最小统计字节数已设置为 {value} 字节"
-            elif setting_type == 'stats_daily_rank':
-                settings['daily_rank_size'] = value
-                tips = f"日排行显示数量已设置为 {value}"
-            elif setting_type == 'stats_monthly_rank':
-                settings['monthly_rank_size'] = value
-                tips = f"月排行显示数量已设置为 {value}"
-            await self.db.update_group_settings(group_id, settings)
+
+            tips = await self.update_stats_setting(group_id, setting_type, value)
             await update.message.reply_text(f"✅ {tips}")
-            await self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
+            self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
         except Exception as e:
             logger.error(f"Error processing stats setting: {e}")
             logger.error(traceback.format_exc())
