@@ -1581,7 +1581,7 @@ class TelegramBot:
         """检查群组权限"""
         group = await self.db.get_group(group_id)
         return group and permission.value in group.get('permissions', [])
-            self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
+          self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
 
 # 主函数和信号处理
     async def handle_signals(bot):
