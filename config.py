@@ -47,6 +47,23 @@ KEYWORD_SETTINGS = {
     'max_response_length': 1000, # 回复最大长度
 }
 
+# 自动删除消息设置
+AUTO_DELETE_SETTINGS = {
+    'default_timeout': 300,      # 默认删除时间：5分钟
+    'max_timeout': 86400,        # 最大删除时间：24小时
+    'min_timeout': 10,           # 最小删除时间：10秒
+    'enabled': True,             # 是否启用自动删除
+    'exempt_roles': [            # 免除自动删除的用户角色
+        'SUPERADMIN', 
+        'ADMIN'
+    ],
+    'exempt_command_prefixes': [  # 免除自动删除的命令前缀
+        '/start', 
+        '/help', 
+        '/settings'
+    ]
+}
+
 # 消息类型配置
 ALLOWED_MEDIA_TYPES = [
     'text',
