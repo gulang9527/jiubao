@@ -449,35 +449,35 @@ class TelegramBot:
             return False
 
 async def _register_handlers(self):
-        """注册各种事件处理器"""
-        # 普通命令（所有用户可用）
-        self.application.add_handler(CommandHandler("start", self._handle_start))
-        self.application.add_handler(CommandHandler("tongji", self._handle_rank_command))
-        self.application.add_handler(CommandHandler("tongji30", self._handle_rank_command))
-        
-        # 管理员命令
-        self.application.add_handler(CommandHandler("settings", self._handle_settings))
-        self.application.add_handler(CommandHandler("admingroups", self._handle_admin_groups))
-        
-        # 超级管理员命令
-        self.application.add_handler(CommandHandler("addsuperadmin", self._handle_add_superadmin))
-        self.application.add_handler(CommandHandler("delsuperadmin", self._handle_del_superadmin))
-        self.application.add_handler(CommandHandler("addadmin", self._handle_add_admin))
-        self.application.add_handler(CommandHandler("deladmin", self._handle_del_admin))
-        self.application.add_handler(CommandHandler("authgroup", self._handle_auth_group))
-        self.application.add_handler(CommandHandler("deauthgroup", self._handle_deauth_group))
-        
-        # 消息处理器
-        self.application.add_handler(MessageHandler(
-            filters.TEXT & ~filters.COMMAND, 
-            self._handle_message
-        ))
-        
-        # 回调查询处理器
-        self.application.add_handler(CallbackQueryHandler(
-            self._handle_settings_callback, 
-            pattern=r'^settings_'
-        ))
+    """注册各种事件处理器"""
+    # 普通命令（所有用户可用）
+    self.application.add_handler(CommandHandler("start", self._handle_start))
+    self.application.add_handler(CommandHandler("tongji", self._handle_rank_command))
+    self.application.add_handler(CommandHandler("tongji30", self._handle_rank_command))
+    
+    # 管理员命令
+    self.application.add_handler(CommandHandler("settings", self._handle_settings))
+    self.application.add_handler(CommandHandler("admingroups", self._handle_admin_groups))
+    
+    # 超级管理员命令
+    self.application.add_handler(CommandHandler("addsuperadmin", self._handle_add_superadmin))
+    self.application.add_handler(CommandHandler("delsuperadmin", self._handle_del_superadmin))
+    self.application.add_handler(CommandHandler("addadmin", self._handle_add_admin))
+    self.application.add_handler(CommandHandler("deladmin", self._handle_del_admin))
+    self.application.add_handler(CommandHandler("authgroup", self._handle_auth_group))
+    self.application.add_handler(CommandHandler("deauthgroup", self._handle_deauth_group))
+    
+    # 消息处理器
+    self.application.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND, 
+        self._handle_message
+    ))
+    
+    # 回调查询处理器
+    self.application.add_handler(CallbackQueryHandler(
+        self._handle_settings_callback, 
+        pattern=r'^settings_'
+    ))
         self.application.add_handler(CallbackQueryHandler(
             self._handle_keyword_callback, 
             pattern=r'^keyword_'
@@ -1073,35 +1073,34 @@ async def _handle_start(self, update: Update, context):
         await update.message.reply_text(welcome_text)
 
 async def shutdown(self):
-        """完全关闭机器人"""
-        await self.stop()
+    """完全关闭机器人"""
+    await self.stop()
 
-    # 确保 stop 方法也在类内部
 async def stop(self):
-        """停止机器人"""
-        self.running = False
-        self.shutdown_event.set()
-        
-        # 停止清理任务
-        if self.cleanup_task:
-            self.cleanup_task.cancel()
-        
-        # 停止web服务器
-        if self.web_runner:
-            await self.web_runner.cleanup()
-        
-        # 停止应用
-        if self.application:
-            try:
-                await self.application.stop()
-                await self.application.shutdown()
-            except Exception as e:
-                logger.error(f"停止应用时出错: {e}")
-        
-        # 关闭数据库连接
-        self.db.close()
-        
-        logger.info("机器人已停止")
+    """停止机器人"""
+    self.running = False
+    self.shutdown_event.set()
+    
+    # 停止清理任务
+    if self.cleanup_task:
+        self.cleanup_task.cancel()
+    
+    # 停止web服务器
+    if self.web_runner:
+        await self.web_runner.cleanup()
+    
+    # 停止应用
+    if self.application:
+        try:
+            await self.application.stop()
+            await self.application.shutdown()
+        except Exception as e:
+            logger.error(f"停止应用时出错: {e}")
+    
+    # 关闭数据库连接
+    self.db.close()
+    
+    logger.info("机器人已停止")
 
         try:
             # 获取用户可管理的群组
