@@ -1109,7 +1109,7 @@ async def _handle_settings(self, update: Update, context):
             logger.error(f"设置命令处理错误: {e}")
             await update.message.reply_text("❌ 处理设置命令时出错")
 
-    async def _handle_admin_groups(self, update: Update, context):
+async def _handle_admin_groups(self, update: Update, context):
         """处理管理员群组管理命令"""
         if not update.effective_user or not update.message:
             return
@@ -1146,7 +1146,7 @@ async def _handle_settings(self, update: Update, context):
             logger.error(f"列出管理员群组错误: {e}")
             await update.message.reply_text("❌ 获取群组列表时出错")
 
-    async def _handle_add_admin(self, update: Update, context):
+async def _handle_add_admin(self, update: Update, context):
         """处理添加管理员命令"""
         if not update.effective_user or not update.message:
             return
@@ -1184,7 +1184,7 @@ async def _handle_settings(self, update: Update, context):
             logger.error(f"添加管理员错误: {e}")
             await update.message.reply_text("❌ 添加管理员时出错")
 
-    async def _handle_del_admin(self, update: Update, context):
+async def _handle_del_admin(self, update: Update, context):
         """处理删除管理员命令"""
         if not update.effective_user or not update.message:
             return
@@ -1223,7 +1223,7 @@ async def _handle_settings(self, update: Update, context):
             logger.error(f"删除管理员错误: {e}")
             await update.message.reply_text("❌ 删除管理员时出错")
 
-    async def _handle_add_superadmin(self, update: Update, context):
+async def _handle_add_superadmin(self, update: Update, context):
         """处理添加超级管理员命令"""
         if not update.effective_user or not update.message:
             return
@@ -1301,7 +1301,7 @@ async def _handle_settings(self, update: Update, context):
             logger.error(f"删除超级管理员错误: {e}")
             await update.message.reply_text("❌ 删除超级管理员时出错")
 
-    async def _handle_auth_group(self, update: Update, context):
+async def _handle_auth_group(self, update: Update, context):
         """处理授权群组命令"""
         if not update.effective_user or not update.message:
             return
@@ -1361,7 +1361,7 @@ async def _handle_settings(self, update: Update, context):
             logger.error(f"授权群组错误: {e}")
             await update.message.reply_text("❌ 授权群组时出错")
 
-    async def _handle_deauth_group(self, update: Update, context):
+async def _handle_deauth_group(self, update: Update, context):
         """处理解除群组授权命令"""
         if not update.effective_user or not update.message:
             return
@@ -1396,7 +1396,7 @@ async def _handle_settings(self, update: Update, context):
             logger.error(f"解除群组授权错误: {e}")
             await update.message.reply_text("❌ 解除群组授权时出错")
 
-    async def _handle_rank_command(self, update: Update, context):
+async def _handle_rank_command(self, update: Update, context):
         """处理统计命令（tongji/tongji30）"""
         if not update.effective_chat or not update.effective_user or not update.message:
             return
