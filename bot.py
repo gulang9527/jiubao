@@ -478,22 +478,22 @@ async def _register_handlers(self):
         self._handle_settings_callback, 
         pattern=r'^settings_'
     ))
-        self.application.add_handler(CallbackQueryHandler(
-            self._handle_keyword_callback, 
-            pattern=r'^keyword_'
-        ))
-        self.application.add_handler(CallbackQueryHandler(
-            self._handle_keyword_response_type_callback, 
-            pattern=r'^keyword_response_'
-        ))
-        self.application.add_handler(CallbackQueryHandler(
-            self._handle_broadcast_callback, 
-            pattern=r'^broadcast_'
-        ))
-        self.application.add_handler(CallbackQueryHandler(
-            self._handle_stats_edit_callback, 
-            pattern=r'^stats_'
-        ))
+    self.application.add_handler(CallbackQueryHandler(
+        self._handle_keyword_callback, 
+        pattern=r'^keyword_'
+    ))
+    self.application.add_handler(CallbackQueryHandler(
+        self._handle_keyword_response_type_callback, 
+        pattern=r'^keyword_response_'
+    ))
+    self.application.add_handler(CallbackQueryHandler(
+        self._handle_broadcast_callback, 
+        pattern=r'^broadcast_'
+    ))
+    self.application.add_handler(CallbackQueryHandler(
+        self._handle_stats_edit_callback, 
+        pattern=r'^stats_'
+    ))
 
 async def _handle_message(self, update: Update, context):
         """处理消息"""
