@@ -543,7 +543,7 @@ async def _handle_message(self, update: Update, context):
             logger.error(f"处理消息错误: {e}")
             logger.error(traceback.format_exc())
 
-    async def _handle_keyword_callback(self, update: Update, context):
+async def _handle_keyword_callback(self, update: Update, context):
         """处理关键词回调"""
         query = update.callback_query
         await query.answer()
