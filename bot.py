@@ -1041,7 +1041,7 @@ class TelegramBot:
         if current_page > 1:
             nav_row.append(
                 InlineKeyboardButton(
-                    ◀️ 上一页",
+                     上一页",
                     callback_data=f"{base_callback}_{current_page-1}"
                 )
             )
@@ -1049,7 +1049,7 @@ class TelegramBot:
         if current_page < total_pages:
             nav_row.append(
                 InlineKeyboardButton(
-                    "下一页 ▶️",
+                    "下一页 ",
                     callback_data=f"{base_callback}_{current_page+1}"
                 )
             )
