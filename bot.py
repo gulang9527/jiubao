@@ -1070,7 +1070,7 @@ async def _handle_start(self, update: Update, context):
         
         await update.message.reply_text(welcome_text)
 
-    async def _handle_settings(self, update: Update, context):
+async def _handle_settings(self, update: Update, context):
         """处理设置命令"""
         if not update.effective_user:
             return
