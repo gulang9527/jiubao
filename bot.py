@@ -1291,39 +1291,33 @@ class TelegramBot:
             logger.error(traceback.format_exc())
             await update.message.reply_text("❌ 添加轮播消息时出错")
 
-async def _process_stats_setting(self, update: Update, context, setting_state, setting_type):
-    """处理统计设置编辑"""
-    try:
-        group_id = setting_state['group_id']
-        
+    async def _process_stats_setting(self, update, context, setting_state, setting_type):
         try:
-            value = int(update.message.text)
-            if value < 0:
-                raise ValueError
-        except ValueError:
-            await update.message.reply_text("❌ 请输入一个有效的正整数")
-            return
-        
-        settings = await self.db.get_group_settings(group_id)
-        
-        if setting_type == 'stats_min_bytes':
-            settings['min_bytes'] = value
-            tips = f"最小统计字节数已设置为 {value} 字节"
-        elif setting_type == 'stats_daily_rank':
-            settings['daily_rank_size'] = value
-            tips = f"日排行显示数量已设置为 {value}"
-        elif setting_type == 'stats_monthly_rank':
-            settings['monthly_rank_size'] = value
-            tips = f"月排行显示数量已设置为 {value}"
-        
-        await self.db.update_group_settings(group_id, settings)
-        await update.message.reply_text(f"✅ {tips}")
-        self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
-    
-    except Exception as e:
-        logger.error(f"Error processing stats setting: {e}")
-        logger.error(traceback.format_exc())
-        await update.message.reply_text("❌ 处理统计设置时出错")
+            group_id = setting_state['group_id']
+            try:
+                value = int(update.message.text)
+                if value < 0:
+                    raise ValueError
+            except ValueError:
+                await update.message.reply_text("❌ 请输入一个有效的正整数")
+                return
+            settings = await self.db.get_group_settings(group_id)
+            if setting_type == 'stats_min_bytes':
+                settings['min_bytes'] = value
+                tips = f"最小统计字节数已设置为 {value} 字节"
+            elif setting_type == 'stats_daily_rank':
+                settings['daily_rank_size'] = value
+                tips = f"日排行显示数量已设置为 {value}"
+            elif setting_type == 'stats_monthly_rank':
+                settings['monthly_rank_size'] = value
+                tips = f"月排行显示数量已设置为 {value}"
+            await self.db.update_group_settings(group_id, settings)
+            await update.message.reply_text(f"✅ {tips}")
+            self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
+        except Exception as e:
+            logger.error(f"Error processing stats setting: {e}")
+            logger.error(traceback.format_exc())
+            await update.message.reply_text("❌ 处理统计设置时出错")
 
     async def _show_settings_menu(self, query, context, group_id: int):
         """显示设置菜单"""
