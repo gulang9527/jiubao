@@ -1102,6 +1102,7 @@ async def stop(self):
     
     logger.info("机器人已停止")
 
+    async def _handle_settings(self, update: Update, context):
         try:
             # 获取用户可管理的群组
             manageable_groups = await self.db.get_manageable_groups(update.effective_user.id)
