@@ -25,7 +25,10 @@ from utils import (
     format_file_size,
     validate_regex,
     get_media_type,
-    format_duration
+    format_duration,
+    validate_delete_timeout,
+    is_auto_delete_exempt,
+    get_message_metadata
 )
 from config import (
     TELEGRAM_TOKEN, 
@@ -34,7 +37,8 @@ from config import (
     DEFAULT_SUPERADMINS,
     DEFAULT_SETTINGS,
     BROADCAST_SETTINGS,
-    KEYWORD_SETTINGS
+    KEYWORD_SETTINGS,
+    AUTO_DELETE_SETTINGS
 )
 
 # 配置日志
@@ -245,6 +249,65 @@ class KeywordManager:
         return None
 
 class TelegramBot:
+    class MessageDeletionManager:
+        """管理消息删除的类"""
+        def __init__(self, bot):
+            self.bot = bot
+            self.deletion_tasks = {}
+        
+        async def schedule_message_deletion(
+            self, 
+            message: Message, 
+            timeout: int, 
+            delete_original: bool = False
+        ):
+            """
+            调度消息删除
+            
+            :param message: 要删除的消息
+            :param timeout: 删除延迟时间（秒）
+            :param delete_original: 是否删除原始消息
+            """
+            # 如果超时为0，不执行删除
+            if timeout <= 0:
+                return
+            
+            # 创建唯一的任务标识
+            task_key = f"delete_message_{message.chat.id}_{message.message_id}"
+            
+            async def delete_message_task():
+                try:
+                    await asyncio.sleep(timeout)
+                    
+                    # 删除回复的原始消息
+                    if delete_original and message.reply_to_message:
+                        await message.reply_to_message.delete()
+                    
+                    # 删除当前消息
+                    await message.delete()
+                except Exception as e:
+                    logger.warning(f"Error in message deletion: {e}")
+                finally:
+                    # 清理任务记录
+                    if task_key in self.deletion_tasks:
+                        del self.deletion_tasks[task_key]
+            
+            # 创建并记录任务
+            task = asyncio.create_task(delete_message_task(), name=task_key)
+            self.deletion_tasks[task_key] = task
+        
+        def cancel_deletion_task(self, message: Message):
+            """
+            取消特定消息的删除任务
+            
+            :param message: 要取消删除的消息
+            """
+            task_key = f"delete_message_{message.chat.id}_{message.message_id}"
+            if task_key in self.deletion_tasks:
+                task = self.deletion_tasks[task_key]
+                task.cancel()
+                del self.deletion_tasks[task_key]
+
     def __init__(self):
         self.db = Database()
         self.application = None
@@ -259,6 +322,9 @@ class TelegramBot:
         self.keyword_manager = KeywordManager(self.db)
         self.broadcast_manager = BroadcastManager(self.db, self)
         self.stats_manager = StatsManager(self.db)
+        
+        # 新增消息删除管理器
+        self.message_deletion_manager = self.MessageDeletionManager(self)
 
     async def setup_web_server(self):
         """设置web服务器"""
@@ -293,6 +359,7 @@ class TelegramBot:
         async def webhook_callback(update, context):
             # webhook验证回调
             return web.Response(text="ok")
+        return webhook_callback
 
     async def initialize(self):
         """初始化机器人"""
@@ -435,9 +502,45 @@ class TelegramBot:
 
     async def _start_broadcast_task(self):
         """启动轮播消息任务"""
-        # TODO: 实现轮播消息逻辑
-        pass
-    
+        while self.running:
+            try:
+                # 获取所有需要发送的轮播消息
+                now = datetime.now()
+                broadcasts = await self.db.db.broadcasts.find({
+                    'start_time': {'$lte': now},
+                    'end_time': {'$gt': now},
+                    '$or': [
+                        {'last_broadcast': {'$exists': False}},
+                        {'last_broadcast': {'$lte': now - timedelta(seconds=lambda b: b['interval'])}}
+                    ]
+                }).to_list(None)
+
+                for broadcast in broadcasts:
+                    try:
+                        # 发送轮播消息
+                        if broadcast['content_type'] == 'text':
+                            await self.application.bot.send_message(broadcast['group_id'], broadcast['content'])
+                        elif broadcast['content_type'] == 'photo':
+                            await self.application.bot.send_photo(broadcast['group_id'], broadcast['content'])
+                        elif broadcast['content_type'] == 'video':
+                            await self.application.bot.send_video(broadcast['group_id'], broadcast['content'])
+                        elif broadcast['content_type'] == 'document':
+                            await self.application.bot.send_document(broadcast['group_id'], broadcast['content'])
+
+                        # 更新最后发送时间
+                        await self.db.db.broadcasts.update_one(
+                            {'_id': broadcast['_id']},
+                            {'$set': {'last_broadcast': now}}
+                        )
+                    except Exception as e:
+                        logger.error(f"Error sending broadcast message: {e}")
+
+                # 等待一分钟后再次检查
+                await asyncio.sleep(60)
+            except Exception as e:
+                logger.error(f"Error in broadcast task: {e}")
+                await asyncio.sleep(60)  # 如果出错，等待1分钟后重试
+
     async def _start_cleanup_task(self):
         """启动数据清理任务"""
         # 每天清理一次旧的统计数据
@@ -509,6 +612,8 @@ class TelegramBot:
             
         except Exception as e:
             logger.error(f"Error in settings command: {e}")
+            await update.message.reply_text("❌ 处理设置命令时出错")
+
     async def _handle_admin_groups(self, update: Update, context):
         """处理管理员群组管理命令"""
         if not update.effective_user or not update.message:
@@ -794,6 +899,8 @@ class TelegramBot:
             await update.message.reply_text("❌ 群组ID必须是数字")
         except Exception as e:
             logger.error(f"Error deauthorizing group: {e}")
+            await update.message.reply_text("❌ 解除群组授权时出错")
+
     async def _show_settings_menu(self, query, context, group_id: int):
         """显示设置菜单"""
         try:
@@ -1128,6 +1235,7 @@ class TelegramBot:
                 return
             
             # 获取当前设置
+            settings = await self.db.get_group_settings(group_id)
             
             # 根据不同的设置类型更新配置
             if setting_type == 'stats_min_bytes':
@@ -1328,6 +1436,137 @@ class TelegramBot:
         group = await self.db.get_group(group_id)
         return group and permission.value in group.get('permissions', [])
 
+    async def _handle_keyword_response(
+        self, 
+        chat_id: int, 
+        response: str, 
+        context, 
+        original_message: Optional[Message] = None
+    ) -> Optional[Message]:
+        """
+        处理关键词响应，并可能进行自动删除
+        
+        :param chat_id: 聊天ID
+        :param response: 响应内容
+        :param context: 机器人上下文
+        :param original_message: 原始消息
+        :return: 发送的消息
+        """
+        sent_message = None
+        
+        if response.startswith('__media__'):
+            # 处理媒体响应
+            _, media_type, file_id = response.split('__')
+            
+            # 根据媒体类型发送消息
+            media_methods = {
+                'photo': context.bot.send_photo,
+                'video': context.bot.send_video,
+                'document': context.bot.send_document
+            }
+            
+            if media_type in media_methods:
+                sent_message = await media_methods[media_type](chat_id, file_id)
+        else:
+            # 处理文本响应
+            sent_message = await context.bot.send_message(chat_id, response)
+        
+        # 如果成功发送消息，进行自动删除
+        if sent_message:
+            # 获取原始消息的元数据（如果有）
+            metadata = get_message_metadata(original_message) if original_message else {}
+            
+            # 计算删除超时时间
+            timeout = validate_delete_timeout(
+                message_type=metadata.get('type')
+            )
+            
+            # 调度消息删除
+            await self.message_deletion_manager.schedule_message_deletion(
+                sent_message, 
+                timeout
+            )
+        
+        return sent_message
+
+    async def _handle_message(self, update: Update, context):
+        """处理消息"""
+        if not update.effective_chat or not update.effective_user or not update.message:
+            return
+        
+        chat_id = update.effective_chat.id
+        user_id = update.effective_user.id
+        
+        try:
+            # 检查是否正在进行关键词添加流程
+            setting_state = self.settings_manager.get_setting_state(user_id, 'keyword')
+            if setting_state and setting_state['group_id'] == chat_id:
+                await self._process_keyword_adding(update, context, setting_state)
+                return
+            
+            # 检查是否正在进行轮播消息添加流程
+            broadcast_state = self.settings_manager.get_setting_state(user_id, 'broadcast')
+            if broadcast_state and broadcast_state['group_id'] == chat_id:
+                await self._process_broadcast_adding(update, context, broadcast_state)
+                return
+            
+            # 检查是否正在进行统计设置编辑
+            for setting_type in ['stats_min_bytes', 'stats_daily_rank', 'stats_monthly_rank']:
+                stats_state = self.settings_manager.get_setting_state(user_id, setting_type)
+                if stats_state and stats_state['group_id'] == chat_id:
+                    await self._process_stats_setting(update, context, stats_state, setting_type)
+                    return
+            
+            # 处理关键词匹配
+            if await self.has_permission(chat_id, GroupPermission.KEYWORDS):
+                if update.message.text:
+                    # 尝试匹配关键词
+                    response = await self.keyword_manager.match_keyword(
+                        chat_id,
+                        update.message.text,
+                        update.message
+                    )
+                    if response:
+                        await self._handle_keyword_response(chat_id, response, context, update.message)
+            
+            # 处理消息统计
+            if await self.has_permission(chat_id, GroupPermission.STATS):
+                await self.stats_manager.add_message_stat(chat_id, user_id, update.message)
+                
+        except Exception as e:
+            logger.error(f"Error handling message: {e}")
+            logger.error(traceback.format_exc())
+
+    async def _handle_settings_callback(self, update: Update, context):
+        """处理设置回调"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            data = query.data
+            parts = data.split('_')
+            action = parts[1]
+            
+            if action == "select":
+                # 处理群组选择
+                group_id = int(parts[2])
+                if not await self.db.can_manage_group(update.effective_user.id, group_id):
+                    await query.edit_message_text("❌ 无权限管理此群组")
+                    return
+                    
+                # 显示设置菜单
+                await self._show_settings_menu(query, context, group_id)
+                
+            elif action in ["keywords", "broadcast", "stats"]:
+                # 处理具体设置项
+                group_id = int(parts[2])
+                await self._handle_settings_section(query, context, group_id, action)
+                
+        except Exception as e:
+            logger.error(f"Error handling settings callback: {e}")
+            logger.error(traceback.format_exc())
+            await query.edit_message_text("❌ 处理设置回调时出错")
+
 async def handle_signals(bot):
     """处理系统信号"""
     try:
@@ -1376,93 +1615,3 @@ if __name__ == '__main__':
         logger.error(f"Bot stopped due to error: {e}")
         logger.error(traceback.format_exc())
         raise
-            await update.message.reply_text("❌ 处理设置命令时出错")
-
-    async def _handle_settings_callback(self, update: Update, context):
-        """处理设置回调"""
-        query = update.callback_query
-        await query.answer()
-        
-        try:
-            data = query.data
-            parts = data.split('_')
-            action = parts[1]
-            
-            if action == "select":
-                # 处理群组选择
-                group_id = int(parts[2])
-                if not await self.db.can_manage_group(update.effective_user.id, group_id):
-                    await query.edit_message_text("❌ 无权限管理此群组")
-                    return
-                    
-                # 显示设置菜单
-                await self._show_settings_menu(query, context, group_id)
-                
-            elif action in ["keywords", "broadcast", "stats"]:
-                # 处理具体设置项
-                group_id = int(parts[2])
-                await self._handle_settings_section(query, context, group_id, action)
-                
-        except Exception as e:
-            logger.error(f"Error handling settings callback: {e}")
-            logger.error(traceback.format_exc())
-            await query.edit_message_text("❌ 处理设置回调时出错")
-
-    async def _handle_message(self, update: Update, context):
-        """处理消息"""
-        if not update.effective_chat or not update.effective_user or not update.message:
-            return
-        
-        chat_id = update.effective_chat.id
-        user_id = update.effective_user.id
-        
-        try:
-            # 检查是否正在进行关键词添加流程
-            setting_state = self.settings_manager.get_setting_state(user_id, 'keyword')
-            if setting_state and setting_state['group_id'] == chat_id:
-                await self._process_keyword_adding(update, context, setting_state)
-                return
-            
-            # 检查是否正在进行轮播消息添加流程
-            broadcast_state = self.settings_manager.get_setting_state(user_id, 'broadcast')
-            if broadcast_state and broadcast_state['group_id'] == chat_id:
-                await self._process_broadcast_adding(update, context, broadcast_state)
-                return
-            
-            # 检查是否正在进行统计设置编辑
-            for setting_type in ['stats_min_bytes', 'stats_daily_rank', 'stats_monthly_rank']:
-                stats_state = self.settings_manager.get_setting_state(user_id, setting_type)
-                if stats_state and stats_state['group_id'] == chat_id:
-                    await self._process_stats_setting(update, context, stats_state, setting_type)
-                    return
-            
-            # 处理关键词匹配
-            if await self.has_permission(chat_id, GroupPermission.KEYWORDS):
-                if update.message.text:
-                    # 尝试匹配关键词
-                    response = await self.keyword_manager.match_keyword(
-                        chat_id,
-                        update.message.text,
-                        update.message
-                    )
-                    if response:
-                        if response.startswith('__media__'):
-                            # 处理媒体响应
-                            _, media_type, file_id = response.split('__')
-                            if media_type == 'photo':
-                                await context.bot.send_photo(chat_id, file_id)
-                            elif media_type == 'video':
-                                await context.bot.send_video(chat_id, file_id)
-                            elif media_type == 'document':
-                                await context.bot.send_document(chat_id, file_id)
-                        else:
-                            # 处理文本响应
-                            await update.message.reply_text(response)
-            
-            # 处理消息统计
-            if await self.has_permission(chat_id, GroupPermission.STATS):
-                await self.stats_manager.add_message_stat(chat_id, user_id, update.message)
-                
-        except Exception as e:
-            logger.error(f"Error handling message: {e}")
-            logger.error(traceback.format_exc())
