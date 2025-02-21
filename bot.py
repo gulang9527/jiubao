@@ -1318,16 +1318,19 @@ async def _process_stats_setting(self, update: Update, context, setting_state, s
         elif setting_type == 'stats_monthly_rank':
             settings['monthly_rank_size'] = value
             tips = f"月排行显示数量已设置为 {value}"
-            
-            # 更新群组设置
-        await self.db.update_group_settings(group_id, settings)
-            
-            # 发送成功提示
-        await update.message.reply_text(f"✅ {tips}")
-            
-            # 清除设置状态
-        self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
         
+        # 更新群组设置
+        await self.db.update_group_settings(group_id, settings)
+        
+        # 发送成功提示
+        await update.message.reply_text(f"✅ {tips}")
+        
+        # 清除设置状态
+        self.settings_manager.clear_setting_state(
+            update.effective_user.id,
+            setting_type
+        )
+    
     except Exception as e:
         logger.error(f"Error processing stats setting: {e}")
         logger.error(traceback.format_exc())
