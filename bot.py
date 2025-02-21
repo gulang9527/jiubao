@@ -1313,7 +1313,7 @@ class TelegramBot:
                 tips = f"月排行显示数量已设置为 {value}"
             await self.db.update_group_settings(group_id, settings)
             await update.message.reply_text(f"✅ {tips}")
-           await self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
+            await self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
         except Exception as e:
             logger.error(f"Error processing stats setting: {e}")
             logger.error(traceback.format_exc())
