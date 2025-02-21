@@ -1291,40 +1291,41 @@ class TelegramBot:
             logger.error(traceback.format_exc())
             await update.message.reply_text("❌ 添加轮播消息时出错")
 
-    async def update_stats_setting(self, group_id: int, setting_type: str, value: int):
-        """Update a specific stats setting"""
-        settings = await self.db.get_group_settings(group_id)
-        if setting_type == 'stats_min_bytes':
-            settings['min_bytes'] = value
-            tips = f"最小统计字节数已设置为 {value} 字节"
-        elif setting_type == 'stats_daily_rank':
-            settings['daily_rank_size'] = value
-            tips = f"日排行显示数量已设置为 {value}"
-        elif setting_type == 'stats_monthly_rank':
-            settings['monthly_rank_size'] = value
-            tips = f"月排行显示数量已设置为 {value}"
-        await self.db.update_group_settings(group_id, settings)
-        return tips
-
-    async def _process_stats_setting(self, update, context, setting_state, setting_type):
-        """Process stats setting update"""
-        try:
-            group_id = setting_state['group_id']
+    async def _handle_stats_edit_callback(self, update: Update, context):
+            """Handle stats edit callback"""
+            query = update.callback_query
+            await query.answer()
+        
             try:
-                value = int(update.message.text)
-                if value < 0:
-                    raise ValueError
-            except ValueError:
-                await update.message.reply_text("❌ 请输入一个有效的正整数")
-                return
-
-            tips = await self.update_stats_setting(group_id, setting_type, value)
-            await update.message.reply_text(f"✅ {tips}")
-            self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
-        except Exception as e:
-            logger.error(f"Error processing stats setting: {e}")
-            logger.error(traceback.format_exc())
-            await update.message.reply_text("❌ 处理统计设置时出错")
+                _, action, setting_type, group_id = query.data.split('_')
+                group_id = int(group_id)
+            
+                if action == 'edit':
+                    if setting_type == 'toggle_media':
+                        # Toggle media counting
+                        settings = await self.db.get_group_settings(group_id)
+                        settings['count_media'] = not settings.get('count_media', False)
+                        await self.db.update_group_settings(group_id, settings)
+                        await self._handle_stats_section(query, context, group_id)
+                    else:
+                        # Start editing other settings
+                        self.settings_manager.start_setting(
+                            update.effective_user.id,
+                            f'stats_{setting_type}',
+                            group_id
+                        )
+                        setting_names = {
+                            'min_bytes': '最小统计字节数',
+                            'daily_rank': '日排行显示数量',
+                            'monthly_rank': '月排行显示数量'
+                        }
+                        await query.edit_message_text(
+                            f"请输入新的{setting_names.get(setting_type, setting_type)}："
+                        )
+            
+            except Exception as e:
+                logger.error(f"Error handling stats edit callback: {e}")
+                await query.edit_message_text("❌ 处理统计设置编辑时出错")
 
     async def _show_settings_menu(self, query, context, group_id: int):
         """显示设置菜单"""
@@ -1581,7 +1582,6 @@ class TelegramBot:
         """检查群组权限"""
         group = await self.db.get_group(group_id)
         return group and permission.value in group.get('permissions', [])
-          self.settings_manager.clear_setting_state(update.effective_user.id, setting_type
 
 # 主函数和信号处理
     async def handle_signals(bot):
