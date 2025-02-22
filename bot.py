@@ -301,22 +301,6 @@ class TelegramBot:
                 task.cancel()
                 del self.deletion_tasks[task_key]
 
-    def __init__(self):
-        self.db = None
-        self.application = None
-        self.web_app = None
-        self.web_runner = None
-        self.cleanup_task = None
-        self.shutdown_event = asyncio.Event()
-        self.running = False
-        
-        # 初始化管理器
-        self.settings_manager = SettingsManager(self.db)
-        self.keyword_manager = KeywordManager(self.db)
-        self.broadcast_manager = BroadcastManager(self.db, self)
-        self.stats_manager = StatsManager(self.db)
-        self.message_deletion_manager = self.MessageDeletionManager(self)
-
     async def initialize(self):
         """初始化机器人"""
         try:
@@ -516,7 +500,7 @@ async def main():
             logger.error(traceback.format_exc())
             return web.Response(status=500)
 
-async def _register_handlers(self):
+    async def _register_handlers(self):
         """注册各种事件处理器"""
         # 普通命令（所有用户可用）
         self.application.add_handler(CommandHandler("start", self._handle_start))
