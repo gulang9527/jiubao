@@ -1030,33 +1030,34 @@ class TelegramBot:
         return tips
 
     def _create_navigation_keyboard(
-            self,
-            current_page: int,
-            total_pages: int,
-            base_callback: str
-        ) -> List[List[InlineKeyboardButton]]:
+        self,
+        current_page: int,
+        total_pages: int,
+        base_callback: str
+    ) -> List[List[InlineKeyboardButton]]:
+        """创建分页导航键盘"""
         keyboard = []
         nav_row = []
-        
+    
         if current_page > 1:
             nav_row.append(
                 InlineKeyboardButton(
-                     上一页",
+                    "◀️ 上一页",  # 修复：添加了开头的引号
                     callback_data=f"{base_callback}_{current_page-1}"
                 )
-            )
-            
+           )
+        
         if current_page < total_pages:
             nav_row.append(
                 InlineKeyboardButton(
-                    "下一页 ",
+                    "下一页 ▶️",
                     callback_data=f"{base_callback}_{current_page+1}"
                 )
             )
-            
+        
         if nav_row:
             keyboard.append(nav_row)
-            
+        
         return keyboard
 
 # 主函数和信号处理
