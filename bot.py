@@ -598,7 +598,7 @@ class TelegramBot:
 
         welcome_text = (
             f"👋 你好 {update.effective_user.first_name}！\n\n"
-            "我是啤酒群专属机器人，主要功能包括：\n"
+            "我是啤酒群酒保，主要功能包括：\n"
             "• 关键词自动回复\n"
             "• 消息统计\n"
             "• 轮播消息\n\n"
