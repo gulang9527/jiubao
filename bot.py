@@ -426,35 +426,35 @@ class TelegramBot:
                 self.running = False
                 if self.shutdown_event:
                     self.shutdown_event.set()
-            
-            # 停止清理任务
-            if self.cleanup_task:
-                self.cleanup_task.cancel()
-            
-            # 停止web服务器
-            if self.web_runner:
-                await self.web_runner.cleanup()
-            
-            # 停止应用
-            if self.application:
-                try:
-                    await self.application.stop()
-                    await self.application.shutdown()
-                except Exception as e:
-                    logger.error(f"停止应用时出错: {e}")
-            
-            # 关闭数据库连接
-            if self.db:
-                try:
-                    await self.db.close()
-                except Exception as e:
-                    logger.error(f"关闭数据库连接时出错: {e}")
-            
-            logger.info("机器人已停止")
-            
-        except Exception as e:
-            logger.error(f"停止机器人时出错: {e}")
-            logger.error(traceback.format_exc())
+        
+                # 停止清理任务
+                if self.cleanup_task:
+                    self.cleanup_task.cancel()
+        
+                # 停止web服务器
+                if self.web_runner:
+                    await self.web_runner.cleanup()
+        
+                # 停止应用
+                if self.application:
+                    try:
+                        await self.application.stop()
+                        await self.application.shutdown()
+                    except Exception as e:
+                        logger.error(f"停止应用时出错: {e}")
+        
+                # 关闭数据库连接
+                if self.db:
+                    try:
+                        await self.db.close()
+                    except Exception as e:
+                        logger.error(f"关闭数据库连接时出错: {e}")
+        
+                logger.info("机器人已停止")
+        
+            except Exception as e:
+                logger.error(f"停止机器人时出错: {e}")
+                logger.error(traceback.format_exc())
 
         async def shutdown(self):
             """完全关闭机器人"""
