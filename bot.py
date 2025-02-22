@@ -1537,43 +1537,6 @@ async def _handle_stats_edit_callback(self, update: Update, context):
         query = update.callback_query
         await query.answer()
         
-async def _process_stats_setting(self, update: Update, context, setting_state, setting_type: str):
-        """处理统计设置的输入"""
-        try:
-            value = update.message.text
-            group_id = setting_state['group_id']
-            
-            try:
-                value = int(value)
-                if value < 0:
-                    raise ValueError
-            except ValueError:
-                await update.message.reply_text("❌ 请输入有效的正整数")
-                return
-                
-            # 根据设置类型进行验证和更新
-            if setting_type == 'stats_min_bytes':
-                if value > 1024 * 1024 * 100:  # 100MB
-                    await update.message.reply_text("❌ 最小统计字节数不能超过100MB")
-                    return
-                    
-            elif setting_type in ['stats_daily_rank', 'stats_monthly_rank']:
-                if value > 100:
-                    await update.message.reply_text("❌ 排行显示数量不能超过100")
-                    return
-                    
-            # 更新设置
-            tips = await self.update_stats_setting(group_id, setting_type, value)
-            await update.message.reply_text(f"✅ {tips}")
-            
-            # 清除设置状态
-            self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
-            
-        except Exception as e:
-            logger.error(f"处理统计设置错误: {e}")
-            logger.error(traceback.format_exc())
-            await update.message.reply_text("❌ 更新统计设置时出错")
-
         try:
             data = query.data
             parts = data.split('_')
@@ -1657,6 +1620,58 @@ async def _process_stats_setting(self, update: Update, context, setting_state, s
             keyboard.append(nav_row)
             
         return keyboard
+
+    async def handle_keyword_response(
+        self, 
+        chat_id: int, 
+        response: str, 
+        context, 
+        original_message: Optional[Message] = None
+    ) -> Optional[Message]:
+        """处理关键词响应，并可能进行自动删除
+        
+        :param chat_id: 聊天ID
+        :param response: 响应内容
+        :param context: 机器人上下文
+        :param original_message: 原始消息
+        :return: 发送的消息
+        """
+        sent_message = None
+        
+        if response.startswith('__media__'):
+            # 处理媒体响应
+            _, media_type, file_id = response.split('__')
+            
+            # 根据媒体类型发送消息
+            media_methods = {
+                'photo': context.bot.send_photo,
+                'video': context.bot.send_video,
+                'document': context.bot.send_document
+            }
+            
+            if media_type in media_methods:
+                sent_message = await media_methods[media_type](chat_id, file_id)
+        else:
+            # 处理文本响应
+            sent_message = await context.bot.send_message(chat_id, response)
+        
+        # 如果成功发送消息，进行自动删除
+        if sent_message:
+            # 获取原始消息的元数据（如果有）
+            metadata = get_message_metadata(original_message) if original_message else {}
+            
+            # 计算删除超时时间
+            timeout = validate_delete_timeout(
+                message_type=metadata.get('type')
+            )
+            
+            # 调度消息删除
+            await self.message_deletion_manager.schedule_message_deletion(
+                sent_message, 
+                timeout
+            )
+        
+        return sent_message
 
     async def start(self):
         """启动机器人"""
