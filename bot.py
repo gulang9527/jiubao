@@ -397,16 +397,16 @@ class TelegramBot:
     def __init__(self):
         # 现有的初始化代码...
 
-    async def start(self):
-        """启动机器人"""
-        if not self.application:
-            logger.error("机器人未初始化。初始化失败。")
-            return False
+        async def start(self):
+            """启动机器人"""
+            if not self.application:
+                logger.error("机器人未初始化。初始化失败。")
+                return False
             
-        try:
-            await self.application.initialize()
-            await self.application.start()
-            self.running = True
+            try:
+                await self.application.initialize()
+                await self.application.start()
+                self.running = True
                 
             # 启动轮播消息和清理任务
             await self._start_broadcast_task()
@@ -420,11 +420,11 @@ class TelegramBot:
             logger.error(traceback.format_exc())
             return False
 
-    async def stop(self):
-        """停止机器人"""
-        try:
-            self.running = False
-            if self.shutdown_event:
+        async def stop(self):
+            """停止机器人"""
+            try:
+                self.running = False
+                if self.shutdown_event:
                 self.shutdown_event.set()
             
             # 停止清理任务
@@ -456,9 +456,9 @@ class TelegramBot:
             logger.error(f"停止机器人时出错: {e}")
             logger.error(traceback.format_exc())
 
-    async def shutdown(self):
-        """完全关闭机器人"""
-        await self.stop()
+        async def shutdown(self):
+            """完全关闭机器人"""
+            await self.stop()
 
     async def main():
         """主函数"""
