@@ -1308,38 +1308,38 @@ async def _process_broadcast_adding(self, update: Update, context, setting_state
                     
                     if interval < BROADCAST_SETTINGS['min_interval']:
                         raise ValueError(f"间隔时间不能小于{format_duration(BROADCAST_SETTINGS['min_interval'])}")
+
+                    # 检查轮播消息数量限制
+                    broadcasts = await self.db.db.broadcasts.count_documents({'group_id': group_id})
+                    if broadcasts >= BROADCAST_SETTINGS['max_broadcasts']:
+                        await update.message.reply_text(
+                            f"❌ 轮播消息数量已达到上限 {BROADCAST_SETTINGS['max_broadcasts']} 条"
+                        )
+                        return
                     
-            except ValueError as e:
-                await update.message.reply_text(f"❌ {str(e)}")
-                return
-            
-            # 检查轮播消息数量限制
-            broadcasts = await self.db.db.broadcasts.count_documents({'group_id': group_id})
-            if broadcasts >= BROADCAST_SETTINGS['max_broadcasts']:
-                await update.message.reply_text(
-                    f"❌ 轮播消息数量已达到上限 {BROADCAST_SETTINGS['max_broadcasts']} 条"
-                )
-                return
-            
-            # 添加轮播消息
-            await self.db.db.broadcasts.insert_one({
-                'group_id': group_id,
-                'content_type': content_type,
-                'content': setting_state['data']['content'],
-                'start_time': start_time,
-                'end_time': end_time,
-                'interval': interval
-            })
-            
-            await update.message.reply_text("✅ 轮播消息添加成功！")
-            
-            # 清除设置状态
-            self.settings_manager.clear_setting_state(update.effective_user.id, 'broadcast')
-            
-    except Exception as e:
-        logger.error(f"处理轮播消息添加错误: {e}")
-        logger.error(traceback.format_exc())
-        await update.message.reply_text("❌ 添加轮播消息时出错")
+                    # 添加轮播消息
+                    await self.db.db.broadcasts.insert_one({
+                        'group_id': group_id,
+                        'content_type': content_type,
+                        'content': setting_state['data']['content'],
+                        'start_time': start_time,
+                        'end_time': end_time,
+                        'interval': interval
+                    })
+                    
+                    await update.message.reply_text("✅ 轮播消息添加成功！")
+                    
+                    # 清除设置状态
+                    self.settings_manager.clear_setting_state(update.effective_user.id, 'broadcast')
+                    
+                except ValueError as e:
+                    await update.message.reply_text(f"❌ {str(e)}")
+                    return
+                    
+        except Exception as e:
+            logger.error(f"处理轮播消息添加错误: {e}")
+            logger.error(traceback.format_exc())
+            await update.message.reply_text("❌ 添加轮播消息时出错")
 
 async def _handle_settings_callback(self, update: Update, context):
         """处理设置回调"""
