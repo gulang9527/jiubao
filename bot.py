@@ -1122,7 +1122,7 @@ async def _handle_keyword_response_type_callback(self, update: Update, context):
                 "发送 /cancel 取消"
             )
 
-async def handle_keyword_response(
+    async def handle_keyword_response(
         self, 
         chat_id: int, 
         response: str, 
@@ -1542,37 +1542,37 @@ async def _process_stats_setting(self, update: Update, context, setting_state, s
         try:
             value = update.message.text
             group_id = setting_state['group_id']
-        
-        try:
-            value = int(value)
-            if value < 0:
-                raise ValueError
-        except ValueError:
-            await update.message.reply_text("❌ 请输入有效的正整数")
-            return
             
-        # 根据设置类型进行验证和更新
-        if setting_type == 'stats_min_bytes':
-            if value > 1024 * 1024 * 100:  # 100MB
-                await update.message.reply_text("❌ 最小统计字节数不能超过100MB")
+            try:
+                value = int(value)
+                if value < 0:
+                    raise ValueError
+            except ValueError:
+                await update.message.reply_text("❌ 请输入有效的正整数")
                 return
                 
-        elif setting_type in ['stats_daily_rank', 'stats_monthly_rank']:
-            if value > 100:
-                await update.message.reply_text("❌ 排行显示数量不能超过100")
-                return
-                
-        # 更新设置
-        tips = await self.update_stats_setting(group_id, setting_type, value)
-        await update.message.reply_text(f"✅ {tips}")
-        
-        # 清除设置状态
-        self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
-        
-    except Exception as e:
-        logger.error(f"处理统计设置错误: {e}")
-        logger.error(traceback.format_exc())
-        await update.message.reply_text("❌ 更新统计设置时出错")
+            # 根据设置类型进行验证和更新
+            if setting_type == 'stats_min_bytes':
+                if value > 1024 * 1024 * 100:  # 100MB
+                    await update.message.reply_text("❌ 最小统计字节数不能超过100MB")
+                    return
+                    
+            elif setting_type in ['stats_daily_rank', 'stats_monthly_rank']:
+                if value > 100:
+                    await update.message.reply_text("❌ 排行显示数量不能超过100")
+                    return
+                    
+            # 更新设置
+            tips = await self.update_stats_setting(group_id, setting_type, value)
+            await update.message.reply_text(f"✅ {tips}")
+            
+            # 清除设置状态
+            self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
+            
+        except Exception as e:
+            logger.error(f"处理统计设置错误: {e}")
+            logger.error(traceback.format_exc())
+            await update.message.reply_text("❌ 更新统计设置时出错")
 
         try:
             data = query.data
