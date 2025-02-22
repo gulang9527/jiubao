@@ -1439,7 +1439,7 @@ async def _process_broadcast_adding(self, update: Update, context, setting_state
             logger.error(traceback.format_exc())
             await update.message.reply_text("❌ 添加轮播消息时出错")
 
-async def _handle_settings_callback(self, update: Update, context):
+    async def _handle_settings_callback(self, update: Update, context):
         """处理设置回调"""
         query = update.callback_query
         await query.answer()
@@ -1500,7 +1500,7 @@ async def _handle_settings_callback(self, update: Update, context):
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 处理设置操作时出错")
 
-async def _handle_settings_section(self, query, context, group_id: int, section: str):
+    async def _handle_settings_section(self, query, context, group_id: int, section: str):
         """处理设置分区显示"""
         try:
             if section == "stats":
@@ -1621,7 +1621,7 @@ async def _handle_settings_section(self, query, context, group_id: int, section:
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 显示设置分区时出错")
 
-async def _handle_stats_edit_callback(self, update: Update, context):
+    async def _handle_stats_edit_callback(self, update: Update, context):
         """处理统计设置编辑回调"""
         query = update.callback_query
         await query.answer()
@@ -1710,7 +1710,7 @@ def _create_navigation_keyboard(
             
         return keyboard
 
-async def _handle_broadcast_callback(self, update: Update, context):
+    async def _handle_broadcast_callback(self, update: Update, context):
         """处理轮播消息回调"""
         query = update.callback_query
         await query.answer()
@@ -1826,7 +1826,7 @@ async def _handle_broadcast_callback(self, update: Update, context):
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 处理轮播消息操作时出错")
 
-async def start(self):
+    async def start(self):
         """启动机器人"""
         if not self.application:
             logger.error("机器人未初始化。初始化失败。")
