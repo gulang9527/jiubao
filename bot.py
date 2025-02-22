@@ -505,7 +505,7 @@ class TelegramBot:
                         try:
                             if hasattr(self.db, 'close') and self.db.close is not None:
                                  await self.db.close()
-                         except Exception as e:
+                        except Exception as e:
                             logger.error(f"关闭数据库连接时出错: {e}")
      
     async def shutdown(self):
