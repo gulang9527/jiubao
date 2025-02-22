@@ -399,27 +399,27 @@ class TelegramBot:
 
         async def start(self):
             """启动机器人"""
-            if not self.application:
-                logger.error("机器人未初始化。初始化失败。")
-                return False
-            
             try:
+                if not self.application:
+                    logger.error("机器人未初始化。初始化失败。")
+                    return False
+            
                 await self.application.initialize()
                 await self.application.start()
                 self.running = True
-                
-            # 启动轮播消息和清理任务
-            await self._start_broadcast_task()
-            await self._start_cleanup_task()
-                
-            logger.info("机器人成功启动")
-            return True
             
-        except Exception as e:
-            logger.error(f"机器人启动失败: {e}")
-            logger.error(traceback.format_exc())
-            return False
-
+                # 启动轮播消息和清理任务
+                await self._start_broadcast_task()
+                await self._start_cleanup_task()
+            
+                logger.info("机器人成功启动")
+                return True
+        
+            except Exception as e:
+                logger.error(f"机器人启动失败: {e}")
+                logger.error(traceback.format_exc())
+                return False
+                     
         async def stop(self):
             """停止机器人"""
             try:
