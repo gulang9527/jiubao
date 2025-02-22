@@ -875,6 +875,64 @@ class TelegramBot:
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 处理轮播消息操作时出错")
 
+    async def _handle_stats_edit_callback(self, update: Update, context):
+        """处理统计设置编辑回调"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            data = query.data
+            parts = data.split('_')
+            setting_type = parts[2]  # min_bytes, toggle_media 等
+            group_id = int(parts[3])
+            
+            # 验证权限
+            if not await self.db.can_manage_group(update.effective_user.id, group_id):
+                await query.edit_message_text("❌ 无权限管理此群组")
+                return
+                
+            if not await self.has_permission(group_id, GroupPermission.STATS):
+                await query.edit_message_text("❌ 此群组未启用统计功能")
+                return
+                
+            if setting_type == "toggle_media":
+                # 切换是否统计多媒体
+                settings = await self.db.get_group_settings(group_id)
+                settings['count_media'] = not settings.get('count_media', False)
+                await self.db.update_group_settings(group_id, settings)
+                
+                # 刷新统计设置页面
+                await self._handle_settings_section(query, context, group_id, "stats")
+                
+            else:
+                # 其他设置需要用户输入
+                setting_descriptions = {
+                    'min_bytes': '最小统计字节数',
+                    'daily_rank': '日排行显示数量',
+                    'monthly_rank': '月排行显示数量'
+                }
+                
+                if setting_type not in setting_descriptions:
+                    await query.edit_message_text("❌ 无效的设置类型")
+                    return
+                    
+                # 开始设置流程
+                self.settings_manager.start_setting(
+                    update.effective_user.id,
+                    f'stats_{setting_type}',
+                    group_id
+                )
+                
+                await query.edit_message_text(
+                    f"请输入新的{setting_descriptions[setting_type]}：\n"
+                    "发送 /cancel 取消"
+                )
+                
+        except Exception as e:
+            logger.error(f"处理统计设置编辑回调错误: {e}")
+            logger.error(traceback.format_exc())
+            await query.edit_message_text("❌ 处理统计设置编辑时出错")
+
     async def _handle_message(self, update: Update, context):
         """处理消息"""
         if not update.effective_chat or not update.effective_user or not update.message:
