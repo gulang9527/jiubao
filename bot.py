@@ -1092,13 +1092,13 @@ async def _handle_keyword_response_type_callback(self, update: Update, context):
 
         try:
             if action == "type":
-            # 处理轮播消息类型选择
-            content_type = parts[2]
-            self.settings_manager.start_setting(
-                update.effective_user.id,
-                'broadcast',
-                group_id
-            )
+                # 处理轮播消息类型选择
+                content_type = parts[2]
+                self.settings_manager.start_setting(
+                    update.effective_user.id,
+                    'broadcast',
+                    group_id
+                )
             self.settings_manager.update_setting_state(
                 update.effective_user.id,
                 'broadcast',
