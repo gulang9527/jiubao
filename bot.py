@@ -1956,7 +1956,7 @@ async def _start_cleanup_task(self):
         group = await self.db.get_group(group_id)
         return group and permission.value in group.get('permissions', [])
 
-    async def update_stats_setting(self, group_id: int, setting_type: str, value: int):
+async def update_stats_setting(self, group_id: int, setting_type: str, value: int):
     """更新统计设置"""
     settings = await self.db.get_group_settings(group_id)
     if setting_type == 'stats_min_bytes':
