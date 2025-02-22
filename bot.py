@@ -1893,7 +1893,7 @@ async def _start_broadcast_task(self):
 
 async def _start_cleanup_task(self):
     """启动数据清理任务"""
-        sync def cleanup_routine():
+    sync def cleanup_routine():
         while self.running:
             try:
                 await self.db.cleanup_old_stats(
