@@ -1116,21 +1116,20 @@ async def _handle_keyword_response_type_callback(self, update: Update, context):
             else:
                 await query.edit_message_text("❌ 不支持的消息类型")
                 return
-                
+            
             await query.edit_message_text(
                 f"{prompt}\n"
                 "发送 /cancel 取消"
             )
 
-    async def _handle_keyword_response(
+    async def handle_keyword_response(
         self, 
         chat_id: int, 
         response: str, 
         context, 
         original_message: Optional[Message] = None
     ) -> Optional[Message]:
-        """
-        处理关键词响应，并可能进行自动删除
+        """处理关键词响应，并可能进行自动删除
         
         :param chat_id: 聊天ID
         :param response: 响应内容
@@ -1142,7 +1141,7 @@ async def _handle_keyword_response_type_callback(self, update: Update, context):
         
         if response.startswith('__media__'):
             # 处理媒体响应
-            _, media_type, file_id = response.split('__')
+            *, media_type, file_id = response.split('__')
             
             # 根据媒体类型发送消息
             media_methods = {
