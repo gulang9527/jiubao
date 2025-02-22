@@ -469,7 +469,7 @@ async def _register_handlers(self):
             pattern=r'^stats_'
         ))
 
-    async def _handle_start(self, update: Update, context):
+async def _handle_start(self, update: Update, context):
         """处理 start 命令"""
         if not update.effective_user or not update.message:
             return
@@ -487,7 +487,7 @@ async def _register_handlers(self):
         
         await update.message.reply_text(welcome_text)
 
-    async def _handle_settings(self, update: Update, context):
+async def _handle_settings(self, update: Update, context):
         """处理设置命令"""
         try:
             # 获取用户可管理的群组
@@ -523,7 +523,7 @@ async def _register_handlers(self):
             logger.error(f"设置命令处理错误: {e}")
             await update.message.reply_text("❌ 处理设置命令时出错")
 
-    async def _handle_rank_command(self, update: Update, context):
+async def _handle_rank_command(self, update: Update, context):
         """处理统计命令（tongji/tongji30）"""
         if not update.effective_chat or not update.effective_user or not update.message:
             return
