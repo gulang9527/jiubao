@@ -1581,7 +1581,7 @@ async def _handle_stats_edit_callback(self, update: Update, context):
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 处理统计设置编辑时出错")
 
-    def _create_navigation_keyboard(
+def _create_navigation_keyboard(
         self,
         current_page: int,
         total_pages: int,
