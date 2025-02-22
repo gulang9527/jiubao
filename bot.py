@@ -1090,15 +1090,6 @@ async def _handle_keyword_response_type_callback(self, update: Update, context):
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 处理响应类型选择时出错")
 
-        try:
-            if action == "type":
-                # 处理轮播消息类型选择
-                content_type = parts[2]
-                self.settings_manager.start_setting(
-                    update.effective_user.id,
-                    'broadcast',
-                    group_id
-                )
             self.settings_manager.update_setting_state(
                 update.effective_user.id,
                 'broadcast',
@@ -1621,6 +1612,174 @@ async def _handle_stats_edit_callback(self, update: Update, context):
             
         return keyboard
 
+async def _handle_broadcast_callback(self, update: Update, context):
+        """处理轮播消息回调"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            data = query.data
+            parts = data.split('_')
+            action = parts[1]
+            group_id = int(parts[2])
+            
+            # 验证权限
+            if not await self.db.can_manage_group(update.effective_user.id, group_id):
+                await query.edit_message_text("❌ 无权限管理此群组")
+                return
+                
+            if not await self.has_permission(group_id, GroupPermission.BROADCAST):
+                await query.edit_message_text("❌ 此群组未启用轮播功能")
+                return
+                
+            if action == "add":
+                # 选择消息类型
+                keyboard = [[
+                    InlineKeyboardButton("文本", callback_data=f"broadcast_type_text_{group_id}"),
+                    InlineKeyboardButton("图片", callback_data=f"broadcast_type_photo_{group_id}"),
+                    InlineKeyboardButton("视频", callback_data=f"broadcast_type_video_{group_id}"),
+                    InlineKeyboardButton("文件", callback_data=f"broadcast_type_document_{group_id}")
+                ]]
+                
+                await query.edit_message_text(
+                    "请选择轮播消息类型：",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                
+            elif action == "type":
+                # 处理消息类型选择
+                content_type = parts[2]
+                self.settings_manager.start_setting(
+                    update.effective_user.id,
+                    'broadcast',
+                    group_id
+                )
+                
+                self.settings_manager.update_setting_state(
+                    update.effective_user.id,
+                    'broadcast',
+                    {'content_type': content_type}
+                )
+                
+                if content_type == 'text':
+                    prompt = "请发送轮播消息的文本内容："
+                elif content_type == 'photo':
+                    prompt = "请发送要轮播的图片："
+                elif content_type == 'video':
+                    prompt = "请发送要轮播的视频："
+                elif content_type == 'document':
+                    prompt = "请发送要轮播的文件："
+                else:
+                    await query.edit_message_text("❌ 不支持的消息类型")
+                    return
+                
+                await query.edit_message_text(
+                    f"{prompt}\n"
+                    "发送 /cancel 取消"
+                )
+            
+            elif action == "detail":
+                # 处理广播消息详情
+                broadcast_id = ObjectId(parts[3])
+                broadcast = await self.db.db.broadcasts.find_one({'_id': broadcast_id})
+                
+                if not broadcast:
+                    await query.edit_message_text("❌ 轮播消息不存在")
+                    return
+                    
+                text = "📢 轮播消息详情：\n\n"
+                text += f"类型：{broadcast['content_type']}\n"
+                text += f"开始时间：{broadcast['start_time'].strftime('%Y-%m-%d %H:%M')}\n"
+                text += f"结束时间：{broadcast['end_time'].strftime('%Y-%m-%d %H:%M')}\n"
+                text += f"间隔：{format_duration(broadcast['interval'])}\n"
+                
+                keyboard = [[
+                    InlineKeyboardButton(
+                        "🗑️ 删除轮播消息",
+                        callback_data=f"broadcast_delete_{group_id}_{broadcast_id}"
+                    )
+                ], [
+                    InlineKeyboardButton(
+                        "返回轮播列表",
+                        callback_data=f"settings_broadcast_{group_id}"
+                    )
+                ]]
+                
+                await query.edit_message_text(
+                    text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                
+            elif action == "delete":
+                # 处理删除轮播消息
+                broadcast_id = ObjectId(parts[3])
+                await self.db.db.broadcasts.delete_one({'_id': broadcast_id})
+                
+                # 更新消息
+                await self._handle_settings_section(
+                    query,
+                    context,
+                    group_id,
+                    "broadcast"
+                )
+                
+        except Exception as e:
+            logger.error(f"处理轮播消息回调错误: {e}")
+            logger.error(traceback.format_exc())
+            await query.edit_message_text("❌ 处理轮播消息操作时出错")
+
+    async def handle_keyword_response(
+        self, 
+        chat_id: int, 
+        response: str, 
+        context, 
+        original_message: Optional[Message] = None
+    ) -> Optional[Message]:
+        """处理关键词响应，并可能进行自动删除
+        
+        :param chat_id: 聊天ID
+        :param response: 响应内容
+        :param context: 机器人上下文
+        :param original_message: 原始消息
+        :return: 发送的消息
+        """
+        sent_message = None
+        
+        if response.startswith('__media__'):
+            # 处理媒体响应
+            _, media_type, file_id = response.split('__')
+            
+            # 根据媒体类型发送消息
+            media_methods = {
+                'photo': context.bot.send_photo,
+                'video': context.bot.send_video,
+                'document': context.bot.send_document
+            }
+            
+            if media_type in media_methods:
+                sent_message = await media_methods[media_type](chat_id, file_id)
+        else:
+            # 处理文本响应
+            sent_message = await context.bot.send_message(chat_id, response)
+        
+        # 如果成功发送消息，进行自动删除
+        if sent_message:
+            # 获取原始消息的元数据（如果有）
+            metadata = get_message_metadata(original_message) if original_message else {}
+            
+            # 计算删除超时时间
+            timeout = validate_delete_timeout(
+                message_type=metadata.get('type')
+            )
+            
+            # 调度消息删除
+            await self.message_deletion_manager.schedule_message_deletion(
+                sent_message, 
+                timeout
+            )
+        
+        return sent_message
+        
     async def handle_keyword_response(
         self, 
         chat_id: int, 
