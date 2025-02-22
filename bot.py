@@ -486,6 +486,62 @@ class TelegramBot:
     async def shutdown(self):
         """完全关闭机器人"""
         await self.stop()
+
+    async def _start_broadcast_task(self):
+        """启动轮播消息任务"""
+        while self.running:
+            try:
+                # 获取所有需要发送的轮播消息
+                now = datetime.now()
+                broadcasts = await self.db.db.broadcasts.find({
+                    'start_time': {'$lte': now},
+                    'end_time': {'$gt': now},
+                    '$or': [
+                        {'last_broadcast': {'$exists': False}},
+                        {'last_broadcast': {'$lte': now - timedelta(seconds=lambda b: b['interval'])}}
+                    ]
+                }).to_list(None)
+
+                for broadcast in broadcasts:
+                    try:
+                        # 发送轮播消息
+                        if broadcast['content_type'] == 'text':
+                            await self.application.bot.send_message(broadcast['group_id'], broadcast['content'])
+                        elif broadcast['content_type'] == 'photo':
+                            await self.application.bot.send_photo(broadcast['group_id'], broadcast['content'])
+                        elif broadcast['content_type'] == 'video':
+                            await self.application.bot.send_video(broadcast['group_id'], broadcast['content'])
+                        elif broadcast['content_type'] == 'document':
+                            await self.application.bot.send_document(broadcast['group_id'], broadcast['content'])
+
+                        # 更新最后发送时间
+                        await self.db.db.broadcasts.update_one(
+                            {'_id': broadcast['_id']},
+                            {'$set': {'last_broadcast': now}}
+                        )
+                    except Exception as e:
+                        logger.error(f"发送轮播消息时出错: {e}")
+
+                # 等待一分钟后再次检查
+                await asyncio.sleep(60)
+            except Exception as e:
+                logger.error(f"轮播任务出错: {e}")
+                await asyncio.sleep(60)  # 如果出错，等待1分钟后重试
+
+    async def _start_cleanup_task(self):
+        """启动数据清理任务"""
+        async def cleanup_routine():
+            while self.running:
+                try:
+                    await self.db.cleanup_old_stats(
+                        days=DEFAULT_SETTINGS.get('cleanup_days', 30)
+                    )
+                    await asyncio.sleep(24 * 60 * 60)  # 每24小时运行一次
+                except Exception as e:
+                    logger.error(f"清理任务出错: {e}")
+                    await asyncio.sleep(1 * 60 * 60)  # 如果出错，等待1小时后重试
+    
+        self.cleanup_task = asyncio.create_task(cleanup_routine())
     
     async def handle_signals(self):
         """设置信号处理器"""
@@ -1845,62 +1901,6 @@ def _create_navigation_keyboard(
             keyboard.append(nav_row)
             
         return keyboard
-
-async def _start_broadcast_task(self):
-    """启动轮播消息任务"""
-    while self.running:
-        try:
-            # 获取所有需要发送的轮播消息
-            now = datetime.now()
-            broadcasts = await self.db.db.broadcasts.find({
-                'start_time': {'$lte': now},
-                'end_time': {'$gt': now},
-                '$or': [
-                    {'last_broadcast': {'$exists': False}},
-                    {'last_broadcast': {'$lte': now - timedelta(seconds=lambda b: b['interval'])}}
-                ]
-            }).to_list(None)
-
-            for broadcast in broadcasts:
-                try:
-                    # 发送轮播消息
-                    if broadcast['content_type'] == 'text':
-                        await self.application.bot.send_message(broadcast['group_id'], broadcast['content'])
-                    elif broadcast['content_type'] == 'photo':
-                        await self.application.bot.send_photo(broadcast['group_id'], broadcast['content'])
-                    elif broadcast['content_type'] == 'video':
-                        await self.application.bot.send_video(broadcast['group_id'], broadcast['content'])
-                    elif broadcast['content_type'] == 'document':
-                        await self.application.bot.send_document(broadcast['group_id'], broadcast['content'])
-
-                    # 更新最后发送时间
-                    await self.db.db.broadcasts.update_one(
-                        {'_id': broadcast['_id']},
-                        {'$set': {'last_broadcast': now}}
-                    )
-                except Exception as e:
-                    logger.error(f"发送轮播消息时出错: {e}")
-
-            # 等待一分钟后再次检查
-            await asyncio.sleep(60)
-        except Exception as e:
-            logger.error(f"轮播任务出错: {e}")
-            await asyncio.sleep(60)  # 如果出错，等待1分钟后重试
-
-async def _start_cleanup_task(self):
-    """启动数据清理任务"""
-    async def cleanup_routine():
-        while self.running:
-            try:
-                await self.db.cleanup_old_stats(
-                    days=DEFAULT_SETTINGS.get('cleanup_days', 30)
-                )
-                await asyncio.sleep(24 * 60 * 60)  # 每24小时运行一次
-            except Exception as e:
-                logger.error(f"清理任务出错: {e}")
-                await asyncio.sleep(1 * 60 * 60)  # 如果出错，等待1小时后重试
-    
-    self.cleanup_task = asyncio.create_task(cleanup_routine())
 
 async def update_stats_setting(self, group_id: int, setting_type: str, value: int):
     """更新统计设置"""
