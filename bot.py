@@ -1122,7 +1122,7 @@ async def _handle_keyword_response_type_callback(self, update: Update, context):
                 "发送 /cancel 取消"
             )
 
-    async def handle_keyword_response(
+async def handle_keyword_response(
         self, 
         chat_id: int, 
         response: str, 
