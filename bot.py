@@ -376,7 +376,7 @@ class TelegramBot:
             logger.error(traceback.format_exc())
             return False
 
-        async def stop(self):
+    async def stop(self):
         """停止机器人"""
         self.running = False
         self.shutdown_event.set()
