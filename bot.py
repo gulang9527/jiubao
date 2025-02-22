@@ -2102,7 +2102,7 @@ async def main():
             return
         
         # 设置信号处理
-        await handle_signals(bot)
+        await bot.handle_signals()
         
         # 启动机器人
         if not await bot.start():
