@@ -1893,7 +1893,7 @@ async def _start_broadcast_task(self):
 
 async def _start_cleanup_task(self):
     """启动数据清理任务"""
-    sync def cleanup_routine():
+    async def cleanup_routine():
         while self.running:
             try:
                 await self.db.cleanup_old_stats(
@@ -1903,7 +1903,7 @@ async def _start_cleanup_task(self):
             except Exception as e:
                 logger.error(f"清理任务出错: {e}")
                 await asyncio.sleep(1 * 60 * 60)  # 如果出错，等待1小时后重试
-        
+    
     self.cleanup_task = asyncio.create_task(cleanup_routine())
 
 async def update_stats_setting(self, group_id: int, setting_type: str, value: int):
