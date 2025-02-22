@@ -621,6 +621,67 @@ class TelegramBot:
             logger.error(f"设置命令处理错误: {e}")
             await update.message.reply_text("❌ 处理设置命令时出错")
 
+    async def _handle_settings_callback(self, update: Update, context):
+        """处理设置回调"""
+        query = update.callback_query
+        await query.answer()
+
+        try:
+            data = query.data
+            parts = data.split('_')
+            action = parts[1]
+            group_id = int(parts[2])
+
+            # 验证权限
+            if not await self.db.can_manage_group(update.effective_user.id, group_id):
+                await query.edit_message_text("❌ 无权限管理此群组")
+                return
+
+            if action == "select":
+                # 显示设置菜单
+                keyboard = []
+                
+                # 检查各功能权限并添加对应按钮
+                if await self.has_permission(group_id, GroupPermission.STATS):
+                    keyboard.append([
+                        InlineKeyboardButton(
+                            "📊 统计设置", 
+                            callback_data=f"settings_stats_{group_id}"
+                        )
+                    ])
+                    
+                if await self.has_permission(group_id, GroupPermission.BROADCAST):
+                    keyboard.append([
+                        InlineKeyboardButton(
+                             "📢 轮播消息", 
+                            callback_data=f"settings_broadcast_{group_id}"
+                        )
+                    ])
+                    
+                if await self.has_permission(group_id, GroupPermission.KEYWORDS):
+                    keyboard.append([
+                        InlineKeyboardButton(
+                            "🔑 关键词设置", 
+                            callback_data=f"settings_keywords_{group_id}"
+                        )
+                    ])
+
+                await query.edit_message_text(
+                    f"群组 {group_id} 的设置菜单\n"
+                    "请选择要管理的功能：",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+
+            else:
+                # 处理具体设置分区
+                section = action  # stats, broadcast, keywords
+                await self._handle_settings_section(query, context, group_id, section)
+
+        except Exception as e:
+            logger.error(f"处理设置回调错误: {e}")
+            logger.error(traceback.format_exc())
+            await query.edit_message_text("❌ 处理设置操作时出错")
+
     async def _handle_rank_command(self, update: Update, context):
         """处理统计命令（tongji/tongji30）"""
         if not update.effective_chat or not update.effective_user or not update.message:
