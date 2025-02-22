@@ -498,9 +498,18 @@ class TelegramBot:
                     'end_time': {'$gt': now},
                     '$or': [
                         {'last_broadcast': {'$exists': False}},
-                        {'last_broadcast': {'$lte': now - timedelta(seconds=lambda b: b['interval'])}}
+                        # 使用聚合管道或其他查询方法来处理间隔时间
+                        {'last_broadcast': {'$lt': now}}  # 简化条件，稍后在代码中过滤
                     ]
                 }).to_list(None)
+
+                # 然后在获取到 broadcasts 后进行过滤
+                filtered_broadcasts = []
+                for broadcast in broadcasts:
+                    if 'last_broadcast' not in broadcast or broadcast['last_broadcast'] <= now - timedelta(seconds=broadcast['interval']):
+                        filtered_broadcasts.append(broadcast)
+
+                broadcasts = filtered_broadcasts
 
                 for broadcast in broadcasts:
                     try:
