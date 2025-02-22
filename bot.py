@@ -490,13 +490,6 @@ class TelegramBot:
         self.web_runner = web.AppRunner(self.web_app)
         await self.web_runner.setup()
         
-        self.web_runner = web.AppRunner(self.web_app)
-        await self.web_runner.setup()
-        
-        site = web.TCPSite(self.web_runner, WEB_HOST, WEB_PORT)
-        await site.start()
-        logger.info(f"Web服务器已在 {WEB_HOST}:{WEB_PORT} 启动")
-
         site = web.TCPSite(self.web_runner, WEB_HOST, WEB_PORT)
         await site.start()
         logger.info(f"Web服务器已在 {WEB_HOST}:{WEB_PORT} 启动")
@@ -1833,110 +1826,6 @@ async def _handle_broadcast_callback(self, update: Update, context):
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 处理轮播消息操作时出错")
 
-async def handle_keyword_response(
-        self, 
-        chat_id: int, 
-        response: str, 
-        context, 
-        original_message: Optional[Message] = None
-    ) -> Optional[Message]:
-        """处理关键词响应，并可能进行自动删除
-        
-        :param chat_id: 聊天ID
-        :param response: 响应内容
-        :param context: 机器人上下文
-        :param original_message: 原始消息
-        :return: 发送的消息
-        """
-        sent_message = None
-        
-        if response.startswith('__media__'):
-            # 处理媒体响应
-            _, media_type, file_id = response.split('__')
-            
-            # 根据媒体类型发送消息
-            media_methods = {
-                'photo': context.bot.send_photo,
-                'video': context.bot.send_video,
-                'document': context.bot.send_document
-            }
-            
-            if media_type in media_methods:
-                sent_message = await media_methods[media_type](chat_id, file_id)
-        else:
-            # 处理文本响应
-            sent_message = await context.bot.send_message(chat_id, response)
-        
-        # 如果成功发送消息，进行自动删除
-        if sent_message:
-            # 获取原始消息的元数据（如果有）
-            metadata = get_message_metadata(original_message) if original_message else {}
-            
-            # 计算删除超时时间
-            timeout = validate_delete_timeout(
-                message_type=metadata.get('type')
-            )
-            
-            # 调度消息删除
-            await self.message_deletion_manager.schedule_message_deletion(
-                sent_message, 
-                timeout
-            )
-        
-        return sent_message
-        
-async def handle_keyword_response(
-        self, 
-        chat_id: int, 
-        response: str, 
-        context, 
-        original_message: Optional[Message] = None
-    ) -> Optional[Message]:
-        """处理关键词响应，并可能进行自动删除
-        
-        :param chat_id: 聊天ID
-        :param response: 响应内容
-        :param context: 机器人上下文
-        :param original_message: 原始消息
-        :return: 发送的消息
-        """
-        sent_message = None
-        
-        if response.startswith('__media__'):
-            # 处理媒体响应
-            _, media_type, file_id = response.split('__')
-            
-            # 根据媒体类型发送消息
-            media_methods = {
-                'photo': context.bot.send_photo,
-                'video': context.bot.send_video,
-                'document': context.bot.send_document
-            }
-            
-            if media_type in media_methods:
-                sent_message = await media_methods[media_type](chat_id, file_id)
-        else:
-            # 处理文本响应
-            sent_message = await context.bot.send_message(chat_id, response)
-        
-        # 如果成功发送消息，进行自动删除
-        if sent_message:
-            # 获取原始消息的元数据（如果有）
-            metadata = get_message_metadata(original_message) if original_message else {}
-            
-            # 计算删除超时时间
-            timeout = validate_delete_timeout(
-                message_type=metadata.get('type')
-            )
-            
-            # 调度消息删除
-            await self.message_deletion_manager.schedule_message_deletion(
-                sent_message, 
-                timeout
-            )
-        
-        return sent_message
-
 async def start(self):
         """启动机器人"""
         if not self.application:
@@ -2045,21 +1934,6 @@ async def stop(self):
 async def shutdown(self):
     """完全关闭机器人"""
     await self.stop()
-
-    async def is_superadmin(self, user_id: int) -> bool:
-        """检查是否是超级管理员"""
-        user = await self.db.get_user(user_id)
-        return user and user['role'] == UserRole.SUPERADMIN.value
-        
-    async def is_admin(self, user_id: int) -> bool:
-        """检查是否是管理员"""
-        user = await self.db.get_user(user_id)
-        return user and user['role'] in {UserRole.ADMIN.value, UserRole.SUPERADMIN.value}
-        
-    async def has_permission(self, group_id: int, permission: GroupPermission) -> bool:
-        """检查群组权限"""
-        group = await self.db.get_group(group_id)
-        return group and permission.value in group.get('permissions', [])
 
 async def update_stats_setting(self, group_id: int, setting_type: str, value: int):
     """更新统计设置"""
