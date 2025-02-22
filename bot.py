@@ -376,6 +376,32 @@ class TelegramBot:
             logger.error(traceback.format_exc())
             return False
 
+        async def stop(self):
+        """停止机器人"""
+        self.running = False
+        self.shutdown_event.set()
+        
+        # 停止清理任务
+        if self.cleanup_task:
+            self.cleanup_task.cancel()
+        
+        # 停止web服务器
+        if self.web_runner:
+            await self.web_runner.cleanup()
+        
+        # 停止应用
+        if self.application:
+            try:
+                await self.application.stop()
+                await self.application.shutdown()
+            except Exception as e:
+                logger.error(f"停止应用时出错: {e}")
+        
+        # 关闭数据库连接
+        await self.db.close()
+        
+        logger.info("机器人已停止")
+
     async def setup_web_server(self):
         """设置web服务器"""
         self.web_app = web.Application()
