@@ -264,6 +264,20 @@ class TelegramBot:
             self.bot = bot
             self.deletion_tasks = {}
 
+    def __init__(self):
+        self.db = None
+        self.application = None
+        self.web_app = None
+        self.web_runner = None
+        self.running = False
+        self.shutdown_event = asyncio.Event()
+        self.cleanup_task = None
+        self.settings_manager = None
+        self.keyword_manager = None
+        self.broadcast_manager = None
+        self.stats_manager = None
+        self.message_deletion_manager = None
+
         async def schedule_message_deletion(
             self, 
             message: Message, 
@@ -409,35 +423,48 @@ class TelegramBot:
         """完全关闭机器人"""
         await self.stop()
 
-async def main():
-    """主函数"""
-    bot = None
-    try:
-        # 创建机器人实例
-        bot = TelegramBot()
-        
-        # 初始化
-        if not await bot.initialize():
-            logger.error("机器人初始化失败")
-            return
-        
-        # 设置信号处理
-        await handle_signals(bot)
-        
-        # 启动机器人
-        if not await bot.start():
-            logger.error("机器人启动失败")
-            return
-        
-        # 等待关闭信号
-        await bot.shutdown_event.wait()
-        
-    except Exception as e:
-        logger.error(f"机器人运行出错: {e}")
-        logger.error(traceback.format_exc())
-    finally:
-        if bot:
-            await bot.shutdown()
+    async def main(cls):
+        """主函数"""
+        bot = None
+        try:
+            # 创建机器人实例
+            bot = cls()
+                   
+            # 初始化
+            if not await bot.initialize():
+                logger.error("机器人初始化失败")
+                return
+            
+            # 设置信号处理
+            await bot.handle_signals()
+            
+            # 启动机器人
+            if not await bot.start():
+                logger.error("机器人启动失败")
+                return
+            
+            # 等待关闭
+            while bot.running:
+                await asyncio.sleep(1)
+            
+        except Exception as e:
+            logger.error(f"机器人启动失败: {e}")
+            logger.error(traceback.format_exc())
+        finally:
+            if bot:
+                await bot.shutdown()
+
+    async def handle_signals(self):
+        """设置信号处理器"""
+        try:
+            for sig in (signal.SIGTERM, signal.SIGINT):
+                asyncio.get_running_loop().add_signal_handler(
+                    sig,
+                    lambda: asyncio.create_task(self.stop())
+                )
+            logger.info("Signal handlers set up")
+        except NotImplementedError:
+            logger.warning("Signal handlers not supported on this platform")
 
     async def is_superadmin(self, user_id: int) -> bool:
         """检查是否是超级管理员"""
@@ -2096,7 +2123,7 @@ async def main():
 def async_main():
     """异步主入口点"""
     try:
-        asyncio.run(main())
+        asyncio.run(TelegramBot.main())
     except KeyboardInterrupt:
         logger.info("机器人被用户停止")
     except Exception as e:
