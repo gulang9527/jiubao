@@ -1439,66 +1439,66 @@ async def _process_broadcast_adding(self, update: Update, context, setting_state
             logger.error(traceback.format_exc())
             await update.message.reply_text("❌ 添加轮播消息时出错")
 
-async def _handle_settings_callback(self, update: Update, context):
-     """处理设置回调"""
-     query = update.callback_query
-     await query.answer()
+    async def _handle_settings_callback(self, update: Update, context):
+        """处理设置回调"""
+        query = update.callback_query
+        await query.answer()
 
-     try:
-        data = query.data
-        parts = data.split('_')
-        action = parts[1]
-        group_id = int(parts[2])
+        try:
+            data = query.data
+            parts = data.split('_')
+            action = parts[1]
+            group_id = int(parts[2])
 
-        # 验证权限
-        if not await self.db.can_manage_group(update.effective_user.id, group_id):
-            await query.edit_message_text("❌ 无权限管理此群组")
-            return
+            # 验证权限
+            if not await self.db.can_manage_group(update.effective_user.id, group_id):
+                await query.edit_message_text("❌ 无权限管理此群组")
+                return
 
-        if action == "select":
-            # 显示设置菜单
-            keyboard = []
+            if action == "select":
+                # 显示设置菜单
+                keyboard = []
                 
-            # 检查各功能权限并添加对应按钮
-            if await self.has_permission(group_id, GroupPermission.STATS):
-                keyboard.append([
-                    InlineKeyboardButton(
-                         "📊 统计设置", 
-                        callback_data=f"settings_stats_{group_id}"
-                    )
-                ])
+                # 检查各功能权限并添加对应按钮
+                if await self.has_permission(group_id, GroupPermission.STATS):
+                    keyboard.append([
+                        InlineKeyboardButton(
+                            "📊 统计设置", 
+                            callback_data=f"settings_stats_{group_id}"
+                        )
+                    ])
                     
-            if await self.has_permission(group_id, GroupPermission.BROADCAST):
-                keyboard.append([
-                    InlineKeyboardButton(
-                        "📢 轮播消息", 
-                        callback_data=f"settings_broadcast_{group_id}"
-                    )
-                ])
+                if await self.has_permission(group_id, GroupPermission.BROADCAST):
+                    keyboard.append([
+                        InlineKeyboardButton(
+                            "📢 轮播消息", 
+                            callback_data=f"settings_broadcast_{group_id}"
+                        )
+                    ])
                     
-            if await self.has_permission(group_id, GroupPermission.KEYWORDS):
-                keyboard.append([
-                    InlineKeyboardButton(
-                        "🔑 关键词设置", 
-                        callback_data=f"settings_keywords_{group_id}"
-                    )
-                ])
+                if await self.has_permission(group_id, GroupPermission.KEYWORDS):
+                    keyboard.append([
+                        InlineKeyboardButton(
+                            "🔑 关键词设置", 
+                            callback_data=f"settings_keywords_{group_id}"
+                        )
+                    ])
 
-            await query.edit_message_text(
-                f"群组 {group_id} 的设置菜单\n"
-                "请选择要管理的功能：",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+                await query.edit_message_text(
+                    f"群组 {group_id} 的设置菜单\n"
+                    "请选择要管理的功能：",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
 
-        else:
-            # 处理具体设置分区
-            section = action  # stats, broadcast, keywords
-            await self._handle_settings_section(query, context, group_id, section)
+            else:
+                # 处理具体设置分区
+                section = action  # stats, broadcast, keywords
+                await self._handle_settings_section(query, context, group_id, section)
 
-    except Exception as e:
-        logger.error(f"处理设置回调错误: {e}")
-        logger.error(traceback.format_exc())
-        await query.edit_message_text("❌ 处理设置操作时出错")
+        except Exception as e:
+            logger.error(f"处理设置回调错误: {e}")
+            logger.error(traceback.format_exc())
+            await query.edit_message_text("❌ 处理设置操作时出错")
 
 async def _handle_settings_section(self, query, context, group_id: int, section: str):
     """处理设置分区显示"""
