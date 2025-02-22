@@ -421,8 +421,8 @@ class TelegramBot:
             logger.error(f"机器人启动失败: {e}")
             logger.error(traceback.format_exc())
         finally:
-            if bot:
-                await bot.shutdown()
+            if bot and hasattr(bot, 'stop'):
+                await bot.stop() 
 
     async def start(self):
         """启动机器人"""
@@ -465,24 +465,21 @@ class TelegramBot:
             # 停止应用
             if self.application:
                 try:
-                    await self.application.stop()
-                    await self.application.shutdown()
+                    # 只有在应用已启动的情况下才尝试停止它
+                    if getattr(self.application, 'running', False):
+                        await self.application.stop()
+                        await self.application.shutdown()
                 except Exception as e:
                     logger.error(f"停止应用时出错: {e}")
         
-            # 关闭数据库连接
-            if self.db:
-                try:
-                    await self.db.close()
-                except Exception as e:
-                    logger.error(f"关闭数据库连接时出错: {e}")
-        
-            logger.info("机器人已停止")
-        
-        except Exception as e:
-            logger.error(f"停止机器人时出错: {e}")
-            logger.error(traceback.format_exc())
-
+                        # 关闭数据库连接
+                        if self.db:
+                            try:
+                                if hasattr(self.db, 'close') and self.db.close is not None:
+                                    await self.db.close()
+                            except Exception as e:
+                                logger.error(f"关闭数据库连接时出错: {e}")
+     
     async def shutdown(self):
         """完全关闭机器人"""
         await self.stop()
