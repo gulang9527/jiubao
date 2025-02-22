@@ -1090,7 +1090,8 @@ async def _handle_keyword_response_type_callback(self, update: Update, context):
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 处理响应类型选择时出错")
 
-        elif action == "type":
+        try:
+            if action == "type":
             # 处理轮播消息类型选择
             content_type = parts[2]
             self.settings_manager.start_setting(
