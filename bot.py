@@ -302,7 +302,7 @@ class TelegramBot:
                 del self.deletion_tasks[task_key]
 
     def __init__(self):
-        self.db = Database()
+        self.db = None
         self.application = None
         self.web_app = None
         self.web_runner = None
@@ -321,9 +321,17 @@ class TelegramBot:
         """初始化机器人"""
         try:
             logger.info("开始初始化机器人")
-        
-            # 连接数据库
+            
+            # 初始化数据库
+            self.db = Database()
             await self.db.connect(MONGODB_URI, MONGODB_DB)
+            
+            # 初始化管理器
+            self.settings_manager = SettingsManager(self.db)
+            self.keyword_manager = KeywordManager(self.db)
+            self.broadcast_manager = BroadcastManager(self.db, self)
+            self.stats_manager = StatsManager(self.db)
+            self.message_deletion_manager = self.MessageDeletionManager(self)
             
             # 初始化超级管理员
             for admin_id in DEFAULT_SUPERADMINS:
@@ -337,7 +345,7 @@ class TelegramBot:
             # 获取webhook域名
             webhook_domain = os.getenv('WEBHOOK_DOMAIN')
             if not webhook_domain:
-                logger.warning("WEBHOOK_DOMAIN环境变量未设置。使用默认值。")
+                logger.warning("WEBHOOK_DOMAIN环境变量未设置，使用默认值")
                 webhook_domain = 'your-render-app-name.onrender.com'
             
             # 创建Telegram Bot应用
@@ -368,9 +376,10 @@ class TelegramBot:
             self.web_app.router.add_post(webhook_path, self._handle_webhook)
             
             logger.info(f"Webhook已设置为 {webhook_url}")
-            logger.info(f"处理器数量: {len(self.application.handlers.get(0, []))}")
+            logger.info("机器人初始化完成")
             
             return True
+            
         except Exception as e:
             logger.error(f"机器人初始化失败: {e}")
             logger.error(traceback.format_exc())
@@ -378,33 +387,73 @@ class TelegramBot:
 
     async def stop(self):
         """停止机器人"""
-        self.running = False
-        self.shutdown_event.set()
-        
-        # 停止清理任务
-        if self.cleanup_task:
-            self.cleanup_task.cancel()
-        
-        # 停止web服务器
-        if self.web_runner:
-            await self.web_runner.cleanup()
-        
-        # 停止应用
-        if self.application:
-            try:
-                await self.application.stop()
-                await self.application.shutdown()
-            except Exception as e:
-                logger.error(f"停止应用时出错: {e}")
-        
-        # 关闭数据库连接
-        await self.db.close()
-        
-        logger.info("机器人已停止")
+        try:
+            self.running = False
+            if self.shutdown_event:
+                self.shutdown_event.set()
+            
+            # 停止清理任务
+            if self.cleanup_task:
+                self.cleanup_task.cancel()
+            
+            # 停止web服务器
+            if self.web_runner:
+                await self.web_runner.cleanup()
+            
+            # 停止应用
+            if self.application:
+                try:
+                    await self.application.stop()
+                    await self.application.shutdown()
+                except Exception as e:
+                    logger.error(f"停止应用时出错: {e}")
+            
+            # 关闭数据库连接
+            if self.db:
+                try:
+                    await self.db.close()
+                except Exception as e:
+                    logger.error(f"关闭数据库连接时出错: {e}")
+            
+            logger.info("机器人已停止")
+            
+        except Exception as e:
+            logger.error(f"停止机器人时出错: {e}")
+            logger.error(traceback.format_exc())
 
     async def shutdown(self):
         """完全关闭机器人"""
         await self.stop()
+
+async def main():
+    """主函数"""
+    bot = None
+    try:
+        # 创建机器人实例
+        bot = TelegramBot()
+        
+        # 初始化
+        if not await bot.initialize():
+            logger.error("机器人初始化失败")
+            return
+        
+        # 设置信号处理
+        await handle_signals(bot)
+        
+        # 启动机器人
+        if not await bot.start():
+            logger.error("机器人启动失败")
+            return
+        
+        # 等待关闭信号
+        await bot.shutdown_event.wait()
+        
+    except Exception as e:
+        logger.error(f"机器人运行出错: {e}")
+        logger.error(traceback.format_exc())
+    finally:
+        if bot:
+            await bot.shutdown()
 
     async def is_superadmin(self, user_id: int) -> bool:
         """检查是否是超级管理员"""
