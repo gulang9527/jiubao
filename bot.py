@@ -1495,7 +1495,7 @@ async def _handle_settings_callback(self, update: Update, context):
             section = action  # stats, broadcast, keywords
             await self._handle_settings_section(query, context, group_id, section)
 
-        except Exception as e:
+    except Exception as e:
         logger.error(f"处理设置回调错误: {e}")
         logger.error(traceback.format_exc())
         await query.edit_message_text("❌ 处理设置操作时出错")
