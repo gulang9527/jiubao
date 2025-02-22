@@ -394,6 +394,9 @@ class TelegramBot:
             return False
 
     
+    def __init__(self):
+        # 现有的初始化代码...
+
     async def start(self):
         """启动机器人"""
         if not self.application:
