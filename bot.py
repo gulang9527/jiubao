@@ -1122,7 +1122,7 @@ async def _handle_keyword_response_type_callback(self, update: Update, context):
                 "发送 /cancel 取消"
             )
 
-    async def handle_keyword_response(
+async def handle_keyword_response(
         self, 
         chat_id: int, 
         response: str, 
@@ -1141,7 +1141,7 @@ async def _handle_keyword_response_type_callback(self, update: Update, context):
         
         if response.startswith('__media__'):
             # 处理媒体响应
-            *, media_type, file_id = response.split('__')
+            _, media_type, file_id = response.split('__')
             
             # 根据媒体类型发送消息
             media_methods = {
