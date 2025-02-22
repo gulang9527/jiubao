@@ -1728,7 +1728,7 @@ async def _handle_broadcast_callback(self, update: Update, context):
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 处理轮播消息操作时出错")
 
-    async def handle_keyword_response(
+async def handle_keyword_response(
         self, 
         chat_id: int, 
         response: str, 
@@ -1780,7 +1780,7 @@ async def _handle_broadcast_callback(self, update: Update, context):
         
         return sent_message
         
-    async def handle_keyword_response(
+async def handle_keyword_response(
         self, 
         chat_id: int, 
         response: str, 
@@ -1832,7 +1832,7 @@ async def _handle_broadcast_callback(self, update: Update, context):
         
         return sent_message
 
-    async def start(self):
+async def start(self):
         """启动机器人"""
         if not self.application:
             logger.error("机器人未初始化。初始化失败。")
