@@ -1442,7 +1442,7 @@ async def _process_broadcast_adding(self, update: Update, context, setting_state
 async def _handle_settings_callback(self, update: Update, context):
      """处理设置回调"""
      query = update.callback_query
-    await query.answer()
+     await query.answer()
 
      try:
         data = query.data
