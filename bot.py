@@ -1710,144 +1710,144 @@ def _create_navigation_keyboard(
             
         return keyboard
 
-    async def _handle_broadcast_callback(self, update: Update, context):
-        """处理轮播消息回调"""
-        query = update.callback_query
-        await query.answer()
+async def _handle_broadcast_callback(self, update: Update, context):
+    """处理轮播消息回调"""
+    query = update.callback_query
+    await query.answer()
         
-        try:
-            data = query.data
-            parts = data.split('_')
-            action = parts[1]
-            group_id = int(parts[2])
+    try:
+        data = query.data
+        parts = data.split('_')
+        action = parts[1]
+        group_id = int(parts[2])
             
-            # 验证权限
-            if not await self.db.can_manage_group(update.effective_user.id, group_id):
-                await query.edit_message_text("❌ 无权限管理此群组")
+        # 验证权限
+        if not await self.db.can_manage_group(update.effective_user.id, group_id):
+            await query.edit_message_text("❌ 无权限管理此群组")
+            return
+                
+        if not await self.has_permission(group_id, GroupPermission.BROADCAST):
+            await query.edit_message_text("❌ 此群组未启用轮播功能")
+            return
+                
+        if action == "add":
+            # 选择消息类型
+            keyboard = [[
+                InlineKeyboardButton("文本", callback_data=f"broadcast_type_text_{group_id}"),
+                InlineKeyboardButton("图片", callback_data=f"broadcast_type_photo_{group_id}"),
+                InlineKeyboardButton("视频", callback_data=f"broadcast_type_video_{group_id}"),
+                InlineKeyboardButton("文件", callback_data=f"broadcast_type_document_{group_id}")
+            ]]
+                
+            await query.edit_message_text(
+                "请选择轮播消息类型：",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+                
+        elif action == "type":
+            # 处理消息类型选择
+            content_type = parts[2]
+            self.settings_manager.start_setting(
+                update.effective_user.id,
+                'broadcast',
+                group_id
+            )
+                
+            self.settings_manager.update_setting_state(
+                update.effective_user.id,
+                'broadcast',
+                {'content_type': content_type}
+            )
+                
+            if content_type == 'text':
+                prompt = "请发送轮播消息的文本内容："
+            elif content_type == 'photo':
+                prompt = "请发送要轮播的图片："
+            elif content_type == 'video':
+                prompt = "请发送要轮播的视频："
+            elif content_type == 'document':
+                prompt = "请发送要轮播的文件："
+            else:
+                await query.edit_message_text("❌ 不支持的消息类型")
                 return
                 
-            if not await self.has_permission(group_id, GroupPermission.BROADCAST):
-                await query.edit_message_text("❌ 此群组未启用轮播功能")
-                return
-                
-            if action == "add":
-                # 选择消息类型
-                keyboard = [[
-                    InlineKeyboardButton("文本", callback_data=f"broadcast_type_text_{group_id}"),
-                    InlineKeyboardButton("图片", callback_data=f"broadcast_type_photo_{group_id}"),
-                    InlineKeyboardButton("视频", callback_data=f"broadcast_type_video_{group_id}"),
-                    InlineKeyboardButton("文件", callback_data=f"broadcast_type_document_{group_id}")
-                ]]
-                
-                await query.edit_message_text(
-                    "请选择轮播消息类型：",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-                
-            elif action == "type":
-                # 处理消息类型选择
-                content_type = parts[2]
-                self.settings_manager.start_setting(
-                    update.effective_user.id,
-                    'broadcast',
-                    group_id
-                )
-                
-                self.settings_manager.update_setting_state(
-                    update.effective_user.id,
-                    'broadcast',
-                    {'content_type': content_type}
-                )
-                
-                if content_type == 'text':
-                    prompt = "请发送轮播消息的文本内容："
-                elif content_type == 'photo':
-                    prompt = "请发送要轮播的图片："
-                elif content_type == 'video':
-                    prompt = "请发送要轮播的视频："
-                elif content_type == 'document':
-                    prompt = "请发送要轮播的文件："
-                else:
-                    await query.edit_message_text("❌ 不支持的消息类型")
-                    return
-                
-                await query.edit_message_text(
-                    f"{prompt}\n"
-                    "发送 /cancel 取消"
-                )
+            await query.edit_message_text(
+                f"{prompt}\n"
+                "发送 /cancel 取消"
+            )
             
-            elif action == "detail":
-                # 处理广播消息详情
-                broadcast_id = ObjectId(parts[3])
-                broadcast = await self.db.db.broadcasts.find_one({'_id': broadcast_id})
+        elif action == "detail":
+            # 处理广播消息详情
+            broadcast_id = ObjectId(parts[3])
+            broadcast = await self.db.db.broadcasts.find_one({'_id': broadcast_id})
                 
-                if not broadcast:
-                    await query.edit_message_text("❌ 轮播消息不存在")
-                    return
+            if not broadcast:
+                await query.edit_message_text("❌ 轮播消息不存在")
+                return
                     
-                text = "📢 轮播消息详情：\n\n"
-                text += f"类型：{broadcast['content_type']}\n"
-                text += f"开始时间：{broadcast['start_time'].strftime('%Y-%m-%d %H:%M')}\n"
-                text += f"结束时间：{broadcast['end_time'].strftime('%Y-%m-%d %H:%M')}\n"
-                text += f"间隔：{format_duration(broadcast['interval'])}\n"
+            text = "📢 轮播消息详情：\n\n"
+            text += f"类型：{broadcast['content_type']}\n"
+            text += f"开始时间：{broadcast['start_time'].strftime('%Y-%m-%d %H:%M')}\n"
+            text += f"结束时间：{broadcast['end_time'].strftime('%Y-%m-%d %H:%M')}\n"
+            text += f"间隔：{format_duration(broadcast['interval'])}\n"
                 
-                keyboard = [[
-                    InlineKeyboardButton(
-                        "🗑️ 删除轮播消息",
-                        callback_data=f"broadcast_delete_{group_id}_{broadcast_id}"
-                    )
-                ], [
-                    InlineKeyboardButton(
-                        "返回轮播列表",
-                        callback_data=f"settings_broadcast_{group_id}"
-                    )
-                ]]
-                
-                await query.edit_message_text(
-                    text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
+            keyboard = [[
+                InlineKeyboardButton(
+                    "🗑️ 删除轮播消息",
+                    callback_data=f"broadcast_delete_{group_id}_{broadcast_id}"
                 )
-                
-            elif action == "delete":
-                # 处理删除轮播消息
-                broadcast_id = ObjectId(parts[3])
-                await self.db.db.broadcasts.delete_one({'_id': broadcast_id})
-                
-                # 更新消息
-                await self._handle_settings_section(
-                    query,
-                    context,
-                    group_id,
-                    "broadcast"
+            ], [
+                InlineKeyboardButton(
+                    "返回轮播列表",
+                    callback_data=f"settings_broadcast_{group_id}"
                 )
+            ]]
                 
-        except Exception as e:
-            logger.error(f"处理轮播消息回调错误: {e}")
-            logger.error(traceback.format_exc())
-            await query.edit_message_text("❌ 处理轮播消息操作时出错")
+            await query.edit_message_text(
+                text,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+                
+        elif action == "delete":
+            # 处理删除轮播消息
+            broadcast_id = ObjectId(parts[3])
+            await self.db.db.broadcasts.delete_one({'_id': broadcast_id})
+                
+            # 更新消息
+            await self._handle_settings_section(
+                query,
+                context,
+                group_id,
+                "broadcast"
+            )
+                
+    except Exception as e:
+        logger.error(f"处理轮播消息回调错误: {e}")
+        logger.error(traceback.format_exc())
+        await query.edit_message_text("❌ 处理轮播消息操作时出错")
 
-    async def start(self):
-        """启动机器人"""
-        if not self.application:
-            logger.error("机器人未初始化。初始化失败。")
-            return False
+async def start(self):
+    """启动机器人"""
+    if not self.application:
+        logger.error("机器人未初始化。初始化失败。")
+        return False
         
-        try:
-            await self.application.initialize()
-            await self.application.start()
-            self.running = True
+    try:
+        await self.application.initialize()
+        await self.application.start()
+        self.running = True
             
-            # 启动轮播消息和清理任务
-            await self._start_broadcast_task()
-            await self._start_cleanup_task()
+        # 启动轮播消息和清理任务
+        await self._start_broadcast_task()
+        await self._start_cleanup_task()
             
-            logger.info("机器人成功启动")
-            return True
+        logger.info("机器人成功启动")
+        return True
         
-        except Exception as e:
-            logger.error(f"机器人启动失败: {e}")
-            logger.error(traceback.format_exc())
-            return False
+    except Exception as e:
+        logger.error(f"机器人启动失败: {e}")
+        logger.error(traceback.format_exc())
+        return False
 
 async def _start_broadcast_task(self):
     """启动轮播消息任务"""
