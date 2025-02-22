@@ -648,7 +648,7 @@ async def _handle_message(self, update: Update, context):
             logger.error(f"处理消息错误: {e}")
             logger.error(traceback.format_exc())
 
-    async def _handle_admin_groups(self, update: Update, context):
+async def _handle_admin_groups(self, update: Update, context):
         """处理管理员群组管理命令"""
         if not update.effective_user or not update.message:
             return
@@ -685,7 +685,7 @@ async def _handle_message(self, update: Update, context):
             logger.error(f"列出管理员群组错误: {e}")
             await update.message.reply_text("❌ 获取群组列表时出错")
 
-    async def _handle_add_admin(self, update: Update, context):
+async def _handle_add_admin(self, update: Update, context):
         """处理添加管理员命令"""
         if not update.effective_user or not update.message:
             return
@@ -723,7 +723,7 @@ async def _handle_message(self, update: Update, context):
             logger.error(f"添加管理员错误: {e}")
             await update.message.reply_text("❌ 添加管理员时出错")
 
-    async def _handle_del_admin(self, update: Update, context):
+async def _handle_del_admin(self, update: Update, context):
         """处理删除管理员命令"""
         if not update.effective_user or not update.message:
             return
@@ -800,7 +800,7 @@ async def _handle_add_superadmin(self, update: Update, context):
             logger.error(f"添加超级管理员错误: {e}")
             await update.message.reply_text("❌ 添加超级管理员时出错")
 
-    async def _handle_del_superadmin(self, update: Update, context):
+async def _handle_del_superadmin(self, update: Update, context):
         """处理删除超级管理员命令"""
         if not update.effective_user or not update.message:
             return
@@ -840,7 +840,7 @@ async def _handle_add_superadmin(self, update: Update, context):
             logger.error(f"删除超级管理员错误: {e}")
             await update.message.reply_text("❌ 删除超级管理员时出错")
 
-    async def _handle_auth_group(self, update: Update, context):
+async def _handle_auth_group(self, update: Update, context):
         """处理授权群组命令"""
         if not update.effective_user or not update.message:
             return
@@ -900,7 +900,7 @@ async def _handle_add_superadmin(self, update: Update, context):
             logger.error(f"授权群组错误: {e}")
             await update.message.reply_text("❌ 授权群组时出错")
 
-    async def _handle_deauth_group(self, update: Update, context):
+async def _handle_deauth_group(self, update: Update, context):
         """处理解除群组授权命令"""
         if not update.effective_user or not update.message:
             return
@@ -1039,7 +1039,7 @@ async def _handle_keyword_callback(self, update: Update, context):
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 处理关键词操作时出错")
 
-    async def _handle_keyword_response_type_callback(self, update: Update, context):
+async def _handle_keyword_response_type_callback(self, update: Update, context):
         """处理关键词响应类型的回调"""
         query = update.callback_query
         await query.answer()
@@ -1174,7 +1174,7 @@ async def _handle_keyword_callback(self, update: Update, context):
         
         return sent_message
 
-    async def _process_keyword_adding(self, update: Update, context, setting_state):
+async def _process_keyword_adding(self, update: Update, context, setting_state):
         """处理关键词添加流程的各个步骤"""
         try:
             step = setting_state['step']
@@ -1258,7 +1258,7 @@ async def _handle_keyword_callback(self, update: Update, context):
             logger.error(traceback.format_exc())
             await update.message.reply_text("❌ 添加关键词时出错")
 
-    async def _process_broadcast_adding(self, update: Update, context, setting_state):
+async def _process_broadcast_adding(self, update: Update, context, setting_state):
         """处理轮播消息添加流程"""
         try:
             step = setting_state['step']
@@ -1350,7 +1350,7 @@ async def _handle_keyword_callback(self, update: Update, context):
         logger.error(traceback.format_exc())
         await update.message.reply_text("❌ 添加轮播消息时出错")
 
-    async def _handle_settings_callback(self, update: Update, context):
+async def _handle_settings_callback(self, update: Update, context):
         """处理设置回调"""
         query = update.callback_query
         await query.answer()
@@ -1411,7 +1411,7 @@ async def _handle_keyword_callback(self, update: Update, context):
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 处理设置操作时出错")
 
-    async def _handle_settings_section(self, query, context, group_id: int, section: str):
+async def _handle_settings_section(self, query, context, group_id: int, section: str):
         """处理设置分区显示"""
         try:
             if section == "stats":
@@ -1532,12 +1532,12 @@ async def _handle_keyword_callback(self, update: Update, context):
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 显示设置分区时出错")
 
-    async def _handle_stats_edit_callback(self, update: Update, context):
+async def _handle_stats_edit_callback(self, update: Update, context):
         """处理统计设置编辑回调"""
         query = update.callback_query
         await query.answer()
         
-    async def _process_stats_setting(self, update: Update, context, setting_state, setting_type: str):
+async def _process_stats_setting(self, update: Update, context, setting_state, setting_type: str):
         """处理统计设置的输入"""
         try:
             value = update.message.text
