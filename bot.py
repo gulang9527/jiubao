@@ -425,7 +425,7 @@ class TelegramBot:
             try:
                 self.running = False
                 if self.shutdown_event:
-                self.shutdown_event.set()
+                    self.shutdown_event.set()
             
             # 停止清理任务
             if self.cleanup_task:
