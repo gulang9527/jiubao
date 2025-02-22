@@ -356,22 +356,32 @@ class TelegramBot:
             # 注册处理器
             await self._register_handlers()
             
-            # 设置web服务器
-            await self.setup_web_server()
-            
-            # 设置webhook
+            # 创建 web 应用并添加路由
+            self.web_app = web.Application()
+            self.web_app.router.add_get('/', self.handle_healthcheck)
+            self.web_app.router.add_get('/health', self.handle_healthcheck)
+
+            # 设置webhook路径并添加路由
             webhook_url = f"https://{webhook_domain}/webhook/{TELEGRAM_TOKEN}"
             webhook_path = f"/webhook/{TELEGRAM_TOKEN}"
-            
+            self.web_app.router.add_post(webhook_path, self._handle_webhook)
+
+            # 设置web服务器
+            self.web_runner = web.AppRunner(self.web_app)
+            await self.web_runner.setup()
+
+            site = web.TCPSite(self.web_runner, WEB_HOST, WEB_PORT)
+            await site.start()
+            logger.info(f"Web服务器已在 {WEB_HOST}:{WEB_PORT} 启动")
+
             # 配置webhook
             await self.application.bot.set_webhook(
                 url=webhook_url,
                 allowed_updates=["message", "callback_query", "my_chat_member"]
             )
-            
-            # 配置应用使用webhook
-            self.application.updater = None  # 禁用轮询
-            self.web_app.router.add_post(webhook_path, self._handle_webhook)
+
+            # 禁用轮询
+            self.application.updater = None
             
             logger.info(f"Webhook已设置为 {webhook_url}")
             logger.info("机器人初始化完成")
@@ -480,19 +490,6 @@ class TelegramBot:
         """检查群组权限"""
         group = await self.db.get_group(group_id)
         return group and permission.value in group.get('permissions', [])
-
-    async def setup_web_server(self):
-        """设置web服务器"""
-        self.web_app = web.Application()
-        self.web_app.router.add_get('/', self.handle_healthcheck)
-        self.web_app.router.add_get('/health', self.handle_healthcheck)
-        
-        self.web_runner = web.AppRunner(self.web_app)
-        await self.web_runner.setup()
-        
-        site = web.TCPSite(self.web_runner, WEB_HOST, WEB_PORT)
-        await site.start()
-        logger.info(f"Web服务器已在 {WEB_HOST}:{WEB_PORT} 启动")
 
     async def handle_healthcheck(self, request):
         """处理健康检查请求"""
