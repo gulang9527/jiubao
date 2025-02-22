@@ -423,12 +423,12 @@ class TelegramBot:
         """完全关闭机器人"""
         await self.stop()
 
-    async def main(cls):
+    async def main():
         """主函数"""
         bot = None
         try:
             # 创建机器人实例
-            bot = cls()
+            bot = TelegramBot()
                    
             # 初始化
             if not await bot.initialize():
