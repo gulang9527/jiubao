@@ -269,29 +269,7 @@ class KeywordManager:
         return None
 
 class TelegramBot:
-    class MessageDeletionManager:
-        """管理消息删除的类"""
-        def __init__(self, bot):
-            self.bot = bot
-            self.deletion_tasks = {}
-
-            async def delete_message_task():
-                try:
-                    await asyncio.sleep(timeout)
-                    
-                    if delete_original and message.reply_to_message:
-                        await message.reply_to_message.delete()
-                    
-                    await message.delete()
-                except Exception as e:
-                    logger.warning(f"Error in message deletion: {e}")
-                finally:
-                    if task_key in self.deletion_tasks:
-                        del self.deletion_tasks[task_key]
-            
-            task = asyncio.create_task(delete_message_task(), name=task_key)
-            self.deletion_tasks[task_key] = task
-        
+    
     def __init__(self):
         self.db = None
         self.application = None
@@ -305,6 +283,12 @@ class TelegramBot:
         self.broadcast_manager = None
         self.stats_manager = None
         self.message_deletion_manager = None
+           
+    class MessageDeletionManager:
+        """管理消息删除的类"""
+        def __init__(self, bot):
+            self.bot = bot
+            self.deletion_tasks = {}
 
         async def schedule_message_deletion(
             self, 
@@ -315,26 +299,26 @@ class TelegramBot:
             """调度消息删除"""
             if timeout <= 0:
                 return
-            
+        
             task_key = f"delete_message_{message.chat.id}_{message.message_id}"
-            
+        
             async def delete_message_task():
                 try:
                     await asyncio.sleep(timeout)
-                    
+                
                     if delete_original and message.reply_to_message:
                         await message.reply_to_message.delete()
-                    
+                
                     await message.delete()
                 except Exception as e:
                     logger.warning(f"Error in message deletion: {e}")
                 finally:
                     if task_key in self.deletion_tasks:
                         del self.deletion_tasks[task_key]
-            
+        
             task = asyncio.create_task(delete_message_task(), name=task_key)
             self.deletion_tasks[task_key] = task
-        
+
         def cancel_deletion_task(self, message: Message):
             """取消特定消息的删除任务"""
             task_key = f"delete_message_{message.chat.id}_{message.message_id}"
