@@ -2126,10 +2126,10 @@ async def _show_stats_settings(self, query, group_id: int, settings: dict):
                         await update.message.reply_text(f"❌ {str(e)}")
                         return
                     
-            except Exception as e:
-                logger.error(f"处理轮播消息添加错误: {e}")
-                logger.error(traceback.format_exc())
-                await update.message.reply_text("❌ 添加轮播消息时出错")
+        except Exception as e:
+            logger.error(f"处理轮播消息添加错误: {e}")
+            logger.error(traceback.format_exc())
+            await update.message.reply_text("❌ 添加轮播消息时出错")
 
     async def _handle_keyword_response_type_callback(self, update: Update, context):
         """处理关键词响应类型的回调"""
