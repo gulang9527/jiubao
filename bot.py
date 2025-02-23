@@ -421,36 +421,36 @@ class TelegramBot:
             logger.error(traceback.format_exc())
             return False
 
-    async def main():
+    async def main(cls):
         """主函数"""
         bot = None
         try:
             # 创建机器人实例
             bot = cls()
-                   
+               
             # 初始化
             if not await bot.initialize():
                 logger.error("机器人初始化失败")
                 return
-            
+        
             # 设置信号处理
             await bot.handle_signals()
-            
+        
             # 启动机器人
             if not await bot.start():
                 logger.error("机器人启动失败")
                 return
-            
+        
             # 等待关闭
             while bot.running:
                 await asyncio.sleep(1)
-            
+        
         except Exception as e:
             logger.error(f"机器人启动失败: {e}")
             logger.error(traceback.format_exc())
         finally:
             if bot and hasattr(bot, 'stop'):
-                await bot.stop() 
+                await bot.stop()
 
     async def start(self):
         """启动机器人"""
