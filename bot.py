@@ -396,15 +396,17 @@ class TelegramBot:
         """初始化机器人"""
         try:
             logger.info("开始初始化机器人")
-        
+    
             # 初始化数据库
             self.db = Database()
             if not await self.db.connect(MONGODB_URI, MONGODB_DB):
                 logger.error("数据库连接失败")
                 return False
-        
+    
             # 初始化管理器
             self.settings_manager = SettingsManager(self.db)
+            await self.settings_manager.start()  # 启动设置管理器
+        
             self.keyword_manager = KeywordManager(self.db)
             self.broadcast_manager = BroadcastManager(self.db, self)
             self.stats_manager = StatsManager(self.db)
@@ -572,15 +574,19 @@ class TelegramBot:
             self.running = False
             if self.shutdown_event:
                 self.shutdown_event.set()
-    
+
+            # 停止设置管理器
+            if self.settings_manager:
+                await self.settings_manager.stop()
+
             # 停止清理任务
             if self.cleanup_task:
                 self.cleanup_task.cancel()
-    
+
             # 停止web服务器
             if self.web_runner:
                 await self.web_runner.cleanup()
-    
+
             # 停止应用
             if self.application:
                 try:
@@ -589,14 +595,14 @@ class TelegramBot:
                         await self.application.shutdown()
                 except Exception as e:
                     logger.error(f"停止应用时出错: {e}")
-    
+
             # 关闭数据库连接
             if self.db:
                 try:
                     await self.db.close()
                 except Exception as e:
                     logger.error(f"关闭数据库连接时出错: {e}")
-                    
+                
         except Exception as e:
             logger.error(f"停止机器人时出错: {e}")
      
