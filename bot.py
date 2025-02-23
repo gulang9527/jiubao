@@ -519,7 +519,6 @@ class TelegramBot:
             # 停止应用
             if self.application:
                 try:
-                    # 只有在应用已启动的情况下才尝试停止它
                     if getattr(self.application, 'running', False):
                         await self.application.stop()
                         await self.application.shutdown()
@@ -529,10 +528,10 @@ class TelegramBot:
             # 关闭数据库连接
             if self.db:
                 try:
-                    if hasattr(self.db, 'close') and self.db.close is not None:
-                        await self.db.close()
+                    await self.db.close()
                 except Exception as e:
                     logger.error(f"关闭数据库连接时出错: {e}")
+                    
         except Exception as e:
             logger.error(f"停止机器人时出错: {e}")
      
