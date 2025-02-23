@@ -1071,14 +1071,14 @@ class TelegramBot:
         try:
             data = query.data
             parts = data.split('_')
-        
+    
             # 健壮性检查
             if len(parts) < 3:
                 await query.edit_message_text("❌ 无效的操作")
                 return
-        
+    
             action = parts[1]
-        
+    
             # 尝试获取group_id，处理可能的异常情况
             try:
                 group_id = int(parts[-1])
@@ -1090,11 +1090,11 @@ class TelegramBot:
             if not await self.db.can_manage_group(update.effective_user.id, group_id):
                 await query.edit_message_text("❌ 无权限管理此群组")
                 return
-        
+    
             if not await self.has_permission(group_id, GroupPermission.BROADCAST):
                 await query.edit_message_text("❌ 此群组未启用轮播功能")
                 return
-        
+    
             if action == "add":
                 # 选择消息类型
                 keyboard = [
@@ -1110,90 +1110,41 @@ class TelegramBot:
                         InlineKeyboardButton("取消", callback_data=f"settings_broadcast_{group_id}")
                     ]
                 ]
-        
+    
                 await query.edit_message_text(
                     "请选择轮播消息类型：",
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-        
+    
             elif action == "type":
                 # 处理消息类型选择
                 content_type = parts[2]
-        
+    
                 # 开始添加轮播消息流程
                 self.settings_manager.start_setting(
                     update.effective_user.id,
                     'broadcast',
                     group_id
                 )
-        
+    
                 self.settings_manager.update_setting_state(
                     update.effective_user.id,
                     'broadcast',
                     {'content_type': content_type}
                 )
-        
+    
                 type_prompts = {
                     'text': '文本内容',
                     'photo': '图片',
                     'video': '视频',
                     'document': '文件'
                 }
-        
+    
                 await query.edit_message_text(
                     f"请发送要轮播的{type_prompts.get(content_type, '内容')}：\n\n"
                     f"发送 /cancel 取消"
                 )
-        
-            elif action == "detail":
-                # 显示轮播消息详情的逻辑保持不变
-                broadcast_id = ObjectId(parts[2])
-                broadcast = await self.db.db.broadcasts.find_one({
-                    '_id': broadcast_id,
-                    'group_id': group_id
-                })
-        
-                if not broadcast:
-                    await query.edit_message_text("❌ 轮播消息不存在")
-                    return
-            
-                text = "📢 轮播消息详情：\n\n"
-                text += f"类型：{broadcast['content_type']}\n"
-                text += f"开始时间：{broadcast['start_time'].strftime('%Y-%m-%d %H:%M')}\n"
-                text += f"结束时间：{broadcast['end_time'].strftime('%Y-%m-%d %H:%M')}\n"
-                text += f"间隔：{format_duration(broadcast['interval'])}\n"
-        
-                keyboard = [
-                    [
-                        InlineKeyboardButton(
-                            "🗑️ 删除轮播消息",
-                            callback_data=f"broadcast_delete_{group_id}_{broadcast_id}"
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            "返回轮播列表",
-                            callback_data=f"settings_broadcast_{group_id}"
-                        )
-                    ]
-                ]
-        
-                await query.edit_message_text(
-                    text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-        
-            elif action == "delete":
-                # 删除轮播消息的逻辑保持不变
-                broadcast_id = ObjectId(parts[2])
-                await self.db.db.broadcasts.delete_one({
-                    '_id': broadcast_id,
-                    'group_id': group_id
-                })
-        
-                # 更新显示
-                await self._show_broadcast_settings(query, group_id)
-    
+
         except Exception as e:
             logger.error(f"处理轮播消息回调错误: {e}")
             logger.error(traceback.format_exc())
@@ -1202,7 +1153,6 @@ class TelegramBot:
             try:
                 await query.edit_message_text("❌ 处理轮播消息设置时出错，请重试")
             except Exception:
-                # 如果编辑消息失败，可能是因为消息已经不存在
                 pass
 
     async def _handle_stats_edit_callback(self, update: Update, context):
@@ -1213,14 +1163,14 @@ class TelegramBot:
         try:
             data = query.data
             parts = data.split('_')
-        
+    
             # 健壮性检查
             if len(parts) < 4:
                 await query.edit_message_text("❌ 无效的操作")
                 return
-        
+    
             setting_type = parts[2]  # min_bytes, toggle_media 等
-        
+    
             # 尝试获取group_id，处理可能的异常情况
             try:
                 group_id = int(parts[-1])
@@ -1249,7 +1199,7 @@ class TelegramBot:
                 await self._show_stats_settings(query, group_id, settings)
     
             elif setting_type == "min_bytes":
-                # 直接进入编辑最小字节数的流程
+                # 开始输入最小字节数的流程
                 await query.edit_message_text(
                     "请输入最小统计字节数：\n"
                     "• 低于此值的消息将不计入统计\n"
@@ -1264,7 +1214,6 @@ class TelegramBot:
                 )
     
             elif setting_type == "daily_rank":
-                # 直接进入编辑日排行显示数量的流程
                 await query.edit_message_text(
                     "请输入日排行显示的用户数量：\n"
                     "• 建议在 5-20 之间\n\n"
@@ -1278,7 +1227,6 @@ class TelegramBot:
                 )
     
             elif setting_type == "monthly_rank":
-                # 直接进入编辑月排行显示数量的流程
                 await query.edit_message_text(
                     "请输入月排行显示的用户数量：\n"
                     "• 建议在 5-20 之间\n\n"
@@ -1299,7 +1247,6 @@ class TelegramBot:
             try:
                 await query.edit_message_text("❌ 处理设置时出错，请重试")
             except Exception:
-                # 如果编辑消息失败，可能是因为消息已经不存在
                 pass
 
     async def _show_stats_settings(self, query, group_id: int, settings: dict):
@@ -1859,41 +1806,50 @@ class TelegramBot:
         try:
             data = query.data
             parts = data.split('_')
-        
+    
             # 健壮性检查
             if len(parts) < 3:
                 await query.edit_message_text("❌ 无效的操作")
                 return
-        
+    
             action = parts[1]
-        
+    
             # 尝试获取group_id，处理可能的异常情况
             try:
                 group_id = int(parts[-1])
             except ValueError:
                 await query.edit_message_text("❌ 无效的群组ID")
                 return
-    
+
             if action == "add":
-                # 处理添加关键词
-                # 验证权限
-                if not await self.db.can_manage_group(update.effective_user.id, group_id):
-                    await query.edit_message_text("❌ 无权限管理此群组")
-                    return
-            
-                # 检查群组权限
-                if not await self.has_permission(group_id, GroupPermission.KEYWORDS):
-                    await query.edit_message_text("❌ 此群组未启用关键词功能")
-                    return
-            
-                # 直接提示输入关键词
+                # 创建选择匹配类型的键盘
+                keyboard = [
+                    [
+                        InlineKeyboardButton(
+                            "精确匹配", 
+                            callback_data=f"keyword_matchtype_exact_{group_id}"
+                        ),
+                        InlineKeyboardButton(
+                            "正则匹配", 
+                            callback_data=f"keyword_matchtype_regex_{group_id}"
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "取消", 
+                            callback_data=f"settings_keywords_{group_id}"
+                        )
+                    ]
+                ]
+
                 await query.edit_message_text(
-                    "请输入关键词：\n"
-                    "• 最大长度500字符\n"
-                    "• 支持精确和正则匹配\n\n"
-                    "发送 /cancel 取消"
+                    "请选择关键词匹配类型：",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
                 )
         
+            elif action == "matchtype":
+                match_type = parts[2]  # exact 或 regex
+            
                 # 开始添加关键词流程
                 self.settings_manager.start_setting(
                     update.effective_user.id,
@@ -1907,93 +1863,17 @@ class TelegramBot:
                     'keyword',
                     {'match_type': match_type}
                 )
-            
-                # 提示输入关键词
-                max_length = 500  # 增加字符限制
+
                 await query.edit_message_text(
-                    f"请发送要添加的关键词：\n"
-                    f"• 最大长度{max_length}字符\n"
-                    f"• 当前模式：{'精确匹配' if match_type == 'exact' else '正则匹配'}\n"
-                    f"• 发送 /cancel 取消"
+                    f"请输入关键词（{'精确' if match_type == 'exact' else '正则'}匹配）：\n"
+                    "发送 /cancel 取消"
                 )
-                
-            elif action == "detail":
-                # 处理关键词详情
-                group_id = int(parts[2])
-                keyword_id = parts[3]
-                
-                # 验证权限
-                if not await self.db.can_manage_group(update.effective_user.id, group_id):
-                    await query.edit_message_text("❌ 无权限管理此群组")
-                    return
-                    
-                # 获取关键词信息
-                keyword = await self.keyword_manager.get_keyword_by_id(group_id, keyword_id)
-                if not keyword:
-                    await query.edit_message_text("❌ 关键词不存在")
-                    return
-                    
-                # 创建删除按钮
-                keyboard = [[
-                    InlineKeyboardButton(
-                        "🗑️ 删除关键词",
-                        callback_data=f"keyword_delete_{group_id}_{keyword_id}"
-                    )
-                ], [
-                    InlineKeyboardButton(
-                        "返回关键词列表",
-                        callback_data=f"settings_keywords_{group_id}"
-                    )
-                ]]
-                
-                # 显示关键词详情
-                text = "📝 关键词详情：\n\n"
-                text += f"模式：{keyword['pattern']}\n"
-                text += f"类型：{'正则表达式' if keyword['type'] == 'regex' else '精确匹配'}\n"
-                text += f"响应类型：{keyword['response_type']}"
-                
-                await query.edit_message_text(
-                    text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-                
-            elif action == "delete":
-                # 处理删除关键词
-                group_id = int(parts[2])
-                keyword_id = parts[3]
-                
-                # 删除关键词
-                await self.db.remove_keyword(group_id, keyword_id)
-                
-                # 更新显示
-                await self._show_keyword_settings(query, group_id)
-                
-                # 验证权限
-                if not await self.db.can_manage_group(update.effective_user.id, group_id):
-                    await query.edit_message_text("❌ 无权限管理此群组")
-                    return
-                    
-                # 删除关键词
-                await self.db.remove_keyword(group_id, keyword_id)
-                
-                # 更新消息
-                await self._handle_settings_section(
-                    query,
-                    context,
-                    group_id,
-                    "keywords"
-                )
-                
+
         except Exception as e:
             logger.error(f"处理关键词回调错误: {e}")
             logger.error(traceback.format_exc())
+            await query.edit_message_text("❌ 处理关键词设置时出错")
         
-            # 尝试返回关键词设置页面
-            try:
-                await query.edit_message_text("❌ 处理关键词设置时出错，请重试")
-            except Exception:
-                # 如果编辑消息失败，可能是因为消息已经不存在
-                pass
     async def handle_keyword_response(
             self, 
             chat_id: int, 
