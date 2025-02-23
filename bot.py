@@ -1064,25 +1064,24 @@ class TelegramBot:
             await update.message.reply_text("❌ 获取排行榜时出错")
 
     async def _handle_broadcast_callback(self, update: Update, context):
-        """处理轮播消息回调"""
         query = update.callback_query
         await query.answer()
-    
+
         try:
             data = query.data
             parts = data.split('_')
             action = parts[1]
             group_id = int(parts[2])
-        
+    
             # 验证权限
             if not await self.db.can_manage_group(update.effective_user.id, group_id):
                 await query.edit_message_text("❌ 无权限管理此群组")
                 return
-            
+        
             if not await self.has_permission(group_id, GroupPermission.BROADCAST):
                 await query.edit_message_text("❌ 此群组未启用轮播功能")
                 return
-            
+        
             if action == "add":
                 # 选择消息类型
                 keyboard = [
@@ -1098,23 +1097,35 @@ class TelegramBot:
                         InlineKeyboardButton("取消", callback_data=f"settings_broadcast_{group_id}")
                     ]
                 ]
-            
+        
                 await query.edit_message_text(
                     "请选择轮播消息类型：",
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
+        
             elif action == "type":
-                # 处理消息类型选择
                 content_type = parts[2]
-            
+        
+                # 直接提示输入内容
+                type_prompts = {
+                    'text': '请输入轮播的文本内容：',
+                    'photo': '请发送轮播的图片：',
+                    'video': '请发送轮播的视频：',
+                    'document': '请发送轮播的文件：'
+                }
+        
+                await query.edit_message_text(
+                    type_prompts.get(content_type, '请发送内容') + "\n\n" +
+                    "发送 /cancel 取消"
+                )
+        
                 # 开始添加轮播消息流程
                 self.settings_manager.start_setting(
                     update.effective_user.id,
                     'broadcast',
                     group_id
                 )
-            
+        
                 self.settings_manager.update_setting_state(
                     update.effective_user.id,
                     'broadcast',
@@ -1235,7 +1246,10 @@ class TelegramBot:
             
         except Exception as e:
             logger.error(f"处理轮播消息回调错误: {e}")
-            await query.edit_message_text("❌ 处理轮播消息操作时出错")
+            logger.error(traceback.format_exc())
+        
+            # 返回轮播消息设置页面
+            await self._show_broadcast_settings(query, group_id)
 
     async def _handle_stats_edit_callback(self, update: Update, context):
         """处理统计设置编辑回调"""
@@ -1252,11 +1266,11 @@ class TelegramBot:
             if not await self.db.can_manage_group(update.effective_user.id, group_id):
                 await query.edit_message_text("❌ 无权限管理此群组")
                 return
-        
+    
             if not await self.has_permission(group_id, GroupPermission.STATS):
                 await query.edit_message_text("❌ 此群组未启用统计功能")
                 return
-        
+    
             settings = await self.db.get_group_settings(group_id)
 
             if setting_type == "toggle_media":
@@ -1264,34 +1278,60 @@ class TelegramBot:
                 current_value = settings.get('count_media', False)
                 settings['count_media'] = not current_value
                 await self.db.update_group_settings(group_id, settings)
-        
+    
                 # 刷新统计设置页面
                 await self._show_stats_settings(query, group_id, settings)
-        
-            elif setting_type in ['min_bytes', 'daily_rank', 'monthly_rank']:
-                # 进入编辑模式
+    
+            elif setting_type == "min_bytes":
+                # 直接进入编辑最小字节数的流程
+                await query.edit_message_text(
+                    "请输入最小统计字节数：\n"
+                    "• 低于此值的消息将不计入统计\n"
+                    "• 输入 0 表示统计所有消息\n\n"
+                    "发送 /cancel 取消"
+                )
+                # 开始设置流程
                 self.settings_manager.start_setting(
                     update.effective_user.id,
-                    f'stats_{setting_type}',
+                    'stats_min_bytes',
                     group_id
                 )
-        
-                setting_names = {
-                    'min_bytes': '最小统计字节数',
-                    'daily_rank': '日排行显示数量',
-                    'monthly_rank': '月排行显示数量'
-                }
-        
-                current_value = settings.get(setting_type, 0)
+    
+            elif setting_type == "daily_rank":
+                # 直接进入编辑日排行显示数量的流程
                 await query.edit_message_text(
-                    f"当前{setting_names[setting_type]}：{current_value}\n"
-                    f"请输入新的值：\n\n"
-                    f"发送 /cancel 取消"
+                    "请输入日排行显示的用户数量：\n"
+                    "• 建议在 5-20 之间\n\n"
+                    "发送 /cancel 取消"
                 )
-        
+                # 开始设置流程
+                self.settings_manager.start_setting(
+                    update.effective_user.id,
+                    'stats_daily_rank',
+                    group_id
+                )
+    
+            elif setting_type == "monthly_rank":
+                # 直接进入编辑月排行显示数量的流程
+                await query.edit_message_text(
+                    "请输入月排行显示的用户数量：\n"
+                    "• 建议在 5-20 之间\n\n"
+                    "发送 /cancel 取消"
+                )
+                # 开始设置流程
+                self.settings_manager.start_setting(
+                    update.effective_user.id,
+                    'stats_monthly_rank',
+                    group_id
+                )
+    
         except Exception as e:
             logger.error(f"处理统计设置编辑回调错误: {e}")
-            await query.edit_message_text("❌ 处理统计设置编辑时出错")
+            logger.error(traceback.format_exc())
+        
+            # 返回统计设置页面
+            settings = await self.db.get_group_settings(group_id)
+            await self._show_stats_settings(query, group_id, settings)
 
     async def _show_stats_settings(self, query, group_id: int, settings: dict):
         """显示统计设置页面"""
@@ -1337,7 +1377,7 @@ class TelegramBot:
         """处理统计设置编辑"""
         try:
             group_id = stats_state['group_id']
-            
+        
             # 获取用户输入的值
             try:
                 value = int(update.message.text)
@@ -1346,14 +1386,55 @@ class TelegramBot:
             except ValueError:
                 await update.message.reply_text("❌ 请输入一个有效的数字")
                 return
-                
+            
             # 根据设置类型更新相应的值
             tips = await self.update_stats_setting(group_id, setting_type, value)
-            await update.message.reply_text(f"✅ {tips}")
-            
+        
+            # 获取最新设置
+            settings = await self.db.get_group_settings(group_id)
+        
+            # 显示更新后的统计设置页面
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        f"最小统计字节数: {settings.get('min_bytes', 0)} 字节", 
+                        callback_data=f"stats_edit_min_bytes_{group_id}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        f"统计多媒体: {'是' if settings.get('count_media', False) else '否'}", 
+                        callback_data=f"stats_edit_toggle_media_{group_id}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        f"日排行显示数量: {settings.get('daily_rank_size', 15)}", 
+                        callback_data=f"stats_edit_daily_rank_{group_id}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        f"月排行显示数量: {settings.get('monthly_rank_size', 15)}", 
+                        callback_data=f"stats_edit_monthly_rank_{group_id}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "返回设置菜单", 
+                        callback_data=f"settings_select_{group_id}"
+                    )
+                ]
+            ]
+        
+            await update.message.reply_text(
+                f"✅ {tips}",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        
             # 清除设置状态
             self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
-            
+        
         except Exception as e:
             logger.error(f"处理统计设置错误: {e}")
             await update.message.reply_text("❌ 更新设置时出错")
@@ -1411,12 +1492,42 @@ class TelegramBot:
         
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
+        message = update.message
 
-        if update.message.text == '/cancel':
-            setting_types = ['keyword', 'broadcast', 'stats_min_bytes', 'stats_daily_rank', 'stats_monthly_rank']
+        # 获取用户角色
+        user = await self.db.get_user(user_id)
+        user_role = user['role'] if user else 'user'
+
+        # 检查是否免除自动删除
+        command = message.text.split()[0] if message.text else None
+        if not is_auto_delete_exempt(user_role, command):
+            # 获取消息元数据
+            metadata = get_message_metadata(message)
+            # 计算删除超时时间
+            timeout = validate_delete_timeout(
+                message_type=metadata['type']
+            )
+        
+            # 调度消息删除
+            await self.message_deletion_manager.schedule_message_deletion(
+                message, 
+                timeout
+            )
+
+        if update.message.text and update.message.text.lower() == '/cancel':
+            # 清除所有设置状态
+            setting_types = [
+                'keyword', 'broadcast', 
+                'stats_min_bytes', 'stats_daily_rank', 'stats_monthly_rank'
+            ]
             for setting_type in setting_types:
-                self.settings_manager.clear_setting_state(user_id, setting_type)
-            await update.message.reply_text("✅ 已取消当前操作")
+                state = self.settings_manager.get_setting_state(user_id, setting_type)
+                if state and state['group_id'] == chat_id:
+                    self.settings_manager.clear_setting_state(user_id, setting_type)
+                    await update.message.reply_text(f"✅ 已取消 {setting_type} 的设置操作")
+                    return
+
+            await update.message.reply_text("✅ 没有正在进行的设置操作")
             return
         
         try:
@@ -1772,52 +1883,36 @@ class TelegramBot:
             await update.message.reply_text("❌ 解除群组授权时出错")
 
     async def _handle_keyword_callback(self, update: Update, context):
-        """处理关键词回调"""
         query = update.callback_query
         await query.answer()
-    
+
         try:
             data = query.data
             parts = data.split('_')
             action = parts[1]
-        
+    
             if action == "add":
                 # 处理添加关键词
                 group_id = int(parts[2])
-            
+        
                 # 验证权限
                 if not await self.db.can_manage_group(update.effective_user.id, group_id):
                     await query.edit_message_text("❌ 无权限管理此群组")
                     return
-                
+            
                 # 检查群组权限
                 if not await self.has_permission(group_id, GroupPermission.KEYWORDS):
                     await query.edit_message_text("❌ 此群组未启用关键词功能")
                     return
-                
-                # 选择关键词类型
-                keyboard = [
-                    [
-                        InlineKeyboardButton("精确匹配", callback_data=f"keyword_type_exact_{group_id}"),
-                        InlineKeyboardButton("正则匹配", callback_data=f"keyword_type_regex_{group_id}")
-                    ],
-                    [
-                        InlineKeyboardButton("返回", callback_data=f"settings_keywords_{group_id}")
-                    ]
-                ]
             
+                # 直接提示输入关键词
                 await query.edit_message_text(
-                    "请选择关键词匹配类型：\n"
-                    "• 精确匹配：完全相同才触发\n"
-                    "• 正则匹配：支持正则表达式",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
+                    "请输入关键词：\n"
+                    "• 最大长度500字符\n"
+                    "• 支持精确和正则匹配\n\n"
+                    "发送 /cancel 取消"
                 )
-            
-            elif action == "type":
-                # 处理类型选择
-                match_type = parts[2]  # exact 或 regex
-                group_id = int(parts[3])
-            
+        
                 # 开始添加关键词流程
                 self.settings_manager.start_setting(
                     update.effective_user.id,
@@ -1911,7 +2006,9 @@ class TelegramBot:
         except Exception as e:
             logger.error(f"处理关键词回调错误: {e}")
             logger.error(traceback.format_exc())
-            await query.edit_message_text("❌ 处理关键词操作时出错")
+        
+            # 返回关键词设置页面
+            await self._show_keyword_settings(query, group_id)
 
     async def handle_keyword_response(
             self, 
@@ -1966,7 +2063,6 @@ class TelegramBot:
             return sent_message
 
     async def _process_keyword_adding(self, update: Update, context, setting_state):
-        """处理关键词添加流程的各个步骤"""
         try:
             step = setting_state['step']
             group_id = setting_state['group_id']
@@ -1979,63 +2075,54 @@ class TelegramBot:
                 if len(pattern) > max_length:
                     await update.message.reply_text(f"❌ 关键词过长，请不要超过 {max_length} 个字符")
                     return
-            
+        
                 # 如果是正则，验证正则表达式
                 if match_type == 'regex':
                     if not validate_regex(pattern):
                         await update.message.reply_text("❌ 无效的正则表达式格式")
                         return
-                
+            
                 setting_state['data']['pattern'] = pattern
                 setting_state['data']['type'] = match_type
 
-                # 选择响应类型
-                keyboard = [
-                    [
-                        InlineKeyboardButton("文本", callback_data=f"keyword_response_text_{group_id}"),
-                        InlineKeyboardButton("图片", callback_data=f"keyword_response_photo_{group_id}")
-                    ],
-                    [
-                        InlineKeyboardButton("视频", callback_data=f"keyword_response_video_{group_id}"),
-                        InlineKeyboardButton("文件", callback_data=f"keyword_response_document_{group_id}")
-                    ],
-                    [
-                        InlineKeyboardButton("取消", callback_data=f"settings_keywords_{group_id}")
-                    ]
-                ]
-
+                # 修改为直接提示输入响应内容
                 await update.message.reply_text(
-                    "请选择关键词响应的类型：",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
+                    "请选择并发送关键词的响应内容：\n"
+                    "• 文本：直接发送文字\n"
+                    "• 图片：发送图片\n"
+                    "• 视频：发送视频\n"
+                    "• 文件：发送文件\n\n"
+                    "发送 /cancel 取消"
                 )
 
-            elif step == 2:  # 输入响应内容
-                response_type = setting_state['data'].get('response_type')
-            
-                if not response_type:
-                    await update.message.reply_text("❌ 请先选择响应类型")
+            elif step == 2:  # 处理响应内容
+                # 尝试识别响应类型
+                response_type = None
+                file_id = None
+
+                if update.message.text:
+                    response_type = 'text'
+                    file_id = update.message.text
+                elif update.message.photo:
+                    response_type = 'photo'
+                    file_id = update.message.photo[-1].file_id
+                elif update.message.video:
+                    response_type = 'video'
+                    file_id = update.message.video.file_id
+                elif update.message.document:
+                    response_type = 'document'
+                    file_id = update.message.document.file_id
+
+                if not file_id:
+                    await update.message.reply_text("❌ 请发送有效的响应内容")
                     return
 
-                if response_type == 'text':
-                    response = update.message.text
-                    if len(response) > KEYWORD_SETTINGS['max_response_length']:
-                        await update.message.reply_text(
-                            f"❌ 响应内容过长，请不要超过 {KEYWORD_SETTINGS['max_response_length']} 个字符"
-                        )
-                        return
-                    file_id = response
-                else:  # 媒体类型响应
-                    media_methods = {
-                        'photo': lambda m: m.photo[-1].file_id if m.photo else None,
-                        'video': lambda m: m.video.file_id if m.video else None,
-                        'document': lambda m: m.document.file_id if m.document else None
-                    }
-                
-                    file_id = media_methods[response_type](update.message)
-                
-                    if not file_id:
-                        await update.message.reply_text(f"❌ 请发送一个{response_type}")
-                        return
+                # 检查内容长度
+                if response_type == 'text' and len(file_id) > KEYWORD_SETTINGS['max_response_length']:
+                    await update.message.reply_text(
+                        f"❌ 响应内容过长，请不要超过 {KEYWORD_SETTINGS['max_response_length']} 个字符"
+                    )
+                    return
 
                 # 检查关键词数量限制
                 keywords = await self.db.get_keywords(group_id)
@@ -2049,7 +2136,7 @@ class TelegramBot:
                 await self.db.add_keyword({
                     'group_id': group_id,
                     'pattern': setting_state['data']['pattern'],
-                    'type': setting_state['data']['match_type'],
+                    'type': setting_state['data']['type'],
                     'response': file_id,
                     'response_type': response_type
                 })
@@ -2070,7 +2157,7 @@ class TelegramBot:
             step = setting_state['step']
             group_id = setting_state['group_id']
             content_type = setting_state['data'].get('content_type')
-        
+    
             if step == 1:
                 # 获取消息内容
                 if content_type == 'text':
@@ -2084,43 +2171,46 @@ class TelegramBot:
                 else:
                     await update.message.reply_text("❌ 不支持的消息类型")
                     return
-                
+            
                 if not content:
                     await update.message.reply_text(f"❌ 请发送正确的{content_type}内容")
                     return
             
-                setting_state['data']['content'] = content
-            
-                # 询问轮播时间设置
+                # 直接提示输入轮播时间
                 await update.message.reply_text(
-                    "请设置轮播时间：\n"
+                    "请设置轮播时间参数：\n"
                     "格式：开始时间 结束时间 间隔(秒)\n"
-                    "例如：2024-02-22 08:00 2024-03-22 20:00 3600\n"
+                    "例如：2024-02-22 08:00 2024-03-22 20:00 3600\n\n"
                     "发送 /cancel 取消"
                 )
+            
+                # 保存内容并更新状态
                 self.settings_manager.update_setting_state(
                     update.effective_user.id,
                     'broadcast',
-                    {'content': content}
+                    {
+                        'content_type': content_type,
+                        'content': content
+                    }
                 )
-            
+        
             elif step == 2:
-                # 处理时间设置
+                # 保留原有的时间处理逻辑
                 try:
                     parts = update.message.text.split()
                     if len(parts) != 5:
                         raise ValueError("参数数量不正确")
-                    
+                
                     start_time = validate_time_format(f"{parts[0]} {parts[1]}")
                     end_time = validate_time_format(f"{parts[2]} {parts[3]}")
                     interval = validate_interval(parts[4])
-                
+            
                     if not all([start_time, end_time, interval]):
                         raise ValueError("时间格式无效")
-                    
+                
                     if start_time >= end_time:
                         raise ValueError("结束时间必须晚于开始时间")
-                    
+                
                     if interval < BROADCAST_SETTINGS['min_interval']:
                         raise ValueError(f"间隔时间不能小于{format_duration(BROADCAST_SETTINGS['min_interval'])}")
 
@@ -2131,26 +2221,26 @@ class TelegramBot:
                             f"❌ 轮播消息数量已达到上限 {BROADCAST_SETTINGS['max_broadcasts']} 条"
                         )
                         return
-                    
+                
                     # 添加轮播消息
                     await self.db.db.broadcasts.insert_one({
                         'group_id': group_id,
-                        'content_type': content_type,
+                        'content_type': setting_state['data']['content_type'],
                         'content': setting_state['data']['content'],
                         'start_time': start_time,
                         'end_time': end_time,
                         'interval': interval
                     })
-                    
+                
                     await update.message.reply_text("✅ 轮播消息添加成功！")
-                    
+                
                     # 清除设置状态
                     self.settings_manager.clear_setting_state(update.effective_user.id, 'broadcast')
-                    
+                
                 except ValueError as e:
                     await update.message.reply_text(f"❌ {str(e)}")
                     return
-                    
+                
         except Exception as e:
             logger.error(f"处理轮播消息添加错误: {e}")
             logger.error(traceback.format_exc())
