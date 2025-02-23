@@ -199,3 +199,58 @@ def get_message_metadata(message) -> Dict[str, Any]:
         'contains_media': bool(message.photo or message.video or message.document)
     }
     return metadata
+
+class CallbackDataBuilder:
+    """回调数据构建器"""
+    @staticmethod
+    def build(action: str, *args) -> str:
+        """构建回调数据"""
+        return '_'.join([str(arg) for arg in [action, *args]])
+    
+    @staticmethod
+    def parse(data: str) -> tuple:
+        """解析回调数据"""
+        parts = data.split('_')
+        if len(parts) < 2:
+            raise ValueError("Invalid callback data format")
+        return parts[0], parts[1], parts[2:]
+
+class KeyboardBuilder:
+    """键盘构建器"""
+    @staticmethod
+    def create_settings_keyboard(group_id: int, permissions: list) -> InlineKeyboardMarkup:
+        """创建设置菜单键盘"""
+        keyboard = []
+        
+        if 'stats' in permissions:
+            keyboard.append([
+                InlineKeyboardButton(
+                    "📊 统计设置", 
+                    callback_data=f"settings_stats_{group_id}"
+                )
+            ])
+        
+        if 'broadcast' in permissions:
+            keyboard.append([
+                InlineKeyboardButton(
+                    "📢 轮播消息", 
+                    callback_data=f"settings_broadcast_{group_id}"
+                )
+            ])
+        
+        if 'keywords' in permissions:
+            keyboard.append([
+                InlineKeyboardButton(
+                    "🔑 关键词设置", 
+                    callback_data=f"settings_keywords_{group_id}"
+                )
+            ])
+            
+        keyboard.append([
+            InlineKeyboardButton(
+                "🔙 返回群组列表", 
+                callback_data="show_manageable_groups"
+            )
+        ])
+        
+        return InlineKeyboardMarkup(keyboard)
