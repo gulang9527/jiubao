@@ -22,9 +22,29 @@ class Database:
 
     async def connect(self, mongodb_uri: str, database: str):
         """连接到MongoDB"""
-        self.client = AsyncIOMotorClient(mongodb_uri)
-        self.db = self.client[database]
-        await self.init_indexes()
+        try:
+            self.client = AsyncIOMotorClient(mongodb_uri)
+            # 验证连接
+            await self.client.admin.command('ping')
+            self.db = self.client[database]
+            logger.info("数据库连接成功")
+            
+            # 验证集合是否存在
+            collections = await self.db.list_collection_names()
+            required_collections = ['users', 'groups', 'keywords', 'broadcasts', 'message_stats']
+            
+            for collection in required_collections:
+                if collection not in collections:
+                    logger.warning(f"创建集合: {collection}")
+                    await self.db.create_collection(collection)
+            
+            # 初始化索引
+            await self.init_indexes()
+            
+            return True
+        except Exception as e:
+            logger.error(f"数据库连接失败: {e}")
+            return False
 
     def close(self):
         """关闭数据库连接"""
