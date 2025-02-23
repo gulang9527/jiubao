@@ -57,6 +57,33 @@ from config import (
     WEB_PORT
 )
 
+def require_group_permission(permission):
+    """权限验证装饰器"""
+    def decorator(func):
+        async def wrapper(self, update, context, *args, **kwargs):
+            if not update.effective_chat:
+                return
+            if not await self.has_permission(update.effective_chat.id, permission):
+                await update.message.reply_text("❌ 权限不足")
+                return
+            return await func(self, update, context, *args, **kwargs)
+        return wrapper
+    return decorator
+
+def handle_callback_errors(func):
+    """回调错误处理装饰器"""
+    async def wrapper(self, update, context, *args, **kwargs):
+        try:
+            return await func(self, update, context, *args, **kwargs)
+        except Exception as e:
+            logger.error(f"Callback error in {func.__name__}: {e}")
+            if update.callback_query:
+                await update.callback_query.answer()
+                await update.callback_query.edit_message_text(
+                    "❌ 操作出错，请重试"
+                )
+    return wrapper
+    
 # 配置日志
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -74,46 +101,84 @@ load_dotenv()
 class SettingsManager:
     def __init__(self, db):
         self.db = db
-        self._temp_settings = {}
-        self._pages = {}
+        self._states = {}
+        self._locks = {}
+        self._cleanup_task = None
         
-    def get_current_page(self, group_id: int, section: str) -> int:
+    async def start(self):
+        """启动状态管理器"""
+        self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+        
+    async def stop(self):
+        """停止状态管理器"""
+        if self._cleanup_task:
+            self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
+            except asyncio.CancelledError:
+                pass
+                
+    async def _cleanup_loop(self):
+        """清理过期状态"""
+        while True:
+            try:
+                now = datetime.now()
+                expired_keys = []
+                for key, state in self._states.items():
+                    if (now - state['timestamp']).total_seconds() > 300:  # 5分钟超时
+                        expired_keys.append(key)
+                for key in expired_keys:
+                    del self._states[key]
+                await asyncio.sleep(60)  # 每分钟检查一次
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"State cleanup error: {e}")
+                await asyncio.sleep(60)
+
+    async def get_current_page(self, group_id: int, section: str) -> int:
         """获取当前页码"""
-        key = f"{group_id}_{section}"
-        return self._pages.get(key, 1)
+        state_key = f"page_{group_id}_{section}"
+        state = self._states.get(state_key, {})
+        return state.get('page', 1)
         
-    def set_current_page(self, group_id: int, section: str, page: int):
+    async def set_current_page(self, group_id: int, section: str, page: int):
         """设置当前页码"""
-        key = f"{group_id}_{section}"
-        self._pages[key] = page
-        
-    def start_setting(self, user_id: int, setting_type: str, group_id: int):
-        """开始设置过程"""
-        key = f"{user_id}_{setting_type}"
-        self._temp_settings[key] = {
-            'group_id': group_id,
-            'step': 1,
-            'data': {}
+        state_key = f"page_{group_id}_{section}"
+        self._states[state_key] = {
+            'page': page,
+            'timestamp': datetime.now()
         }
         
-    def get_setting_state(self, user_id: int, setting_type: str) -> dict:
-        """获取设置状态"""
-        key = f"{user_id}_{setting_type}"
-        return self._temp_settings.get(key)
+    async def start_setting(self, user_id: int, setting_type: str, group_id: int):
+        """开始设置过程"""
+        state_key = f"setting_{user_id}_{setting_type}"
+        self._states[state_key] = {
+            'group_id': group_id,
+            'step': 1,
+            'data': {},
+            'timestamp': datetime.now()
+        }
         
-    def update_setting_state(self, user_id: int, setting_type: str, data: dict):
+    async def get_setting_state(self, user_id: int, setting_type: str) -> dict:
+        """获取设置状态"""
+        state_key = f"setting_{user_id}_{setting_type}"
+        return self._states.get(state_key)
+        
+    async def update_setting_state(self, user_id: int, setting_type: str, data: dict):
         """更新设置状态"""
-        key = f"{user_id}_{setting_type}"
-        if key in self._temp_settings:
-            self._temp_settings[key]['data'].update(data)
-            self._temp_settings[key]['step'] += 1
+        state_key = f"setting_{user_id}_{setting_type}"
+        if state_key in self._states:
+            self._states[state_key]['data'].update(data)
+            self._states[state_key]['step'] += 1
+            self._states[state_key]['timestamp'] = datetime.now()
             
-    def clear_setting_state(self, user_id: int, setting_type: str):
+    async def clear_setting_state(self, user_id: int, setting_type: str):
         """清除设置状态"""
-        key = f"{user_id}_{setting_type}"
-        if key in self._temp_settings:
-            del self._temp_settings[key]
-
+        state_key = f"setting_{user_id}_{setting_type}"
+        if state_key in self._states:
+            del self._states[state_key]
+            
 class StatsManager:
     def __init__(self, db):
         self.db = db
@@ -1130,32 +1195,25 @@ class TelegramBot:
         try:
             data = query.data
             parts = data.split('_')
-    
+
             # 健壮性检查
             if len(parts) < 3:
                 await query.edit_message_text("❌ 无效的操作")
                 return
-    
+
             action = parts[1]
-    
-            # 尝试获取group_id，处理可能的异常情况
-            try:
-                group_id = int(parts[-1])
-            except ValueError:
-                await query.edit_message_text("❌ 无效的群组ID")
-                return
-    
+            group_id = int(parts[-1])
+
             # 验证权限
             if not await self.db.can_manage_group(update.effective_user.id, group_id):
                 await query.edit_message_text("❌ 无权限管理此群组")
                 return
-    
+
             if not await self.has_permission(group_id, GroupPermission.BROADCAST):
                 await query.edit_message_text("❌ 此群组未启用轮播功能")
                 return
-    
+
             if action == "add":
-                # 选择消息类型
                 keyboard = [
                     [
                         InlineKeyboardButton("文本", callback_data=f"broadcast_type_text_{group_id}"),
@@ -1169,50 +1227,48 @@ class TelegramBot:
                         InlineKeyboardButton("取消", callback_data=f"settings_broadcast_{group_id}")
                     ]
                 ]
-    
+
                 await query.edit_message_text(
                     "请选择轮播消息类型：",
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-    
+
             elif action == "type":
-                # 处理消息类型选择
                 content_type = parts[2]
-    
-                # 开始添加轮播消息流程
-                self.settings_manager.start_setting(
+                await self.settings_manager.start_setting(
                     update.effective_user.id,
                     'broadcast',
                     group_id
                 )
-    
-                self.settings_manager.update_setting_state(
+                await self.settings_manager.update_setting_state(
                     update.effective_user.id,
                     'broadcast',
                     {'content_type': content_type}
                 )
-    
+
                 type_prompts = {
                     'text': '文本内容',
                     'photo': '图片',
                     'video': '视频',
                     'document': '文件'
                 }
-    
+
                 await query.edit_message_text(
                     f"请发送要轮播的{type_prompts.get(content_type, '内容')}：\n\n"
                     f"发送 /cancel 取消"
                 )
 
+            elif action == "delete":
+                broadcast_id = ObjectId(parts[2])
+                await self.db.db.broadcasts.delete_one({
+                    '_id': broadcast_id,
+                    'group_id': group_id
+                })
+                await self._show_broadcast_settings(query, group_id)
+
         except Exception as e:
             logger.error(f"处理轮播消息回调错误: {e}")
-            logger.error(traceback.format_exc())
-        
-            # 尝试返回轮播消息设置页面
-            try:
-                await query.edit_message_text("❌ 处理轮播消息设置时出错，请重试")
-            except Exception:
-                pass
+            await query.edit_message_text("❌ 处理轮播消息设置时出错，请重试")
 
     async def _handle_stats_edit_callback(self, update: Update, context):
         """处理统计设置编辑回调"""
@@ -1464,7 +1520,7 @@ class TelegramBot:
         """处理消息"""
         if not update.effective_chat or not update.effective_user or not update.message:
             return
-        
+    
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
         message = update.message
@@ -1472,6 +1528,17 @@ class TelegramBot:
         # 获取用户角色
         user = await self.db.get_user(user_id)
         user_role = user['role'] if user else 'user'
+
+        # 检查是否有正在进行的设置操作
+        setting_states = {
+            'keyword': self.settings_manager.get_setting_state(user_id, 'keyword'),
+            'broadcast': self.settings_manager.get_setting_state(user_id, 'broadcast'),
+            'stats_min_bytes': self.settings_manager.get_setting_state(user_id, 'stats_min_bytes'),
+            'stats_daily_rank': self.settings_manager.get_setting_state(user_id, 'stats_daily_rank'),
+            'stats_monthly_rank': self.settings_manager.get_setting_state(user_id, 'stats_monthly_rank')
+        }
+
+        active_states = {k: v for k, v in setting_states.items() if v}
 
         # 检查是否免除自动删除
         command = message.text.split()[0] if message.text else None
@@ -1862,23 +1929,25 @@ class TelegramBot:
         query = update.callback_query
         await query.answer()
 
+        data = query.data
+        parts = data.split('_')
+
+        # 健壮性检查
+        if len(parts) < 3:
+            await query.edit_message_text("❌ 无效的操作")
+            return
+
         try:
-            data = query.data
-            parts = data.split('_')
-    
-            # 健壮性检查
-            if len(parts) < 3:
-                await query.edit_message_text("❌ 无效的操作")
-                return
-    
             action = parts[1]
-    
-            # 尝试获取group_id，处理可能的异常情况
-            try:
-                group_id = int(parts[-1])
-            except ValueError:
-                await query.edit_message_text("❌ 无效的群组ID")
-                return
+            group_id = int(parts[-1])
+        except (IndexError, ValueError):
+            await query.edit_message_text("❌ 无效的群组ID")
+            return
+
+        # 验证权限
+        if not await self.db.can_manage_group(update.effective_user.id, group_id):
+            await query.edit_message_text("❌ 无权限管理此群组")
+            return
 
             if action == "add":
                 # 创建选择匹配类型的键盘
@@ -2080,9 +2149,10 @@ class TelegramBot:
             step = setting_state['step']
             group_id = setting_state['group_id']
             content_type = setting_state['data'].get('content_type')
-    
+
             if step == 1:
                 # 获取消息内容
+                content = None
                 if content_type == 'text':
                     content = update.message.text
                 elif content_type == 'photo':
@@ -2091,24 +2161,25 @@ class TelegramBot:
                     content = update.message.video.file_id if update.message.video else None
                 elif content_type == 'document':
                     content = update.message.document.file_id if update.message.document else None
-                else:
-                    await update.message.reply_text("❌ 不支持的消息类型")
-                    return
-            
+
                 if not content:
                     await update.message.reply_text(f"❌ 请发送正确的{content_type}内容")
                     return
-            
-                # 直接提示输入轮播时间
+
+                # 检查内容限制
+                if content_type == 'text' and len(content) > 4096:  # Telegram消息长度限制
+                    await update.message.reply_text("❌ 文本内容过长")
+                    await self.settings_manager.clear_setting_state(update.effective_user.id, 'broadcast')
+                    return
+
                 await update.message.reply_text(
                     "请设置轮播时间参数：\n"
                     "格式：开始时间 结束时间 间隔(秒)\n"
                     "例如：2024-02-22 08:00 2024-03-22 20:00 3600\n\n"
                     "发送 /cancel 取消"
                 )
-            
-                # 保存内容并更新状态
-                self.settings_manager.update_setting_state(
+
+                await self.settings_manager.update_setting_state(
                     update.effective_user.id,
                     'broadcast',
                     {
@@ -2116,24 +2187,23 @@ class TelegramBot:
                         'content': content
                     }
                 )
-        
+
             elif step == 2:
-                # 保留原有的时间处理逻辑
                 try:
                     parts = update.message.text.split()
                     if len(parts) != 5:
                         raise ValueError("参数数量不正确")
-                
+
                     start_time = validate_time_format(f"{parts[0]} {parts[1]}")
                     end_time = validate_time_format(f"{parts[2]} {parts[3]}")
                     interval = validate_interval(parts[4])
-            
+
                     if not all([start_time, end_time, interval]):
                         raise ValueError("时间格式无效")
-                
+
                     if start_time >= end_time:
                         raise ValueError("结束时间必须晚于开始时间")
-                
+
                     if interval < BROADCAST_SETTINGS['min_interval']:
                         raise ValueError(f"间隔时间不能小于{format_duration(BROADCAST_SETTINGS['min_interval'])}")
 
@@ -2144,7 +2214,7 @@ class TelegramBot:
                             f"❌ 轮播消息数量已达到上限 {BROADCAST_SETTINGS['max_broadcasts']} 条"
                         )
                         return
-                
+
                     # 添加轮播消息
                     await self.db.db.broadcasts.insert_one({
                         'group_id': group_id,
@@ -2154,20 +2224,19 @@ class TelegramBot:
                         'end_time': end_time,
                         'interval': interval
                     })
-                
+
                     await update.message.reply_text("✅ 轮播消息添加成功！")
-                
-                    # 清除设置状态
-                    self.settings_manager.clear_setting_state(update.effective_user.id, 'broadcast')
-                
+
                 except ValueError as e:
                     await update.message.reply_text(f"❌ {str(e)}")
                     return
-                
+                finally:
+                    await self.settings_manager.clear_setting_state(update.effective_user.id, 'broadcast')
+
         except Exception as e:
             logger.error(f"处理轮播消息添加错误: {e}")
-            logger.error(traceback.format_exc())
             await update.message.reply_text("❌ 添加轮播消息时出错")
+            await self.settings_manager.clear_setting_state(update.effective_user.id, '
 
     async def _handle_keyword_response_type_callback(self, update: Update, context):
         """处理关键词响应类型的回调"""
