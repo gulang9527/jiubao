@@ -613,33 +613,33 @@ class TelegramBot:
     async def _handle_webhook(self, request):
         """处理Telegram webhook请求"""
         try:
-        # 检查请求内容类型
-        if request.content_type != 'application/json':
-            logger.warning(f"收到无效的内容类型: {request.content_type}")
-            return web.Response(status=415, text="Unsupported Media Type")
+            # 检查请求内容类型
+            if request.content_type != 'application/json':
+                logger.warning(f"收到无效的内容类型: {request.content_type}")
+                return web.Response(status=415, text="Unsupported Media Type")
             
-        update_data = await request.json()
-        if not update_data:
-            logger.warning("收到空的更新数据")
-            return web.Response(status=400, text="Empty Update")
+            update_data = await request.json()
+            if not update_data:
+                logger.warning("收到空的更新数据")
+                return web.Response(status=400, text="Empty Update")
             
-        update = Update.de_json(update_data, self.application.bot)
+            update = Update.de_json(update_data, self.application.bot)
         
-        if update:
-            await self.application.process_update(update)
-        else:
-            logger.warning("收到无效的更新")
+            if update:
+                await self.application.process_update(update)
+            else:
+                logger.warning("收到无效的更新")
         
-        return web.Response(status=200)
+            return web.Response(status=200)
     
-    except json.JSONDecodeError:
-        logger.error("Webhook请求中的JSON无效")
-        return web.Response(status=400, text="Invalid JSON")
+        except json.JSONDecodeError:
+            logger.error("Webhook请求中的JSON无效")
+            return web.Response(status=400, text="Invalid JSON")
     
-    except Exception as e:
-        logger.error(f"处理Webhook时出错: {e}")
-        logger.error(traceback.format_exc())
-        return web.Response(status=500, text="Internal Server Error")
+        except Exception as e:
+            logger.error(f"处理Webhook时出错: {e}")
+            logger.error(traceback.format_exc())
+            return web.Response(status=500, text="Internal Server Error")
 
     async def _register_handlers(self):
         """注册各种事件处理器"""
