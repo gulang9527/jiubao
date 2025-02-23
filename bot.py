@@ -861,11 +861,10 @@ class TelegramBot:
 
     async def _show_broadcast_settings(self, query, group_id: int):
         """显示轮播消息设置页面"""
-        # 获取轮播消息列表
         broadcasts = await self.db.db.broadcasts.find({
             'group_id': group_id
         }).to_list(None)
-        
+    
         keyboard = []
         for bc in broadcasts:
             preview = (bc['content'][:20] + '...') if len(str(bc['content'])) > 20 else str(bc['content'])
@@ -875,21 +874,21 @@ class TelegramBot:
                     callback_data=f"broadcast_detail_{group_id}_{bc['_id']}"
                 )
             ])
-        
+    
         keyboard.append([
             InlineKeyboardButton(
                 "➕ 添加轮播消息", 
                 callback_data=f"broadcast_add_{group_id}"
             )
         ])
-        
+    
         keyboard.append([
             InlineKeyboardButton(
                 "返回设置菜单", 
                 callback_data=f"settings_select_{group_id}"
             )
         ])
-        
+    
         await query.edit_message_text(
             f"群组 {group_id} 的轮播消息设置",
             reply_markup=InlineKeyboardMarkup(keyboard)
@@ -934,6 +933,18 @@ class TelegramBot:
             if section == "stats":
                 # 获取当前群组的统计设置
                 settings = await self.db.get_group_settings(group_id)
+                await self._show_stats_settings(query, group_id, settings)
+                
+            elif section == "broadcast":
+                await self._show_broadcast_settings(query, group_id)
+                
+            elif section == "keywords":
+                await self._show_keyword_settings(query, group_id)
+                
+        except Exception as e:
+            logger.error(f"处理设置分区显示错误: {e}")
+            logger.error(traceback.format_exc())
+            await query.edit_message_text("❌ 显示设置分区时出错")
                 
                 # 创建设置展示和修改的键盘
                 keyboard = [
@@ -2035,90 +2046,94 @@ class TelegramBot:
             step = setting_state['step']
             group_id = setting_state['group_id']
             match_type = setting_state['data'].get('match_type')
-    
-            if step == 1:
-                # 获取关键词
+
+            if step == 1:  # 输入关键词
                 pattern = update.message.text
-                max_length = 500  # 增加字符限制
-            
+                max_length = 500
+
                 if len(pattern) > max_length:
                     await update.message.reply_text(f"❌ 关键词过长，请不要超过 {max_length} 个字符")
                     return
-                
+            
                 # 如果是正则，验证正则表达式
                 if match_type == 'regex':
                     if not validate_regex(pattern):
                         await update.message.reply_text("❌ 无效的正则表达式格式")
                         return
-                    
+                
                 setting_state['data']['pattern'] = pattern
-            
+                setting_state['data']['type'] = match_type
+
                 # 选择响应类型
                 keyboard = [
                     [
-                        InlineKeyboardButton("文本", callback_data="keyword_response_text"),
-                        InlineKeyboardButton("图片", callback_data="keyword_response_photo")
+                        InlineKeyboardButton("文本", callback_data=f"keyword_response_text_{group_id}"),
+                        InlineKeyboardButton("图片", callback_data=f"keyword_response_photo_{group_id}")
                     ],
                     [
-                        InlineKeyboardButton("视频", callback_data="keyword_response_video"),
-                        InlineKeyboardButton("文件", callback_data="keyword_response_document")
+                        InlineKeyboardButton("视频", callback_data=f"keyword_response_video_{group_id}"),
+                        InlineKeyboardButton("文件", callback_data=f"keyword_response_document_{group_id}")
                     ],
                     [
                         InlineKeyboardButton("取消", callback_data=f"settings_keywords_{group_id}")
                     ]
                 ]
-            
+
                 await update.message.reply_text(
                     "请选择关键词响应的类型：",
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
 
-            elif step == 2:
-                    # 获取关键词响应
-                    response_type = setting_state['data'].get('response_type')
-                
-                    if response_type == 'text':
-                        response = update.message.text
-                        if len(response) > KEYWORD_SETTINGS['max_response_length']:
-                            await update.message.reply_text(f"❌ 响应内容过长，请不要超过 {KEYWORD_SETTINGS['max_response_length']} 个字符")
-                            return
-                        file_id = response
-                    elif response_type in ['photo', 'video', 'document']:
-                        media_methods = {
-                            'photo': lambda m: m.photo[-1].file_id if m.photo else None,
-                            'video': lambda m: m.video.file_id if m.video else None,
-                            'document': lambda m: m.document.file_id if m.document else None
-                        }
-                    
-                        file_id = media_methods[response_type](update.message)
-                    
-                        if not file_id:
-                            await update.message.reply_text(f"❌ 请发送一个{response_type}")
-                            return
-                    else:
-                        await update.message.reply_text("❌ 未知的响应类型")
+            elif step == 2:  # 输入响应内容
+                response_type = setting_state['data'].get('response_type')
+            
+                if not response_type:
+                    await update.message.reply_text("❌ 请先选择响应类型")
+                    return
+
+                if response_type == 'text':
+                    response = update.message.text
+                    if len(response) > KEYWORD_SETTINGS['max_response_length']:
+                        await update.message.reply_text(
+                            f"❌ 响应内容过长，请不要超过 {KEYWORD_SETTINGS['max_response_length']} 个字符"
+                        )
                         return
+                    file_id = response
+                else:  # 媒体类型响应
+                    media_methods = {
+                        'photo': lambda m: m.photo[-1].file_id if m.photo else None,
+                        'video': lambda m: m.video.file_id if m.video else None,
+                        'document': lambda m: m.document.file_id if m.document else None
+                    }
                 
-                    # 检查关键词数量是否超过限制
-                    keywords = await self.db.get_keywords(group_id)
-                    if len(keywords) >= KEYWORD_SETTINGS['max_keywords']:
-                        await update.message.reply_text(f"❌ 关键词数量已达到上限 {KEYWORD_SETTINGS['max_keywords']} 个")
+                    file_id = media_methods[response_type](update.message)
+                
+                    if not file_id:
+                        await update.message.reply_text(f"❌ 请发送一个{response_type}")
                         return
-                
-                    # 添加关键词
-                    await self.db.add_keyword({
-                        'group_id': group_id,
-                        'pattern': setting_state['data']['pattern'],
-                        'type': setting_state['data']['type'],
-                        'response': file_id,
-                        'response_type': response_type
-                    })
-                
-                    await update.message.reply_text("✅ 关键词添加成功！")
-                
-                    # 清除设置状态
-                    self.settings_manager.clear_setting_state(update.effective_user.id, 'keyword')
-        
+
+                # 检查关键词数量限制
+                keywords = await self.db.get_keywords(group_id)
+                if len(keywords) >= KEYWORD_SETTINGS['max_keywords']:
+                    await update.message.reply_text(
+                        f"❌ 关键词数量已达到上限 {KEYWORD_SETTINGS['max_keywords']} 个"
+                    )
+                    return
+
+                # 添加关键词
+                await self.db.add_keyword({
+                    'group_id': group_id,
+                    'pattern': setting_state['data']['pattern'],
+                    'type': setting_state['data']['match_type'],
+                    'response': file_id,
+                    'response_type': response_type
+                })
+
+                await update.message.reply_text("✅ 关键词添加成功！")
+
+                # 清除设置状态
+                self.settings_manager.clear_setting_state(update.effective_user.id, 'keyword')
+
         except Exception as e:
             logger.error(f"处理关键词添加错误: {e}")
             logger.error(traceback.format_exc())
@@ -2220,24 +2235,26 @@ class TelegramBot:
         """处理关键词响应类型的回调"""
         query = update.callback_query
         await query.answer()
-        
+    
         try:
             data = query.data
-            response_type = data.split('_')[-1]  # 获取响应类型
-            
+            parts = data.split('_')
+            response_type = parts[2]  # 获取响应类型
+            group_id = int(parts[3])  # 获取群组ID
+        
             # 获取当前设置状态
             setting_state = self.settings_manager.get_setting_state(
                 update.effective_user.id,
                 'keyword'
             )
-            
+        
             if not setting_state:
                 await query.edit_message_text("❌ 设置会话已过期，请重新开始")
                 return
-                
+            
             # 更新设置状态
             setting_state['data']['response_type'] = response_type
-            
+        
             # 根据响应类型提示用户
             if response_type == 'text':
                 prompt = "请发送关键词的文本回复内容："
@@ -2250,18 +2267,19 @@ class TelegramBot:
             else:
                 await query.edit_message_text("❌ 不支持的响应类型")
                 return
-                
+            
             await query.edit_message_text(
                 f"{prompt}\n"
                 "发送 /cancel 取消"
             )
-            
+        
+            # 更新设置状态到下一步
             self.settings_manager.update_setting_state(
                 update.effective_user.id,
                 'keyword',
                 {'response_type': response_type}
             )
-            
+        
         except Exception as e:
             logger.error(f"处理关键词响应类型回调错误: {e}")
             logger.error(traceback.format_exc())
