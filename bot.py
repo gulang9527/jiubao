@@ -1470,7 +1470,7 @@ class TelegramBot:
 
     @handle_callback_errors
     async def _handle_broadcast_callback(self, update: Update, context):
-         """
+        """
         处理轮播消息的回调查询
     
         该函数处理轮播消息的添加、编辑和删除操作。
