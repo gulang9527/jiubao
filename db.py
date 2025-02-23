@@ -50,10 +50,16 @@ class Database:
             logger.error(f"数据库连接失败: {e}")
             return False
 
-    def close(self):
-        """关闭数据库连接"""
-        if self.client:
-            self.client.close()
+    async def close(self):
+        """异步关闭数据库连接"""
+        try:
+            if self.client:
+                await self.client.close()
+                self.client = None
+                self.db = None
+                logger.info("数据库连接已关闭")
+        except Exception as e:
+            logger.error(f"关闭数据库连接时出错: {e}")
 
     async def init_indexes(self):
         """初始化所有集合的索引"""
