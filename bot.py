@@ -1991,7 +1991,7 @@ class TelegramBot:
 def async_main():
     """异步主入口点"""
     try:
-        asyncio.run(TelegramBot.main())
+        asyncio.run(TelegramBot.main(TelegramBot))
     except KeyboardInterrupt:
         logger.info("机器人被用户停止")
     except Exception as e:
