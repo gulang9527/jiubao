@@ -2247,83 +2247,92 @@ class TelegramBot:
             await update.message.reply_text("❌ 解除群组授权时出错")
 
     @handle_callback_errors
-    async def _handle_keyword_callback(self, update: Update, context):
-        """处理关键词回调"""
+    async def _handle_keyword_response_type_callback(self, update: Update, context):
+        """处理关键词响应类型的回调"""
         query = update.callback_query
         await query.answer()
-
-        data = query.data
-        parts = data.split('_')
-
-        # 健壮性检查
-        if len(parts) < 3:
-            await query.edit_message_text("❌ 无效的操作")
-            return
-
+    
         try:
-            action = parts[1]
-            group_id = int(parts[-1])
-        except (IndexError, ValueError):
-            await query.edit_message_text("❌ 无效的群组ID")
-            return
-
-        # 验证权限
-        if not await self.db.can_manage_group(update.effective_user.id, group_id):
-            await query.edit_message_text("❌ 无权限管理此群组")
-            return
-
-            if action == "add":
-                # 创建选择匹配类型的键盘
-                keyboard = [
-                    [
-                        InlineKeyboardButton(
-                            "精确匹配", 
-                            callback_data=f"keyword_matchtype_exact_{group_id}"
-                        ),
-                        InlineKeyboardButton(
-                            "正则匹配", 
-                            callback_data=f"keyword_matchtype_regex_{group_id}"
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            "取消", 
-                            callback_data=f"settings_keywords_{group_id}"
-                        )
-                    ]
-                ]
-
-                await query.edit_message_text(
-                    "请选择关键词匹配类型：",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+            data = query.data
+            parts = data.split('_')
+            response_type = parts[2]  # 获取响应类型
+            group_id = int(parts[3])  # 获取群组ID
         
-            elif action == "matchtype":
-                match_type = parts[2]  # exact 或 regex
+            # 获取当前设置状态
+            setting_state = self.settings_manager.get_setting_state(
+                update.effective_user.id,
+                'keyword'
+            )
+        
+            if not setting_state:
+                await query.edit_message_text("❌ 设置会话已过期，请重新开始")
+                return
             
-                # 开始添加关键词流程
-                self.settings_manager.start_setting(
-                    update.effective_user.id,
-                    'keyword',
-                    group_id
-                )
+            # 更新设置状态
+            setting_state['data']['response_type'] = response_type
+        
+            # 根据响应类型提示用户
+            if response_type == 'text':
+                prompt = "请发送关键词的文本回复内容："
+            elif response_type == 'photo':
+                prompt = "请发送关键词要回复的图片："
+            elif response_type == 'video':
+                prompt = "请发送关键词要回复的视频："
+            elif response_type == 'document':
+                prompt = "请发送关键词要回复的文件："
+            else:
+                await query.edit_message_text("❌ 不支持的响应类型")
+                return
             
-                # 保存匹配类型
-                self.settings_manager.update_setting_state(
-                    update.effective_user.id,
-                    'keyword',
-                    {'match_type': match_type}
-                )
-
-                await query.edit_message_text(
-                    f"请输入关键词（{'精确' if match_type == 'exact' else '正则'}匹配）：\n"
-                    "发送 /cancel 取消"
-                )
-
+            await query.edit_message_text(
+                f"{prompt}\n"
+                "发送 /cancel 取消"
+            )
+        
+            # 更新设置状态到下一步
+            self.settings_manager.update_setting_state(
+                update.effective_user.id,
+                'keyword',
+                {'response_type': response_type}
+            )
+        
         except Exception as e:
-            logger.error(f"处理关键词回调错误: {e}")
+            logger.error(f"处理关键词响应类型回调错误: {e}")
             logger.error(traceback.format_exc())
-            await query.edit_message_text("❌ 处理关键词设置时出错")
+            await query.edit_message_text("❌ 处理响应类型选择时出错")
+
+    async def _handle_broadcast_message_type(self, update: Update, context, content_type: str):
+        """处理广播消息类型选择"""
+        try:
+            query = update.callback_query
+            if content_type == 'text':
+                prompt = "请发送轮播消息的文本内容："
+            elif content_type == 'photo':
+                prompt = "请发送要轮播的图片："
+            elif content_type == 'video':
+                prompt = "请发送要轮播的视频："
+            elif content_type == 'document':
+                prompt = "请发送要轮播的文件："
+            else:
+                await query.edit_message_text("❌ 不支持的消息类型")
+                return
+            
+            await query.edit_message_text(
+                f"{prompt}\n"
+                "发送 /cancel 取消"
+            )
+            
+            # 更新设置状态
+            await self.settings_manager.update_setting_state(
+                update.effective_user.id,
+                'broadcast',
+                {'content_type': content_type}
+            )
+            
+        except Exception as e:
+            logger.error(f"处理广播消息类型选择错误: {e}")
+            logger.error(traceback.format_exc())
+            await query.edit_message_text("❌ 处理消息类型选择时出错")
         
     async def handle_keyword_response(
             self, 
