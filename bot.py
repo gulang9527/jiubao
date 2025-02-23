@@ -1285,45 +1285,45 @@ class TelegramBot:
             logger.error(f"处理统计设置编辑回调错误: {e}")
             await query.edit_message_text("❌ 处理统计设置编辑时出错")
 
-async def _show_stats_settings(self, query, group_id: int, settings: dict):
-    """显示统计设置页面"""
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                f"最小统计字节数: {settings.get('min_bytes', 0)} 字节", 
-                callback_data=f"stats_edit_min_bytes_{group_id}"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                f"统计多媒体: {'是' if settings.get('count_media', False) else '否'}", 
-                callback_data=f"stats_edit_toggle_media_{group_id}"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                f"日排行显示数量: {settings.get('daily_rank_size', 15)}", 
-                callback_data=f"stats_edit_daily_rank_{group_id}"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                f"月排行显示数量: {settings.get('monthly_rank_size', 15)}", 
-                callback_data=f"stats_edit_monthly_rank_{group_id}"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "返回设置菜单", 
-                callback_data=f"settings_select_{group_id}"
-            )
+    async def _show_stats_settings(self, query, group_id: int, settings: dict):
+        """显示统计设置页面"""
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    f"最小统计字节数: {settings.get('min_bytes', 0)} 字节", 
+                    callback_data=f"stats_edit_min_bytes_{group_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"统计多媒体: {'是' if settings.get('count_media', False) else '否'}", 
+                    callback_data=f"stats_edit_toggle_media_{group_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"日排行显示数量: {settings.get('daily_rank_size', 15)}", 
+                    callback_data=f"stats_edit_daily_rank_{group_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"月排行显示数量: {settings.get('monthly_rank_size', 15)}", 
+                    callback_data=f"stats_edit_monthly_rank_{group_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "返回设置菜单", 
+                    callback_data=f"settings_select_{group_id}"
+                )
+            ]
         ]
-    ]
     
-    await query.edit_message_text(
-        f"群组 {group_id} 的统计设置",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+        await query.edit_message_text(
+            f"群组 {group_id} 的统计设置",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
     async def _process_stats_setting(self, update: Update, context, stats_state, setting_type):
         """处理统计设置编辑"""
