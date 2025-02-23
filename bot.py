@@ -2559,7 +2559,7 @@ class TelegramBot:
         except Exception as e:
             logger.error(f"处理轮播消息添加错误: {e}")
             await update.message.reply_text("❌ 添加轮播消息时出错")
-            await self.settings_manager.clear_setting_state(update.effective_user.id, '
+            await self.settings_manager.clear_setting_state(update.effective_user.id, 'broadcast')
 
     async def _handle_keyword_response_type_callback(self, update: Update, context):
         """处理关键词响应类型的回调"""
