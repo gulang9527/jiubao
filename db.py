@@ -6,6 +6,9 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ASCENDING, DESCENDING
 from bson import ObjectId
 
+# 添加日志记录器
+logger = logging.getLogger(__name__)
+
 class UserRole(Enum):
     USER = "user"
     ADMIN = "admin"
