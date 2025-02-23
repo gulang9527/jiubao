@@ -333,6 +333,234 @@ class KeywordManager:
                 return kw
         return None
 
+from typing import Optional, Callable, Any
+from telegram.ext import CallbackContext
+import functools
+
+class ErrorHandler:
+    """统一错误处理器"""
+    def __init__(self, logger):
+        self.logger = logger
+        self._error_handlers = {}
+        self._setup_default_handlers()
+        
+    def _setup_default_handlers(self):
+        """设置默认错误处理器"""
+        self._error_handlers.update({
+            'InvalidToken': self._handle_invalid_token,
+            'Unauthorized': self._handle_unauthorized,
+            'TimedOut': self._handle_timeout,
+            'NetworkError': self._handle_network_error,
+            'ChatMigrated': self._handle_chat_migrated,
+            'TelegramError': self._handle_telegram_error,
+        })
+        
+    async def _handle_invalid_token(self, update: Update, error: Exception) -> str:
+        """处理无效令牌错误"""
+        self.logger.critical("Bot token is invalid!")
+        return "❌ 机器人配置错误，请联系管理员"
+        
+    async def _handle_unauthorized(self, update: Update, error: Exception) -> str:
+        """处理未授权错误"""
+        self.logger.error(f"Unauthorized error: {error}")
+        return "❌ 权限不足，无法执行该操作"
+        
+    async def _handle_timeout(self, update: Update, error: Exception) -> str:
+        """处理超时错误"""
+        self.logger.warning(f"Request timed out: {error}")
+        return "❌ 操作超时，请重试"
+        
+    async def _handle_network_error(self, update: Update, error: Exception) -> str:
+        """处理网络错误"""
+        self.logger.error(f"Network error occurred: {error}")
+        return "❌ 网络错误，请稍后重试"
+        
+    async def _handle_chat_migrated(self, update: Update, error: Exception) -> str:
+        """处理群组迁移错误"""
+        self.logger.info(f"Chat migrated to {error.new_chat_id}")
+        return "群组ID已更新，请重新设置"
+        
+    async def _handle_telegram_error(self, update: Update, error: Exception) -> str:
+        """处理一般Telegram错误"""
+        self.logger.error(f"Telegram error occurred: {error}")
+        return "❌ 操作失败，请重试"
+        
+    def register_handler(self, error_type: str, handler: Callable):
+        """注册自定义错误处理器"""
+        self._error_handlers[error_type] = handler
+        
+    async def handle_error(self, update: Update, context: CallbackContext) -> None:
+        """统一错误处理入口"""
+        error = context.error
+        error_type = type(error).__name__
+        
+        try:
+            # 获取对应的错误处理器
+            handler = self._error_handlers.get(
+                error_type, 
+                self._handle_telegram_error
+            )
+            
+            # 处理错误并获取消息
+            error_message = await handler(update, error)
+            
+            # 记录错误
+            self.logger.error(
+                f"Update {update} caused error {error}",
+                exc_info=context.error
+            )
+            
+            # 发送错误消息
+            if update.callback_query:
+                await update.callback_query.answer()
+                await update.callback_query.edit_message_text(error_message)
+            elif update.message:
+                await update.message.reply_text(error_message)
+                
+        except Exception as e:
+            self.logger.error(f"Error handling failed: {e}")
+
+class ErrorHandlingMiddleware:
+    """错误处理中间件"""
+    def __init__(self, error_handler: ErrorHandler):
+        self.error_handler = error_handler
+        
+    async def __call__(self, update: Update, context: CallbackContext) -> Any:
+        try:
+            return await context.dispatch()
+        except Exception as e:
+            await self.error_handler.handle_error(update, context)
+            # 重新抛出错误以便框架处理
+            raise
+
+def error_handler(func: Callable) -> Callable:
+    """错误处理装饰器"""
+    @functools.wraps(func)
+    async def wrapper(self, update: Update, context: CallbackContext, *args, **kwargs):
+        try:
+            return await func(self, update, context, *args, **kwargs)
+        except Exception as e:
+            await self.error_handler.handle_error(update, context)
+            raise
+    return wrapper
+
+class CommandHelper:
+    """命令帮助工具类"""
+    
+    COMMAND_USAGE = {
+        'start': {
+            'usage': '/start',
+            'description': '启动机器人并查看功能列表',
+            'example': None,
+            'admin_only': False
+        },
+        'settings': {
+            'usage': '/settings',
+            'description': '打开设置菜单',
+            'example': None,
+            'admin_only': True
+        },
+        'tongji': {
+            'usage': '/tongji [页码]',
+            'description': '查看今日统计排行',
+            'example': '/tongji 2',
+            'admin_only': False
+        },
+        'tongji30': {
+            'usage': '/tongji30 [页码]',
+            'description': '查看30日统计排行',
+            'example': '/tongji30 2',
+            'admin_only': False
+        },
+        'addadmin': {
+            'usage': '/addadmin <用户ID>',
+            'description': '添加管理员',
+            'example': '/addadmin 123456789',
+            'admin_only': True
+        },
+        'deladmin': {
+            'usage': '/deladmin <用户ID>',
+            'description': '删除管理员',
+            'example': '/deladmin 123456789',
+            'admin_only': True
+        },
+        'authgroup': {
+            'usage': '/authgroup <群组ID> [权限1] [权限2] ...',
+            'description': '授权群组',
+            'example': '/authgroup -100123456789 keywords stats broadcast',
+            'admin_only': True
+        },
+        'deauthgroup': {
+            'usage': '/deauthgroup <群组ID>',
+            'description': '取消群组授权',
+            'example': '/deauthgroup -100123456789',
+            'admin_only': True
+        }
+    }
+    
+    @classmethod
+    def get_usage(cls, command: str) -> Optional[dict]:
+        """获取命令使用说明"""
+        return cls.COMMAND_USAGE.get(command)
+        
+    @classmethod
+    def format_usage(cls, command: str) -> str:
+        """格式化命令使用说明"""
+        usage = cls.get_usage(command)
+        if not usage:
+            return "❌ 未知命令"
+            
+        text = [
+            f"📝 命令: {command}",
+            f"用法: {usage['usage']}",
+            f"说明: {usage['description']}"
+        ]
+        
+        if usage['example']:
+            text.append(f"示例: {usage['example']}")
+            
+        if usage['admin_only']:
+            text.append("注意: 仅管理员可用")
+            
+        return "\n".join(text)
+        
+    @classmethod
+    def check_usage(cls, update: Update, command: str, args: list) -> bool:
+        """检查命令使用是否正确"""
+        usage = cls.get_usage(command)
+        if not usage:
+            return True
+            
+        # 检查管理员权限
+        if usage['admin_only'] and not await self.is_admin(update.effective_user.id):
+            await update.message.reply_text("❌ 该命令仅管理员可用")
+            return False
+            
+        # 检查参数
+        if '<' in usage['usage'] and not args:
+            await update.message.reply_text(
+                f"❌ 命令使用方法不正确\n{cls.format_usage(command)}"
+            )
+            return False
+            
+        return True
+
+async def check_command_usage(func: Callable) -> Callable:
+    """命令使用检查装饰器"""
+    @functools.wraps(func)
+    async def wrapper(self, update: Update, context: CallbackContext, *args, **kwargs):
+        if not update.effective_message:
+            return
+            
+        message = update.effective_message
+        command = message.text.split()[0].lstrip('/').split('@')[0]
+        
+        if not await CommandHelper.check_usage(update, command, context.args):
+            return
+            
+        return await func(self, update, context, *args, **kwargs)
+    return wrapper
+    
 class TelegramBot:
     
     def __init__(self):
@@ -348,6 +576,7 @@ class TelegramBot:
         self.broadcast_manager = None
         self.stats_manager = None
         self.message_deletion_manager = None
+        self.error_handler = ErrorHandler(logger)
            
     class MessageDeletionManager:
         """管理消息删除的类"""
@@ -739,6 +968,9 @@ class TelegramBot:
 
     async def _register_handlers(self):
         """注册各种事件处理器"""
+        error_middleware = ErrorHandlingMiddleware(self.error_handler)
+        self.application.middleware.append(error_middleware)
+        
         # 普通命令（所有用户可用）
         self.application.add_handler(CommandHandler("start", self._handle_start))
         self.application.add_handler(CommandHandler("tongji", self._handle_rank_command))
@@ -791,6 +1023,7 @@ class TelegramBot:
             pattern=r'^show_manageable_groups$'
         ))
 
+    @check_command_usage
     async def _handle_start(self, update: Update, context):
         """处理 start 命令"""
         if not update.effective_user or not update.message:
@@ -837,6 +1070,7 @@ class TelegramBot:
     
         await update.message.reply_text(welcome_text)
 
+    @check_command_usage
     async def _handle_settings(self, update: Update, context):
         """处理设置命令"""
         try:
@@ -912,7 +1146,47 @@ class TelegramBot:
             await query.edit_message_text("❌ 获取群组列表时出错")
 
     async def _handle_settings_callback(self, update: Update, context):
-        """处理设置回调"""
+        """
+        处理设置菜单的回调查询
+    
+        该函数处理用户在设置菜单中的各种操作，包括：
+        - 选择要管理的群组
+        - 管理统计设置
+        - 管理轮播消息
+        - 管理关键词
+    
+        参数:
+            update (Update): Telegram更新对象
+            context (CallbackContext): 回调上下文
+        
+        回调数据格式:
+            settings_<action>_<group_id>
+        
+        可用动作:
+            - select: 选择群组
+            - stats: 统计设置
+            - broadcast: 轮播设置
+            - keywords: 关键词设置
+        
+        权限要求:
+            - 用户必须是群组管理员或超级管理员
+            - 群组必须启用相应功能
+        
+        错误处理:
+            - 无效的回调数据
+            - 权限不足
+            - 群组未启用功能
+            - 数据库操作错误
+        
+        状态管理:
+            - 保存当前设置状态
+            - 在完成或取消时清理状态
+        
+        异常:
+            - ValueError: 无效的回调数据
+            - PermissionError: 权限不足
+            - DatabaseError: 数据库操作失败
+        """
         query = update.callback_query
         await query.answer()
 
@@ -1116,6 +1390,7 @@ class TelegramBot:
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
+    @check_command_usage
     async def _handle_rank_command(self, update: Update, context):
         """处理统计命令（tongji/tongji30）"""
         if not update.effective_chat or not update.effective_user or not update.message:
@@ -1193,8 +1468,41 @@ class TelegramBot:
             logger.error(traceback.format_exc())
             await update.message.reply_text("❌ 获取排行榜时出错")
 
+    @handle_callback_errors
     async def _handle_broadcast_callback(self, update: Update, context):
-        """处理轮播消息回调"""
+         """
+        处理轮播消息的回调查询
+    
+        该函数处理轮播消息的添加、编辑和删除操作。
+    
+        参数:
+            update (Update): Telegram更新对象
+            context (CallbackContext): 回调上下文
+        
+        回调数据格式:
+            broadcast_<action>_<group_id>[_<broadcast_id>]
+        
+        可用动作:
+            - add: 添加新轮播消息
+            - edit: 编辑现有轮播消息
+            - delete: 删除轮播消息
+            - type: 选择消息类型
+        
+        支持的消息类型:
+            - text: 文本消息
+            - photo: 图片
+            - video: 视频
+            - document: 文件
+        
+        权限要求:
+            - 用户必须是群组管理员
+            - 群组必须启用轮播功能
+        
+        配置限制:
+            - 最大轮播消息数量
+            - 最小轮播间隔
+            - 消息类型限制
+        """
         query = update.callback_query
         await query.answer()
 
@@ -1618,6 +1926,7 @@ class TelegramBot:
             logger.error(f"处理消息错误: {e}")
             logger.error(traceback.format_exc())
 
+    @check_command_usage
     async def _handle_admin_groups(self, update: Update, context):
         """处理管理员群组管理命令"""
         if not update.effective_user or not update.message:
@@ -1655,6 +1964,7 @@ class TelegramBot:
             logger.error(f"列出管理员群组错误: {e}")
             await update.message.reply_text("❌ 获取群组列表时出错")
 
+    @check_command_usage
     async def _handle_add_admin(self, update: Update, context):
         """处理添加管理员命令"""
         if not update.effective_user or not update.message:
@@ -1732,6 +2042,7 @@ class TelegramBot:
             logger.error(f"删除管理员错误: {e}")
             await update.message.reply_text("❌ 删除管理员时出错")
 
+    @check_command_usage
     async def _handle_add_superadmin(self, update: Update, context):
         """处理添加超级管理员命令"""
         if not update.effective_user or not update.message:
@@ -1770,6 +2081,7 @@ class TelegramBot:
             logger.error(f"添加超级管理员错误: {e}")
             await update.message.reply_text("❌ 添加超级管理员时出错")
 
+    @check_command_usage
     async def _handle_del_superadmin(self, update: Update, context):
         """处理删除超级管理员命令"""
         if not update.effective_user or not update.message:
@@ -1810,6 +2122,7 @@ class TelegramBot:
             logger.error(f"删除超级管理员错误: {e}")
             await update.message.reply_text("❌ 删除超级管理员时出错")
 
+    @check_command_usage
     async def _handle_check_config(self, update: Update, context):
         """处理检查配置命令"""
         if not update.effective_user:
@@ -1844,6 +2157,7 @@ class TelegramBot:
             logger.error(f"检查配置出错: {e}")
             await update.message.reply_text("❌ 获取配置信息时出错")
 
+    @check_command_usage
     async def _handle_auth_group(self, update: Update, context):
         """处理授权群组命令"""
         if not update.effective_user or not update.message:
@@ -1895,6 +2209,7 @@ class TelegramBot:
             logger.error(f"授权群组错误: {e}")
             await update.message.reply_text("❌ 授权群组时出错")
 
+    @check_command_usage
     async def _handle_deauth_group(self, update: Update, context):
         """处理解除群组授权命令"""
         if not update.effective_user or not update.message:
@@ -1930,6 +2245,7 @@ class TelegramBot:
             logger.error(f"解除群组授权错误: {e}")
             await update.message.reply_text("❌ 解除群组授权时出错")
 
+    @handle_callback_errors
     async def _handle_keyword_callback(self, update: Update, context):
         """处理关键词回调"""
         query = update.callback_query
