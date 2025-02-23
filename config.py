@@ -30,7 +30,7 @@ DEFAULT_GROUPS = [
         'permissions': ['keywords', 'stats', 'broadcast']
     },
     {
-        'group_id': 4695354463,  # 替换为你的群组ID
+        'group_id': -4695354463,  # 替换为你的群组ID
         'permissions': ['keywords', 'stats', 'broadcast']
     }
     # 可以添加更多群组
