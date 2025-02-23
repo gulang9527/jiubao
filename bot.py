@@ -1588,27 +1588,15 @@ class TelegramBot:
             return
             
         # 检查命令格式
-        if len(context.args) < 2:
+        if not context.args:
             await update.message.reply_text(
                 "❌ 请使用正确的格式：\n"
-                "/authgroup <群组ID> <权限1> [权限2] ...\n"
-                "可用权限：keywords, stats, broadcast"
+                "/authgroup <群组ID>"
             )
             return
             
         try:
             group_id = int(context.args[0])
-            permissions = context.args[1:]
-            
-            # 验证权限是否有效
-            valid_permissions = {'keywords', 'stats', 'broadcast'}
-            invalid_permissions = set(permissions) - valid_permissions
-            if invalid_permissions:
-                await update.message.reply_text(
-                    f"❌ 无效的权限：{', '.join(invalid_permissions)}\n"
-                    f"可用权限：{', '.join(valid_permissions)}"
-                )
-                return
             
             # 获取群组信息
             try:
@@ -1618,17 +1606,20 @@ class TelegramBot:
                 await update.message.reply_text("❌ 无法获取群组信息，请确保机器人已加入该群组")
                 return
             
+            # 设置全部权限
+            all_permissions = ['keywords', 'stats', 'broadcast']
+        
             # 更新群组权限
             await self.db.add_group({
                 'group_id': group_id,
-                'permissions': permissions
+                'permissions': all_permissions
             })
             
             await update.message.reply_text(
-                f"✅ 已更新群组权限\n"
+                f"✅ 已授权群组\n"
                 f"群组：{group_name}\n"
                 f"ID：{group_id}\n"
-                f"权限：{', '.join(permissions)}"
+                f"已启用全部功能"
             )
             
         except ValueError:
