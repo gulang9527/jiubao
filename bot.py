@@ -749,22 +749,22 @@ class TelegramBot:
             )
             welcome_text += admin_commands
 
-    if is_superadmin:
-        superadmin_commands = (
-            "\n超级管理员命令：\n"
-            "➕ /addsuperadmin <用户ID> - 添加超级管理员\n"
-            "➖ /delsuperadmin <用户ID> - 删除超级管理员\n"
-            "👤 /addadmin <用户ID> - 添加管理员\n"
-            "🚫 /deladmin <用户ID> - 删除管理员\n"
-            "✅ /authgroup <群组ID> <权限1> [权限2] ... - 授权群组\n"
-            "❌ /deauthgroup <群组ID> - 取消群组授权\n"
-            "🔍 /checkconfig - 检查当前配置\n"
-        )
-        welcome_text += superadmin_commands
+        if is_superadmin:
+            superadmin_commands = (
+                "\n超级管理员命令：\n"
+                "➕ /addsuperadmin <用户ID> - 添加超级管理员\n"
+                "➖ /delsuperadmin <用户ID> - 删除超级管理员\n"
+                "👤 /addadmin <用户ID> - 添加管理员\n"
+                "🚫 /deladmin <用户ID> - 删除管理员\n"
+                "✅ /authgroup <群组ID> <权限1> [权限2] ... - 授权群组\n"
+                "❌ /deauthgroup <群组ID> - 取消群组授权\n"
+                "🔍 /checkconfig - 检查当前配置\n"
+            )
+            welcome_text += superadmin_commands
 
-    welcome_text += "\n如需帮助，请联系管理员。"
+        welcome_text += "\n如需帮助，请联系管理员。"
     
-    await update.message.reply_text(welcome_text)
+        await update.message.reply_text(welcome_text)
 
     async def _handle_settings(self, update: Update, context):
         """处理设置命令"""
