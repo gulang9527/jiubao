@@ -2615,29 +2615,6 @@ class TelegramBot:
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 处理响应类型选择时出错")
 
-            self.settings_manager.update_setting_state(
-                update.effective_user.id,
-                'broadcast',
-                {'content_type': content_type}
-            )
-            
-            if content_type == 'text':
-                prompt = "请发送轮播消息的文本内容："
-            elif content_type == 'photo':
-                prompt = "请发送要轮播的图片："
-            elif content_type == 'video':
-                prompt = "请发送要轮播的视频："
-            elif content_type == 'document':
-                prompt = "请发送要轮播的文件："
-            else:
-                await query.edit_message_text("❌ 不支持的消息类型")
-                return
-            
-            await query.edit_message_text(
-                f"{prompt}\n"
-                "发送 /cancel 取消"
-            )
-
 def async_main():
     """异步主入口点"""
     try:
