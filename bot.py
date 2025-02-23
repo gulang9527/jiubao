@@ -913,10 +913,10 @@ class TelegramBot:
             ]
         ]
 
-    await query.edit_message_text(
-        f"群组 {group_id} 的统计设置",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+        await query.edit_message_text(
+            f"群组 {group_id} 的统计设置",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
     async def _show_broadcast_settings(self, query, group_id: int):
         """显示轮播消息设置页面"""
