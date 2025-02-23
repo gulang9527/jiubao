@@ -178,7 +178,7 @@ class StatsManager:
         return stats, total_pages
 
     async def get_monthly_stats(self, group_id: int, page: int = 1) -> Tuple[List[Dict], int]:
-        """获取月度统计"""
+        """获取近30日统计"""
         thirty_days_ago = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
         pipeline = [
             {'$match': {
@@ -725,18 +725,46 @@ class TelegramBot:
         if not update.effective_user or not update.message:
             return
 
+        user_id = update.effective_user.id
+        is_superadmin = await self.is_superadmin(user_id)
+        is_admin = await self.is_admin(user_id)
+
         welcome_text = (
             f"👋 你好 {update.effective_user.first_name}！\n\n"
             "我是啤酒群酒保，主要功能包括：\n"
             "• 关键词自动回复\n"
             "• 消息统计\n"
             "• 轮播消息\n\n"
-            "🔧 使用 /settings 来配置机器人\n"
-            "📊 使用 /tongji 查看今日统计\n"
-            "📈 使用 /tongji30 查看月度统计"
+            "基础命令：\n"
+            "🔧 /settings - 配置机器人\n"
+            "📊 /tongji - 查看今日统计\n"
+            "📈 /tongji30 - 查看30日统计\n"
         )
-        
-        await update.message.reply_text(welcome_text)
+
+        if is_admin:
+            admin_commands = (
+                "\n管理员命令：\n"
+                "👥 /admingroups - 查看可管理的群组\n"
+                "⚙️ /settings - 群组设置管理\n"
+            )
+            welcome_text += admin_commands
+
+    if is_superadmin:
+        superadmin_commands = (
+            "\n超级管理员命令：\n"
+            "➕ /addsuperadmin <用户ID> - 添加超级管理员\n"
+            "➖ /delsuperadmin <用户ID> - 删除超级管理员\n"
+            "👤 /addadmin <用户ID> - 添加管理员\n"
+            "🚫 /deladmin <用户ID> - 删除管理员\n"
+            "✅ /authgroup <群组ID> <权限1> [权限2] ... - 授权群组\n"
+            "❌ /deauthgroup <群组ID> - 取消群组授权\n"
+            "🔍 /checkconfig - 检查当前配置\n"
+        )
+        welcome_text += superadmin_commands
+
+    welcome_text += "\n如需帮助，请联系管理员。"
+    
+    await update.message.reply_text(welcome_text)
 
     async def _handle_settings(self, update: Update, context):
         """处理设置命令"""
