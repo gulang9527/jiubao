@@ -859,6 +859,65 @@ class TelegramBot:
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 处理设置操作时出错")
 
+    async def _handle_settings_section(self, query, context, group_id: int, section: str):
+        """处理设置分区显示"""
+        try:
+            if section == "stats":
+                # 获取当前群组的统计设置
+                settings = await self.db.get_group_settings(group_id)
+                await self._show_stats_settings(query, group_id, settings)
+                
+            elif section == "broadcast":
+                await self._show_broadcast_settings(query, group_id)
+                
+            elif section == "keywords":
+                await self._show_keyword_settings(query, group_id)
+                
+        except Exception as e:
+            logger.error(f"处理设置分区显示错误: {e}")
+            logger.error(traceback.format_exc())
+            await query.edit_message_text("❌ 显示设置分区时出错")
+
+    async def _show_stats_settings(self, query, group_id: int, settings: dict):
+        """显示统计设置页面"""
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    f"最小统计字节数: {settings.get('min_bytes', 0)} 字节", 
+                    callback_data=f"stats_edit_min_bytes_{group_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"统计多媒体: {'是' if settings.get('count_media', False) else '否'}", 
+                    callback_data=f"stats_edit_toggle_media_{group_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"日排行显示数量: {settings.get('daily_rank_size', 15)}", 
+                    callback_data=f"stats_edit_daily_rank_{group_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"月排行显示数量: {settings.get('monthly_rank_size', 15)}", 
+                    callback_data=f"stats_edit_monthly_rank_{group_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "返回设置菜单", 
+                    callback_data=f"settings_select_{group_id}"
+                )
+            ]
+        ]
+
+        await query.edit_message_text(
+            f"群组 {group_id} 的统计设置",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
     async def _show_broadcast_settings(self, query, group_id: int):
         """显示轮播消息设置页面"""
         broadcasts = await self.db.db.broadcasts.find({
@@ -897,7 +956,7 @@ class TelegramBot:
     async def _show_keyword_settings(self, query, group_id: int):
         """显示关键词设置页面"""
         keywords = await self.db.get_keywords(group_id)
-        
+    
         keyboard = []
         for kw in keywords:
             keyword_text = kw['pattern'][:20] + '...' if len(kw['pattern']) > 20 else kw['pattern']
@@ -907,159 +966,25 @@ class TelegramBot:
                     callback_data=f"keyword_detail_{group_id}_{kw['_id']}"
                 )
             ])
-        
+    
         keyboard.append([
             InlineKeyboardButton(
                 "➕ 添加关键词", 
                 callback_data=f"keyword_add_{group_id}"
             )
         ])
-        
+    
         keyboard.append([
             InlineKeyboardButton(
                 "返回设置菜单", 
                 callback_data=f"settings_select_{group_id}"
             )
         ])
-        
+    
         await query.edit_message_text(
             f"群组 {group_id} 的关键词设置",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-
-    async def _handle_settings_section(self, query, context, group_id: int, section: str):
-        """处理设置分区显示"""
-        try:
-            if section == "stats":
-                # 获取当前群组的统计设置
-                settings = await self.db.get_group_settings(group_id)
-                await self._show_stats_settings(query, group_id, settings)
-                
-            elif section == "broadcast":
-                await self._show_broadcast_settings(query, group_id)
-                
-            elif section == "keywords":
-                await self._show_keyword_settings(query, group_id)
-                
-        except Exception as e:
-            logger.error(f"处理设置分区显示错误: {e}")
-            logger.error(traceback.format_exc())
-            await query.edit_message_text("❌ 显示设置分区时出错")
-                
-                # 创建设置展示和修改的键盘
-                keyboard = [
-                    [
-                        InlineKeyboardButton(
-                            f"最小统计字节数: {settings.get('min_bytes', 0)} 字节", 
-                            callback_data=f"stats_edit_min_bytes_{group_id}"
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            f"统计多媒体: {'是' if settings.get('count_media', False) else '否'}", 
-                            callback_data=f"stats_edit_toggle_media_{group_id}"
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            f"日排行显示数量: {settings.get('daily_rank_size', 15)}", 
-                            callback_data=f"stats_edit_daily_rank_{group_id}"
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            f"月排行显示数量: {settings.get('monthly_rank_size', 15)}", 
-                            callback_data=f"stats_edit_monthly_rank_{group_id}"
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            "返回设置菜单", 
-                            callback_data=f"settings_select_{group_id}"
-                        )
-                    ]
-                ]
-                
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                await query.edit_message_text(
-                    f"群组 {group_id} 的统计设置",
-                    reply_markup=reply_markup
-                )
-                
-            elif section == "broadcast":
-                # 获取轮播消息列表
-                broadcasts = await self.db.db.broadcasts.find({
-                    'group_id': group_id
-                }).to_list(None)
-                
-                keyboard = []
-                for bc in broadcasts:
-                    # 截取消息预览
-                    preview = (bc['content'][:20] + '...') if len(str(bc['content'])) > 20 else str(bc['content'])
-                    keyboard.append([
-                        InlineKeyboardButton(
-                            f"📢 {bc['content_type']}: {preview}", 
-                            callback_data=f"broadcast_detail_{group_id}_{bc['_id']}"
-                        )
-                    ])
-                
-                keyboard.append([
-                    InlineKeyboardButton(
-                        "➕ 添加轮播消息", 
-                        callback_data=f"broadcast_add_{group_id}"
-                    )
-                ])
-                
-                keyboard.append([
-                    InlineKeyboardButton(
-                        "返回设置菜单", 
-                        callback_data=f"settings_select_{group_id}"
-                    )
-                ])
-                
-                await query.edit_message_text(
-                    f"群组 {group_id} 的轮播消息设置",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-                
-            elif section == "keywords":
-                # 获取关键词列表
-                keywords = await self.db.get_keywords(group_id)
-                
-                keyboard = []
-                for kw in keywords:
-                    keyword_text = kw['pattern'][:20] + '...' if len(kw['pattern']) > 20 else kw['pattern']
-                    keyboard.append([
-                        InlineKeyboardButton(
-                            f"🔑 {keyword_text}", 
-                            callback_data=f"keyword_detail_{group_id}_{kw['_id']}"
-                        )
-                    ])
-                
-                keyboard.append([
-                    InlineKeyboardButton(
-                        "➕ 添加关键词", 
-                        callback_data=f"keyword_add_{group_id}"
-                    )
-                ])
-                
-                keyboard.append([
-                    InlineKeyboardButton(
-                        "返回设置菜单", 
-                        callback_data=f"settings_select_{group_id}"
-                    )
-                ])
-                
-                await query.edit_message_text(
-                    f"群组 {group_id} 的关键词设置",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-                
-        except Exception as e:
-            logger.error(f"处理设置分区显示错误: {e}")
-            logger.error(traceback.format_exc())
-            await query.edit_message_text("❌ 显示设置分区时出错")
-
 
     async def _handle_rank_command(self, update: Update, context):
         """处理统计命令（tongji/tongji30）"""
