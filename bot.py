@@ -2034,97 +2034,97 @@ async def _show_stats_settings(self, query, group_id: int, settings: dict):
                     # 清除设置状态
                     self.settings_manager.clear_setting_state(update.effective_user.id, 'keyword')
         
-            except Exception as e:
-                logger.error(f"处理关键词添加错误: {e}")
-                logger.error(traceback.format_exc())
-                await update.message.reply_text("❌ 添加关键词时出错")
+        except Exception as e:
+            logger.error(f"处理关键词添加错误: {e}")
+            logger.error(traceback.format_exc())
+            await update.message.reply_text("❌ 添加关键词时出错")
 
     async def _process_broadcast_adding(self, update: Update, context, setting_state):
-            """处理轮播消息添加流程"""
-            try:
-                step = setting_state['step']
-                group_id = setting_state['group_id']
-                content_type = setting_state['data'].get('content_type')
+        """处理轮播消息添加流程"""
+        try:
+            step = setting_state['step']
+            group_id = setting_state['group_id']
+            content_type = setting_state['data'].get('content_type')
         
-                if step == 1:
-                    # 获取消息内容
-                    if content_type == 'text':
-                        content = update.message.text
-                    elif content_type == 'photo':
-                        content = update.message.photo[-1].file_id if update.message.photo else None
-                    elif content_type == 'video':
-                        content = update.message.video.file_id if update.message.video else None
-                    elif content_type == 'document':
-                        content = update.message.document.file_id if update.message.document else None
-                    else:
-                        await update.message.reply_text("❌ 不支持的消息类型")
-                        return
+            if step == 1:
+                # 获取消息内容
+                if content_type == 'text':
+                    content = update.message.text
+                elif content_type == 'photo':
+                    content = update.message.photo[-1].file_id if update.message.photo else None
+                elif content_type == 'video':
+                    content = update.message.video.file_id if update.message.video else None
+                elif content_type == 'document':
+                    content = update.message.document.file_id if update.message.document else None
+                else:
+                    await update.message.reply_text("❌ 不支持的消息类型")
+                    return
                 
-                    if not content:
-                        await update.message.reply_text(f"❌ 请发送正确的{content_type}内容")
-                        return
+                if not content:
+                    await update.message.reply_text(f"❌ 请发送正确的{content_type}内容")
+                    return
             
-                    setting_state['data']['content'] = content
+                setting_state['data']['content'] = content
             
-                    # 询问轮播时间设置
-                    await update.message.reply_text(
-                        "请设置轮播时间：\n"
-                        "格式：开始时间 结束时间 间隔(秒)\n"
-                        "例如：2024-02-22 08:00 2024-03-22 20:00 3600\n"
-                        "发送 /cancel 取消"
-                    )
-                    self.settings_manager.update_setting_state(
-                        update.effective_user.id,
-                        'broadcast',
-                        {'content': content}
-                    )
+                # 询问轮播时间设置
+                await update.message.reply_text(
+                    "请设置轮播时间：\n"
+                    "格式：开始时间 结束时间 间隔(秒)\n"
+                    "例如：2024-02-22 08:00 2024-03-22 20:00 3600\n"
+                    "发送 /cancel 取消"
+                )
+                self.settings_manager.update_setting_state(
+                    update.effective_user.id,
+                    'broadcast',
+                    {'content': content}
+                )
             
-                elif step == 2:
-                    # 处理时间设置
-                    try:
-                        parts = update.message.text.split()
-                        if len(parts) != 5:
-                            raise ValueError("参数数量不正确")
+            elif step == 2:
+                # 处理时间设置
+                try:
+                    parts = update.message.text.split()
+                    if len(parts) != 5:
+                        raise ValueError("参数数量不正确")
                     
-                        start_time = validate_time_format(f"{parts[0]} {parts[1]}")
-                        end_time = validate_time_format(f"{parts[2]} {parts[3]}")
-                        interval = validate_interval(parts[4])
+                    start_time = validate_time_format(f"{parts[0]} {parts[1]}")
+                    end_time = validate_time_format(f"{parts[2]} {parts[3]}")
+                    interval = validate_interval(parts[4])
                 
-                        if not all([start_time, end_time, interval]):
-                            raise ValueError("时间格式无效")
+                    if not all([start_time, end_time, interval]):
+                        raise ValueError("时间格式无效")
                     
-                        if start_time >= end_time:
-                            raise ValueError("结束时间必须晚于开始时间")
+                    if start_time >= end_time:
+                        raise ValueError("结束时间必须晚于开始时间")
                     
-                        if interval < BROADCAST_SETTINGS['min_interval']:
-                            raise ValueError(f"间隔时间不能小于{format_duration(BROADCAST_SETTINGS['min_interval'])}")
+                    if interval < BROADCAST_SETTINGS['min_interval']:
+                        raise ValueError(f"间隔时间不能小于{format_duration(BROADCAST_SETTINGS['min_interval'])}")
 
-                        # 检查轮播消息数量限制
-                        broadcasts = await self.db.db.broadcasts.count_documents({'group_id': group_id})
-                        if broadcasts >= BROADCAST_SETTINGS['max_broadcasts']:
-                            await update.message.reply_text(
-                                f"❌ 轮播消息数量已达到上限 {BROADCAST_SETTINGS['max_broadcasts']} 条"
-                            )
-                            return
-                    
-                        # 添加轮播消息
-                        await self.db.db.broadcasts.insert_one({
-                            'group_id': group_id,
-                            'content_type': content_type,
-                            'content': setting_state['data']['content'],
-                            'start_time': start_time,
-                            'end_time': end_time,
-                            'interval': interval
-                        })
-                    
-                        await update.message.reply_text("✅ 轮播消息添加成功！")
-                    
-                        # 清除设置状态
-                        self.settings_manager.clear_setting_state(update.effective_user.id, 'broadcast')
-                    
-                    except ValueError as e:
-                        await update.message.reply_text(f"❌ {str(e)}")
+                    # 检查轮播消息数量限制
+                    broadcasts = await self.db.db.broadcasts.count_documents({'group_id': group_id})
+                    if broadcasts >= BROADCAST_SETTINGS['max_broadcasts']:
+                        await update.message.reply_text(
+                            f"❌ 轮播消息数量已达到上限 {BROADCAST_SETTINGS['max_broadcasts']} 条"
+                        )
                         return
+                    
+                    # 添加轮播消息
+                    await self.db.db.broadcasts.insert_one({
+                        'group_id': group_id,
+                        'content_type': content_type,
+                        'content': setting_state['data']['content'],
+                        'start_time': start_time,
+                        'end_time': end_time,
+                        'interval': interval
+                    })
+                    
+                    await update.message.reply_text("✅ 轮播消息添加成功！")
+                    
+                    # 清除设置状态
+                    self.settings_manager.clear_setting_state(update.effective_user.id, 'broadcast')
+                    
+                except ValueError as e:
+                    await update.message.reply_text(f"❌ {str(e)}")
+                    return
                     
         except Exception as e:
             logger.error(f"处理轮播消息添加错误: {e}")
