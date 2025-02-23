@@ -1953,7 +1953,7 @@ async def _show_stats_settings(self, query, group_id: int, settings: dict):
     
             if step == 1:
                 # 获取关键词
-               pattern = update.message.text
+                pattern = update.message.text
                 max_length = 500  # 增加字符限制
             
                 if len(pattern) > max_length:
