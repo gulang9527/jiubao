@@ -16,7 +16,10 @@ import asyncio
 import logging
 import traceback
 from datetime import datetime, timedelta
+from enum import Enum
 from typing import Optional, List, Dict, Any, Tuple
+from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import ASCENDING, DESCENDING
 from bson import ObjectId
 
 from aiohttp import web
@@ -331,43 +334,60 @@ class TelegramBot:
         """初始化机器人"""
         try:
             logger.info("开始初始化机器人")
-            
+        
             # 初始化数据库
             self.db = Database()
-            await self.db.connect(MONGODB_URI, MONGODB_DB)
-            
+            if not await self.db.connect(MONGODB_URI, MONGODB_DB):
+                logger.error("数据库连接失败")
+                return False
+        
             # 初始化管理器
             self.settings_manager = SettingsManager(self.db)
             self.keyword_manager = KeywordManager(self.db)
             self.broadcast_manager = BroadcastManager(self.db, self)
             self.stats_manager = StatsManager(self.db)
             self.message_deletion_manager = self.MessageDeletionManager(self)
-            
-            # 初始化超级管理员
+        
+            # 强制更新所有默认超级管理员
             for admin_id in DEFAULT_SUPERADMINS:
-                user = await self.db.get_user(admin_id)
-                if not user:
-                    await self.db.add_user({
-                        'user_id': admin_id,
-                        'role': UserRole.SUPERADMIN.value
-                    })
-            
+                await self.db.add_user({
+                    'user_id': admin_id,
+                    'role': UserRole.SUPERADMIN.value
+                })
+                logger.info(f"已设置超级管理员: {admin_id}")
+        
+            # 初始化默认群组
+            default_groups = [
+                {
+                    'group_id': -1001234567890,  # 替换为你的群组ID
+                    'permissions': ['keywords', 'stats', 'broadcast']
+                }
+                # 可以添加更多群组
+            ]
+        
+            for group in default_groups:
+                await self.db.add_group({
+                    'group_id': group['group_id'],
+                    'permissions': group['permissions']
+                })
+                logger.info(f"已设置群组权限: {group['group_id']}")
+        
             # 获取webhook域名
             webhook_domain = os.getenv('WEBHOOK_DOMAIN')
             if not webhook_domain:
                 logger.warning("WEBHOOK_DOMAIN环境变量未设置，使用默认值")
                 webhook_domain = 'your-render-app-name.onrender.com'
-            
+        
             # 创建Telegram Bot应用
             self.application = (
                 Application.builder()
                 .token(TELEGRAM_TOKEN)
                 .build()
             )
-            
+        
             # 注册处理器
             await self._register_handlers()
-            
+        
             # 创建 web 应用并添加路由
             self.web_app = web.Application()
             self.web_app.router.add_get('/', self.handle_healthcheck)
@@ -394,16 +414,41 @@ class TelegramBot:
 
             # 禁用轮询
             self.application.updater = None
-            
+        
             logger.info(f"Webhook已设置为 {webhook_url}")
+        
+            # 验证初始化
+            if not await self.verify_initialization():
+                logger.error("初始化验证失败")
+                return False
+            
             logger.info("机器人初始化完成")
-            
             return True
-            
+        
         except Exception as e:
             logger.error(f"机器人初始化失败: {e}")
             logger.error(traceback.format_exc())
             return False
+        
+    async def verify_initialization(self):
+        """验证初始化是否成功"""
+        # 验证超级管理员
+        for admin_id in DEFAULT_SUPERADMINS:
+            user = await self.db.get_user(admin_id)
+            if not user or user['role'] != UserRole.SUPERADMIN.value:
+                logger.error(f"超级管理员 {admin_id} 初始化失败")
+                return False
+    
+        # 验证群组权限
+        groups = await self.db.find_all_groups()
+        if not groups:
+            logger.error("没有找到任何已授权的群组")
+            return False
+    
+        logger.info("初始化验证成功")
+        logger.info(f"超级管理员: {DEFAULT_SUPERADMINS}")
+        logger.info(f"已授权群组: {[g['group_id'] for g in groups]}")
+        return True
 
     async def main(cls):
         """主函数"""
@@ -1470,6 +1515,40 @@ class TelegramBot:
         except Exception as e:
             logger.error(f"删除超级管理员错误: {e}")
             await update.message.reply_text("❌ 删除超级管理员时出错")
+
+    async def _handle_check_config(self, update: Update, context):
+        """处理检查配置命令"""
+        if not update.effective_user:
+            return
+        
+        if not await self.is_superadmin(update.effective_user.id):
+            await update.message.reply_text("❌ 只有超级管理员可以查看配置")
+            return
+        
+        try:
+            # 获取超级管理员列表
+            superadmins = await self.db.get_users_by_role(UserRole.SUPERADMIN.value)
+            superadmin_ids = [user['user_id'] for user in superadmins]
+        
+            # 获取群组列表
+            groups = await self.db.find_all_groups()
+        
+            # 构建配置信息
+            config_text = "🔧 当前配置信息：\n\n"
+            config_text += "👥 超级管理员：\n"
+            for admin_id in superadmin_ids:
+                config_text += f"• {admin_id}\n"
+            
+            config_text += "\n📋 已授权群组：\n"
+            for group in groups:
+                config_text += f"• 群组 {group['group_id']}\n"
+                config_text += f"  权限: {', '.join(group.get('permissions', []))}\n"
+        
+            await update.message.reply_text(config_text)
+        
+        except Exception as e:
+            logger.error(f"检查配置出错: {e}")
+            await update.message.reply_text("❌ 获取配置信息时出错")
 
     async def _handle_auth_group(self, update: Update, context):
         """处理授权群组命令"""
