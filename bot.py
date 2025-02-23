@@ -1064,14 +1064,27 @@ class TelegramBot:
             await update.message.reply_text("❌ 获取排行榜时出错")
 
     async def _handle_broadcast_callback(self, update: Update, context):
+        """处理轮播消息回调"""
         query = update.callback_query
         await query.answer()
 
         try:
             data = query.data
             parts = data.split('_')
+        
+            # 健壮性检查
+            if len(parts) < 3:
+                await query.edit_message_text("❌ 无效的操作")
+                return
+        
             action = parts[1]
-            group_id = int(parts[2])
+        
+            # 尝试获取group_id，处理可能的异常情况
+            try:
+                group_id = int(parts[-1])
+            except ValueError:
+                await query.edit_message_text("❌ 无效的群组ID")
+                return
     
             # 验证权限
             if not await self.db.can_manage_group(update.effective_user.id, group_id):
@@ -1104,20 +1117,8 @@ class TelegramBot:
                 )
         
             elif action == "type":
+                # 处理消息类型选择
                 content_type = parts[2]
-        
-                # 直接提示输入内容
-                type_prompts = {
-                    'text': '请输入轮播的文本内容：',
-                    'photo': '请发送轮播的图片：',
-                    'video': '请发送轮播的视频：',
-                    'document': '请发送轮播的文件：'
-                }
-        
-                await query.edit_message_text(
-                    type_prompts.get(content_type, '请发送内容') + "\n\n" +
-                    "发送 /cancel 取消"
-                )
         
                 # 开始添加轮播消息流程
                 self.settings_manager.start_setting(
@@ -1131,37 +1132,37 @@ class TelegramBot:
                     'broadcast',
                     {'content_type': content_type}
                 )
-            
+        
                 type_prompts = {
                     'text': '文本内容',
                     'photo': '图片',
                     'video': '视频',
                     'document': '文件'
                 }
-            
+        
                 await query.edit_message_text(
-                    f"请发送要轮播的{type_prompts[content_type]}：\n\n"
+                    f"请发送要轮播的{type_prompts.get(content_type, '内容')}：\n\n"
                     f"发送 /cancel 取消"
                 )
-            
+        
             elif action == "detail":
-                # 显示轮播消息详情
-                broadcast_id = ObjectId(parts[3])
+                # 显示轮播消息详情的逻辑保持不变
+                broadcast_id = ObjectId(parts[2])
                 broadcast = await self.db.db.broadcasts.find_one({
                     '_id': broadcast_id,
                     'group_id': group_id
                 })
-            
+        
                 if not broadcast:
                     await query.edit_message_text("❌ 轮播消息不存在")
                     return
-                
+            
                 text = "📢 轮播消息详情：\n\n"
                 text += f"类型：{broadcast['content_type']}\n"
                 text += f"开始时间：{broadcast['start_time'].strftime('%Y-%m-%d %H:%M')}\n"
                 text += f"结束时间：{broadcast['end_time'].strftime('%Y-%m-%d %H:%M')}\n"
                 text += f"间隔：{format_duration(broadcast['interval'])}\n"
-            
+        
                 keyboard = [
                     [
                         InlineKeyboardButton(
@@ -1176,80 +1177,33 @@ class TelegramBot:
                         )
                     ]
                 ]
-            
+        
                 await query.edit_message_text(
                     text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
-            elif action == "detail":
-                # 删除轮播消息
-                broadcast_id = ObjectId(parts[3])
+        
+            elif action == "delete":
+                # 删除轮播消息的逻辑保持不变
+                broadcast_id = ObjectId(parts[2])
                 await self.db.db.broadcasts.delete_one({
                     '_id': broadcast_id,
                     'group_id': group_id
                 })
-            
+        
                 # 更新显示
                 await self._show_broadcast_settings(query, group_id)
-            
-                await self._handle_settings_section(
-                    query,
-                    context,
-                    group_id,
-                    "broadcast"
-                )
-
-            elif action == "interval":
-                # 处理间隔时间选择
-                interval = int(parts[3])
-                user_id = update.effective_user.id
-            
-                # 获取设置状态
-                setting_state = self.settings_manager.get_setting_state(user_id, 'broadcast')
-                if not setting_state:
-                    await query.edit_message_text("❌ 设置会话已过期，请重新开始")
-                    return
-                
-                # 设置时间
-                now = datetime.now()
-                start_time = now
-                end_time = now + timedelta(days=30)  # 默认30天
-            
-                # 添加轮播消息
-                try:
-                    content = setting_state['data']['content']
-                    content_type = setting_state['data']['content_type']
-                
-                    await self.db.db.broadcasts.insert_one({
-                        'group_id': group_id,
-                        'content_type': content_type,
-                        'content': content,
-                        'start_time': start_time,
-                        'end_time': end_time,
-                        'interval': interval
-                    })
-                
-                    await query.edit_message_text(
-                        "✅ 轮播消息添加成功！\n\n"
-                        f"• 类型：{content_type}\n"
-                        f"• 间隔：{format_duration(interval)}\n"
-                        f"• 有效期：30天"
-                    )
-                
-                    # 清除设置状态
-                    self.settings_manager.clear_setting_state(user_id, 'broadcast')
-                
-                except Exception as e:
-                    logger.error(f"添加轮播消息错误: {e}")
-                    await query.edit_message_text("❌ 添加轮播消息时出错")
-            
+    
         except Exception as e:
             logger.error(f"处理轮播消息回调错误: {e}")
             logger.error(traceback.format_exc())
         
-            # 返回轮播消息设置页面
-            await self._show_broadcast_settings(query, group_id)
+            # 尝试返回轮播消息设置页面
+            try:
+                await query.edit_message_text("❌ 处理轮播消息设置时出错，请重试")
+            except Exception:
+                # 如果编辑消息失败，可能是因为消息已经不存在
+                pass
 
     async def _handle_stats_edit_callback(self, update: Update, context):
         """处理统计设置编辑回调"""
@@ -1259,8 +1213,20 @@ class TelegramBot:
         try:
             data = query.data
             parts = data.split('_')
+        
+            # 健壮性检查
+            if len(parts) < 4:
+                await query.edit_message_text("❌ 无效的操作")
+                return
+        
             setting_type = parts[2]  # min_bytes, toggle_media 等
-            group_id = int(parts[3])
+        
+            # 尝试获取group_id，处理可能的异常情况
+            try:
+                group_id = int(parts[-1])
+            except ValueError:
+                await query.edit_message_text("❌ 无效的群组ID")
+                return
 
             # 验证权限
             if not await self.db.can_manage_group(update.effective_user.id, group_id):
@@ -1329,9 +1295,12 @@ class TelegramBot:
             logger.error(f"处理统计设置编辑回调错误: {e}")
             logger.error(traceback.format_exc())
         
-            # 返回统计设置页面
-            settings = await self.db.get_group_settings(group_id)
-            await self._show_stats_settings(query, group_id, settings)
+            # 尝试返回统计设置页面
+            try:
+                await query.edit_message_text("❌ 处理设置时出错，请重试")
+            except Exception:
+                # 如果编辑消息失败，可能是因为消息已经不存在
+                pass
 
     async def _show_stats_settings(self, query, group_id: int, settings: dict):
         """显示统计设置页面"""
@@ -1367,7 +1336,7 @@ class TelegramBot:
                 )
             ]
         ]
-    
+
         await query.edit_message_text(
             f"群组 {group_id} 的统计设置",
             reply_markup=InlineKeyboardMarkup(keyboard)
@@ -1883,18 +1852,30 @@ class TelegramBot:
             await update.message.reply_text("❌ 解除群组授权时出错")
 
     async def _handle_keyword_callback(self, update: Update, context):
+        """处理关键词回调"""
         query = update.callback_query
         await query.answer()
 
         try:
             data = query.data
             parts = data.split('_')
+        
+            # 健壮性检查
+            if len(parts) < 3:
+                await query.edit_message_text("❌ 无效的操作")
+                return
+        
             action = parts[1]
+        
+            # 尝试获取group_id，处理可能的异常情况
+            try:
+                group_id = int(parts[-1])
+            except ValueError:
+                await query.edit_message_text("❌ 无效的群组ID")
+                return
     
             if action == "add":
                 # 处理添加关键词
-                group_id = int(parts[2])
-        
                 # 验证权限
                 if not await self.db.can_manage_group(update.effective_user.id, group_id):
                     await query.edit_message_text("❌ 无权限管理此群组")
@@ -2007,9 +1988,12 @@ class TelegramBot:
             logger.error(f"处理关键词回调错误: {e}")
             logger.error(traceback.format_exc())
         
-            # 返回关键词设置页面
-            await self._show_keyword_settings(query, group_id)
-
+            # 尝试返回关键词设置页面
+            try:
+                await query.edit_message_text("❌ 处理关键词设置时出错，请重试")
+            except Exception:
+                # 如果编辑消息失败，可能是因为消息已经不存在
+                pass
     async def handle_keyword_response(
             self, 
             chat_id: int, 
