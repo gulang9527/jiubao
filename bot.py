@@ -688,6 +688,9 @@ class TelegramBot:
         self.application.add_handler(CommandHandler("deladmin", self._handle_del_admin))
         self.application.add_handler(CommandHandler("authgroup", self._handle_auth_group))
         self.application.add_handler(CommandHandler("deauthgroup", self._handle_deauth_group))
+
+         # 新增配置检查命令
+        self.application.add_handler(CommandHandler("checkconfig", self._handle_check_config))
         
         # 消息处理器
         self.application.add_handler(MessageHandler(
