@@ -89,3 +89,23 @@ DEFAULT_PERMISSIONS = [
 
 # 时区设置
 TIMEZONE = os.getenv('TIMEZONE', 'Asia/Shanghai')
+
+# 状态管理配置
+STATE_MANAGEMENT_SETTINGS = {
+    'cleanup_interval': 60,        # 清理检查间隔（秒）
+    'state_timeout': 300,         # 状态超时时间（秒）
+    'max_concurrent_states': 100  # 每个用户最大并发状态数
+}
+
+# 消息回调配置
+CALLBACK_SETTINGS = {
+    'answer_timeout': 10,         # 回调应答超时时间（秒）
+    'max_callback_age': 3600,     # 回调数据最大有效期（秒）
+}
+
+# 错误处理配置
+ERROR_HANDLING_SETTINGS = {
+    'max_retries': 3,             # 最大重试次数
+    'retry_delay': 1,             # 重试延迟（秒）
+    'error_report_channel': None  # 错误报告频道ID
+}
