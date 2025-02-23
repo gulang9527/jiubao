@@ -24,6 +24,15 @@ DEFAULT_SUPERADMINS = [
     883253093   # 用户3
 ]
 
+# 默认群组配置
+DEFAULT_GROUPS = [
+    {
+        'group_id': -1001234567890,  # 替换为你的群组ID
+        'permissions': ['keywords', 'stats', 'broadcast']
+    }
+    # 可以添加更多群组
+]
+
 # 统计设置
 DEFAULT_SETTINGS = {
     'min_bytes': 0,              # 默认最低字节数
