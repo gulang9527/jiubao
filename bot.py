@@ -859,6 +859,75 @@ class TelegramBot:
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 处理设置操作时出错")
 
+    async def _show_broadcast_settings(self, query, group_id: int):
+        """显示轮播消息设置页面"""
+        # 获取轮播消息列表
+        broadcasts = await self.db.db.broadcasts.find({
+            'group_id': group_id
+        }).to_list(None)
+        
+        keyboard = []
+        for bc in broadcasts:
+            preview = (bc['content'][:20] + '...') if len(str(bc['content'])) > 20 else str(bc['content'])
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"📢 {bc['content_type']}: {preview}", 
+                    callback_data=f"broadcast_detail_{group_id}_{bc['_id']}"
+                )
+            ])
+        
+        keyboard.append([
+            InlineKeyboardButton(
+                "➕ 添加轮播消息", 
+                callback_data=f"broadcast_add_{group_id}"
+            )
+        ])
+        
+        keyboard.append([
+            InlineKeyboardButton(
+                "返回设置菜单", 
+                callback_data=f"settings_select_{group_id}"
+            )
+        ])
+        
+        await query.edit_message_text(
+            f"群组 {group_id} 的轮播消息设置",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    async def _show_keyword_settings(self, query, group_id: int):
+        """显示关键词设置页面"""
+        keywords = await self.db.get_keywords(group_id)
+        
+        keyboard = []
+        for kw in keywords:
+            keyword_text = kw['pattern'][:20] + '...' if len(kw['pattern']) > 20 else kw['pattern']
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"🔑 {keyword_text}", 
+                    callback_data=f"keyword_detail_{group_id}_{kw['_id']}"
+                )
+            ])
+        
+        keyboard.append([
+            InlineKeyboardButton(
+                "➕ 添加关键词", 
+                callback_data=f"keyword_add_{group_id}"
+            )
+        ])
+        
+        keyboard.append([
+            InlineKeyboardButton(
+                "返回设置菜单", 
+                callback_data=f"settings_select_{group_id}"
+            )
+        ])
+        
+        await query.edit_message_text(
+            f"群组 {group_id} 的关键词设置",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
     async def _handle_settings_section(self, query, context, group_id: int, section: str):
         """处理设置分区显示"""
         try:
@@ -1166,13 +1235,16 @@ class TelegramBot:
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
             
-            elif action == "delete":
+            elif action == "detail":
                 # 删除轮播消息
                 broadcast_id = ObjectId(parts[3])
                 await self.db.db.broadcasts.delete_one({
                     '_id': broadcast_id,
                     'group_id': group_id
                 })
+            
+                # 更新显示
+                await self._show_broadcast_settings(query, group_id)
             
                 await self._handle_settings_section(
                     query,
@@ -1233,33 +1305,33 @@ class TelegramBot:
         """处理统计设置编辑回调"""
         query = update.callback_query
         await query.answer()
-    
+
         try:
             data = query.data
             parts = data.split('_')
             setting_type = parts[2]  # min_bytes, toggle_media 等
             group_id = int(parts[3])
-        
+
             # 验证权限
             if not await self.db.can_manage_group(update.effective_user.id, group_id):
                 await query.edit_message_text("❌ 无权限管理此群组")
                 return
-            
+        
             if not await self.has_permission(group_id, GroupPermission.STATS):
                 await query.edit_message_text("❌ 此群组未启用统计功能")
                 return
-            
-            settings = await self.db.get_group_settings(group_id)
         
+            settings = await self.db.get_group_settings(group_id)
+
             if setting_type == "toggle_media":
                 # 切换是否统计多媒体
                 current_value = settings.get('count_media', False)
                 settings['count_media'] = not current_value
                 await self.db.update_group_settings(group_id, settings)
-            
+        
                 # 刷新统计设置页面
                 await self._show_stats_settings(query, group_id, settings)
-            
+        
             elif setting_type in ['min_bytes', 'daily_rank', 'monthly_rank']:
                 # 进入编辑模式
                 self.settings_manager.start_setting(
@@ -1267,20 +1339,20 @@ class TelegramBot:
                     f'stats_{setting_type}',
                     group_id
                 )
-            
+        
                 setting_names = {
                     'min_bytes': '最小统计字节数',
                     'daily_rank': '日排行显示数量',
                     'monthly_rank': '月排行显示数量'
                 }
-            
+        
                 current_value = settings.get(setting_type, 0)
                 await query.edit_message_text(
                     f"当前{setting_names[setting_type]}：{current_value}\n"
                     f"请输入新的值：\n\n"
                     f"发送 /cancel 取消"
                 )
-            
+        
         except Exception as e:
             logger.error(f"处理统计设置编辑回调错误: {e}")
             await query.edit_message_text("❌ 处理统计设置编辑时出错")
@@ -1403,6 +1475,13 @@ class TelegramBot:
         
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
+
+        if update.message.text == '/cancel':
+            setting_types = ['keyword', 'broadcast', 'stats_min_bytes', 'stats_daily_rank', 'stats_monthly_rank']
+            for setting_type in setting_types:
+                self.settings_manager.clear_setting_state(user_id, setting_type)
+            await update.message.reply_text("✅ 已取消当前操作")
+            return
         
         try:
             # 检查是否正在进行关键词添加流程
@@ -1870,6 +1949,12 @@ class TelegramBot:
                 # 处理删除关键词
                 group_id = int(parts[2])
                 keyword_id = parts[3]
+                
+                # 删除关键词
+                await self.db.remove_keyword(group_id, keyword_id)
+                
+                # 更新显示
+                await self._show_keyword_settings(query, group_id)
                 
                 # 验证权限
                 if not await self.db.can_manage_group(update.effective_user.id, group_id):
