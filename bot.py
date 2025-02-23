@@ -16,10 +16,7 @@ import asyncio
 import logging
 import traceback
 from datetime import datetime, timedelta
-from enum import Enum
 from typing import Optional, List, Dict, Any, Tuple
-from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo import ASCENDING, DESCENDING
 from bson import ObjectId
 
 from aiohttp import web
