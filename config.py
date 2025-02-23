@@ -24,14 +24,11 @@ DEFAULT_SUPERADMINS = [
     883253093   # 用户3
 ]
 
-# 默认群组配置
 DEFAULT_GROUPS = [
     {
         'group_id': -1001234567890,  # 替换为你的群组ID
         'permissions': ['keywords', 'stats', 'broadcast']
-    }
-    # 可以添加更多群组
-]
+    },
     {
         'group_id': 4695354463,  # 替换为你的群组ID
         'permissions': ['keywords', 'stats', 'broadcast']
