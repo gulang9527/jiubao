@@ -1503,6 +1503,7 @@ class TelegramBot:
             - 最小轮播间隔
             - 消息类型限制
         """
+        
         query = update.callback_query
         await query.answer()
 
