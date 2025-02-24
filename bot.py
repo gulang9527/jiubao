@@ -2180,6 +2180,28 @@ class TelegramBot:
         message = update.message
 
         try:
+            # 检查是否正在进行关键词添加流程
+            setting_state = await self.settings_manager.get_setting_state(
+                update.effective_user.id, 
+                'keyword'
+            )
+            if setting_state and setting_state['group_id'] == chat_id:
+                await self._process_keyword_adding(update, context, setting_state)
+                return
+            
+            # 检查是否正在进行轮播消息添加流程
+            broadcast_state = await self.settings_manager.get_setting_state(user_id, 'broadcast')
+            if broadcast_state and broadcast_state['group_id'] == chat_id:
+                await self._process_broadcast_adding(update, context, broadcast_state)
+                return
+            
+            # 检查是否正在进行统计设置编辑
+            for setting_type in ['stats_min_bytes', 'stats_daily_rank', 'stats_monthly_rank']:
+                stats_state = await self.settings_manager.get_setting_state(user_id, setting_type)
+                if stats_state and stats_state['group_id'] == chat_id:
+                    await self._process_stats_setting(update, context, stats_state, setting_type)
+                    return
+                    
             # 检查消息安全性
             if not await self.check_message_security(update):
                 return
@@ -2242,29 +2264,6 @@ class TelegramBot:
                     message, 
                     timeout
                 )
-    
-        try:
-            # 检查是否正在进行关键词添加流程
-            setting_state = await self.settings_manager.get_setting_state(
-                update.effective_user.id, 
-                'keyword'
-            )
-            if setting_state and setting_state['group_id'] == chat_id:
-                await self._process_keyword_adding(update, context, setting_state)
-                return
-            
-            # 检查是否正在进行轮播消息添加流程
-            broadcast_state = await self.settings_manager.get_setting_state(user_id, 'broadcast')
-            if broadcast_state and broadcast_state['group_id'] == chat_id:
-                await self._process_broadcast_adding(update, context, broadcast_state)
-                return
-            
-            # 检查是否正在进行统计设置编辑
-            for setting_type in ['stats_min_bytes', 'stats_daily_rank', 'stats_monthly_rank']:
-                stats_state = await self.settings_manager.get_setting_state(user_id, setting_type)
-                if stats_state and stats_state['group_id'] == chat_id:
-                    await self._process_stats_setting(update, context, stats_state, setting_type)
-                    return
                 
             # 处理关键词匹配
             if await self.has_permission(chat_id, GroupPermission.KEYWORDS):
