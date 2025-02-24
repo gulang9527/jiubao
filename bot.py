@@ -2754,7 +2754,7 @@ class TelegramBot:
             group_id = setting_state['group_id']
             match_type = setting_state['data'].get('match_type')
 
-            if step == 1:  # 输入关键词
+            if setting_state['step'] == 1:   # 输入关键词
                 pattern = update.message.text
                 max_length = 500
 
