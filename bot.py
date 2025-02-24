@@ -29,8 +29,7 @@ from telegram.ext import (
     CommandHandler,
     MessageHandler,
     CallbackQueryHandler,
-    filters,
-    BaseMiddleware
+    filters
 )
 from dotenv import load_dotenv
 
@@ -512,11 +511,11 @@ class MessageMiddleware:
     
     def __init__(self, bot):
         self.bot = bot
-        super().__init__()
         
-    async def __call__(self, update: Update, context: CallbackContext) -> None:
+    async def __call__(self, update, context):
+        """处理更新"""
         if not update.effective_message:
-            return await context.next_handler(update, context)
+            return await context.application.process_update(update)
 
         try:
             # 1. 基本安全检查
@@ -536,8 +535,8 @@ class MessageMiddleware:
             if not await self._check_rate_limit(update):
                 return
                 
-            # 5. 处理消息
-            return await context.dispatch()
+            # 5. 继续处理消息
+            return await context.application.process_update(update)
             
         except Exception as e:
             logger.error(f"中间件处理错误: {e}")
@@ -620,14 +619,12 @@ class ErrorHandlingMiddleware:
     """错误处理中间件"""
     def __init__(self, error_handler):
         self.error_handler = error_handler
-        super().__init__()
         
-    async def __call__(self, update: Update, context: CallbackContext) -> None:
+    async def __call__(self, update, context):
         try:
-            return await context.next_handler(update, context)
+            return await context.application.process_update(update)
         except Exception as e:
             await self.error_handler.handle_error(update, context)
-            # 重新抛出错误以便框架处理
             raise
 
 def error_handler(func: Callable) -> Callable:
@@ -1196,6 +1193,17 @@ class TelegramBot:
         self.application.middleware.append(error_middleware)
         message_middleware = MessageMiddleware(self)
         self.application.middleware.append(message_middleware)
+        message_middleware = MessageMiddleware(self)
+        error_middleware = ErrorHandlingMiddleware(self.error_handler)
+    
+        self.application.add_handler(
+            MessageHandler(
+                filters.ALL,
+                message_middleware
+            )
+        )
+        # 注册错误处理器
+        self.application.add_error_handler(error_middleware)
 
         # 注册中间件
         self.application.add_handler(ErrorHandlingMiddleware(self.error_handler))
