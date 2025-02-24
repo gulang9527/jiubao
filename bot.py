@@ -217,11 +217,14 @@ class SettingsManager:
                 'timestamp': datetime.now()
             }
         
-    async def get_setting_state(self, user_id: int, setting_type: str) -> dict:
+    async def get_setting_state(self, user_id: int, setting_type: str) -> Optional[dict]:
         """获取设置状态"""
-        state_key = f"setting_{user_id}_{setting_type}"
         async with asyncio.Lock():
-            return self._states.get(state_key)
+            state_key = f"setting_{user_id}_{setting_type}"
+            logger.info(f"获取状态: {state_key}")
+            state = self._states.get(state_key)
+            logger.info(f"获取到的状态: {state}")
+            return state
         
     async def update_setting_state(self, user_id: int, setting_type: str, data: dict):
         """更新设置状态"""
@@ -2246,7 +2249,10 @@ class TelegramBot:
     
         try:
             # 检查是否正在进行关键词添加流程
-            setting_state = await self.settings_manager.get_setting_state(user_id, 'keyword')
+            setting_state = await self.settings_manager.get_setting_state(
+                update.effective_user.id, 
+                'keyword'
+            )
             if setting_state and setting_state['group_id'] == chat_id:
                 await self._process_keyword_adding(update, context, setting_state)
                 return
@@ -2750,13 +2756,19 @@ class TelegramBot:
 
     async def _process_keyword_adding(self, update: Update, context, setting_state):
         try:
+            logger.info(f"处理关键词添加，当前状态: {setting_state}")
+        
             step = setting_state['step']
             group_id = setting_state['group_id']
             match_type = setting_state['data'].get('match_type')
 
-            if setting_state['step'] == 1:   # 输入关键词
+            logger.info(f"当前步骤: {step}, 匹配类型: {match_type}")
+
+            if step == 1:  # 输入关键词
                 pattern = update.message.text
                 max_length = 500
+
+                logger.info(f"收到的关键词: {pattern}")
 
                 if len(pattern) > max_length:
                     await update.message.reply_text(f"❌ 关键词过长，请不要超过 {max_length} 个字符")
@@ -2775,7 +2787,8 @@ class TelegramBot:
                     {
                         'pattern': pattern,
                         'type': match_type
-                    }
+                    },
+                    force_next_step=True
                 )
 
                 # 直接提示输入响应内容
@@ -2785,9 +2798,7 @@ class TelegramBot:
                 )
 
             elif step == 2:  # 处理响应内容
-                # 尝试识别响应类型
-                response_type = None
-                file_id = None
+                logger.info("开始处理响应内容")
 
                 if update.message.text:
                     response_type = 'text'
