@@ -108,6 +108,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def verify_environment():
+    """验证环境变量"""
+    required_vars = {
+        'TELEGRAM_TOKEN': '机器人令牌',
+        'MONGODB_URI': 'MongoDB连接URI',
+        'MONGODB_DB': 'MongoDB数据库名',
+        'WEBHOOK_DOMAIN': 'Webhook域名'
+    }
+    
+    missing = []
+    for var, desc in required_vars.items():
+        if not os.getenv(var):
+            missing.append(f"{var} ({desc})")
+    
+    if missing:
+        raise ValueError(f"缺少必要的环境变量: {', '.join(missing)}")
+        
 # 加载环境变量
 load_dotenv()
 
@@ -514,39 +531,28 @@ class ErrorHandler:
 
 class MessageMiddleware:
     """消息处理中间件"""
-    
     def __init__(self, bot):
         self.bot = bot
         
     async def __call__(self, update, context):
         """处理更新"""
         if not update.effective_message:
-            return await context.application.process_update(update)
-
+            return
+            
         try:
-            # 1. 基本安全检查
+            # 基本安全检查
             if not await self._check_basic_security(update):
                 return
                 
-            # 2. 权限检查
+            # 权限检查    
             if not await self._check_permissions(update):
                 return
                 
-            # 3. 消息清理和验证
-            cleaned_message = await self._clean_message(update)
-            if not cleaned_message:
-                return
-                
-            # 4. 速率限制检查
-            if not await self._check_rate_limit(update):
-                return
-                
-            # 5. 继续处理消息
-            return await context.application.process_update(update)
+            # 继续处理消息
+            await context.application.process_update(update)
             
         except Exception as e:
             logger.error(f"中间件处理错误: {e}")
-            return
             
     async def _check_basic_security(self, update: Update) -> bool:
         """基本安全检查"""
@@ -972,11 +978,13 @@ class TelegramBot:
 
     async def main(cls):
         """主函数"""
-        bot = None
         try:
+            # 验证环境变量
+            verify_environment()
+        
             # 创建机器人实例
             bot = cls()
-               
+        
             # 初始化
             if not await bot.initialize():
                 logger.error("机器人初始化失败")
@@ -995,12 +1003,9 @@ class TelegramBot:
                 await asyncio.sleep(1)
         
         except Exception as e:
-            logger.error(f"机器人启动失败: {e}")
-            logger.error(traceback.format_exc())
-        finally:
-            if bot and hasattr(bot, 'stop'):
-                await bot.stop()
-
+            logger.error(f"启动失败: {e}")
+            raise
+            
     async def start(self):
         """启动机器人"""
         try:
@@ -1165,33 +1170,24 @@ class TelegramBot:
     async def _handle_webhook(self, request):
         """处理Telegram webhook请求"""
         try:
-            # 检查请求内容类型
             if request.content_type != 'application/json':
                 logger.warning(f"收到无效的内容类型: {request.content_type}")
-                return web.Response(status=415, text="Unsupported Media Type")
-            
-            update_data = await request.json()
-            if not update_data:
-                logger.warning("收到空的更新数据")
-                return web.Response(status=400, text="Empty Update")
-            
-            update = Update.de_json(update_data, self.application.bot)
+                return web.Response(status=415)
         
+            update_data = await request.json()
+            logger.info(f"收到webhook更新: {update_data}")
+        
+            update = Update.de_json(update_data, self.application.bot)
             if update:
                 await self.application.process_update(update)
+                logger.info("成功处理更新")
             else:
-                logger.warning("收到无效的更新")
+                logger.warning("收到无效的更新数据")
         
             return web.Response(status=200)
-    
-        except json.JSONDecodeError:
-            logger.error("Webhook请求中的JSON无效")
-            return web.Response(status=400, text="Invalid JSON")
-    
         except Exception as e:
-            logger.error(f"处理Webhook时出错: {e}")
-            logger.error(traceback.format_exc())
-            return web.Response(status=500, text="Internal Server Error")
+            logger.error(f"处理webhook错误: {e}", exc_info=True)
+            return web.Response(status=500)
 
     async def _register_handlers(self):
         """注册各种事件处理器"""
@@ -1204,70 +1200,31 @@ class TelegramBot:
             error_middleware
         ])
 
-        # 注册处理器
-        self.application.add_handler(
-            MessageHandler(
-                filters.ALL,
-                message_middleware
-            )
-        )
-        
-        # 注册错误处理器
-        self.application.add_error_handler(error_middleware)
-
-        # 普通命令（所有用户可用）
+        # 注册命令处理器
         self.application.add_handler(CommandHandler("start", self._handle_start))
         self.application.add_handler(CommandHandler("tongji", self._handle_rank_command))
         self.application.add_handler(CommandHandler("tongji30", self._handle_rank_command))
-        
-        # 管理员命令
         self.application.add_handler(CommandHandler("settings", self._handle_settings))
         self.application.add_handler(CommandHandler("admingroups", self._handle_admin_groups))
-        
-        # 超级管理员命令
+    
+        # 注册管理员命令
         self.application.add_handler(CommandHandler("addsuperadmin", self._handle_add_superadmin))
         self.application.add_handler(CommandHandler("delsuperadmin", self._handle_del_superadmin))
         self.application.add_handler(CommandHandler("addadmin", self._handle_add_admin))
         self.application.add_handler(CommandHandler("deladmin", self._handle_del_admin))
         self.application.add_handler(CommandHandler("authgroup", self._handle_auth_group))
         self.application.add_handler(CommandHandler("deauthgroup", self._handle_deauth_group))
-
-        # 新增配置检查命令
         self.application.add_handler(CommandHandler("checkconfig", self._handle_check_config))
-        
-        # 消息处理器
-        self.application.add_handler(MessageHandler(
-            filters.TEXT & ~filters.COMMAND, 
-            self._handle_message
-        ))
-        
-        # 回调查询处理器
-        self.application.add_handler(CallbackQueryHandler(
-            self._handle_settings_callback, 
-            pattern=r'^stats_edit\|'
-        ))
-        self.application.add_handler(CallbackQueryHandler(
-            self._handle_keyword_callback, 
-            pattern=r'^keyword_'
-        ))
-        self.application.add_handler(CallbackQueryHandler(
-            self._handle_keyword_response_type_callback, 
-            pattern=r'^keyword_response_'
-        ))
-        self.application.add_handler(CallbackQueryHandler(
-            self._handle_broadcast_callback, 
-            pattern=r'^broadcast_'
-        ))
-        self.application.add_handler(CallbackQueryHandler(
-            self._handle_stats_edit_callback, 
-            pattern=r'^stats_'
-        ))
-        self.application.add_handler(CallbackQueryHandler(
-            self._handle_show_manageable_groups, 
-            pattern=r'^show_manageable_groups$'
-        ))
 
-    @handle_callback_errors
+        # 注册回调查询处理器
+        self.application.add_handler(CallbackQueryHandler(self._handle_settings_callback, pattern=r'^settings_'))
+        self.application.add_handler(CallbackQueryHandler(self._handle_keyword_callback, pattern=r'^keyword_'))
+        self.application.add_handler(CallbackQueryHandler(self._handle_broadcast_callback, pattern=r'^broadcast_'))
+    
+        # 注册通用消息处理器
+        self.application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, self._handle_message))
+        @handle_callback_errors
+
     async def _handle_keyword_callback(self, update: Update, context):
         """处理关键词回调"""
         query = update.callback_query
