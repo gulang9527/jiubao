@@ -59,6 +59,10 @@ from config import (
     WEB_HOST,
     WEB_PORT
 )
+import functools
+from typing import Callable
+from telegram import Update
+from telegram.ext import CallbackContext
 
 def require_group_permission(permission):
     """权限验证装饰器"""
