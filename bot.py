@@ -2136,13 +2136,14 @@ class TelegramBot:
 
     async def _handle_message(self, update: Update, context):
         """处理消息"""
+        # 检查消息安全性
         if not await self.check_message_security(update):
             return
-        
-        # 检查权限
+    
+        # 检查用户权限
         if not await self.check_user_permissions(update):
             return
-            
+        
         if not update.effective_chat or not update.effective_user or not update.message:
             return
     
@@ -2156,11 +2157,11 @@ class TelegramBot:
 
         # 检查是否有正在进行的设置操作
         setting_states = {
-            'keyword': self.settings_manager.get_setting_state(user_id, 'keyword'),
-            'broadcast': self.settings_manager.get_setting_state(user_id, 'broadcast'),
-            'stats_min_bytes': self.settings_manager.get_setting_state(user_id, 'stats_min_bytes'),
-            'stats_daily_rank': self.settings_manager.get_setting_state(user_id, 'stats_daily_rank'),
-            'stats_monthly_rank': self.settings_manager.get_setting_state(user_id, 'stats_monthly_rank')
+            'keyword': await self.settings_manager.get_setting_state(user_id, 'keyword'),
+            'broadcast': await self.settings_manager.get_setting_state(user_id, 'broadcast'),
+            'stats_min_bytes': await self.settings_manager.get_setting_state(user_id, 'stats_min_bytes'),
+            'stats_daily_rank': await self.settings_manager.get_setting_state(user_id, 'stats_daily_rank'),
+            'stats_monthly_rank': await self.settings_manager.get_setting_state(user_id, 'stats_monthly_rank')
         }
 
         active_states = {k: v for k, v in setting_states.items() if v}
@@ -2174,7 +2175,7 @@ class TelegramBot:
             timeout = validate_delete_timeout(
                 message_type=metadata['type']
             )
-        
+    
             # 调度消息删除
             await self.message_deletion_manager.schedule_message_deletion(
                 message, 
@@ -2188,35 +2189,35 @@ class TelegramBot:
                 'stats_min_bytes', 'stats_daily_rank', 'stats_monthly_rank'
             ]
             for setting_type in setting_types:
-                state = self.settings_manager.get_setting_state(user_id, setting_type)
+                state = await self.settings_manager.get_setting_state(user_id, setting_type)
                 if state and state['group_id'] == chat_id:
-                    self.settings_manager.clear_setting_state(user_id, setting_type)
+                    await self.settings_manager.clear_setting_state(user_id, setting_type)
                     await update.message.reply_text(f"✅ 已取消 {setting_type} 的设置操作")
                     return
 
             await update.message.reply_text("✅ 没有正在进行的设置操作")
             return
-        
+    
         try:
             # 检查是否正在进行关键词添加流程
-            setting_state = self.settings_manager.get_setting_state(user_id, 'keyword')
+            setting_state = await self.settings_manager.get_setting_state(user_id, 'keyword')
             if setting_state and setting_state['group_id'] == chat_id:
                 await self._process_keyword_adding(update, context, setting_state)
                 return
-                
+            
             # 检查是否正在进行轮播消息添加流程
-            broadcast_state = self.settings_manager.get_setting_state(user_id, 'broadcast')
+            broadcast_state = await self.settings_manager.get_setting_state(user_id, 'broadcast')
             if broadcast_state and broadcast_state['group_id'] == chat_id:
                 await self._process_broadcast_adding(update, context, broadcast_state)
                 return
-                
+            
             # 检查是否正在进行统计设置编辑
             for setting_type in ['stats_min_bytes', 'stats_daily_rank', 'stats_monthly_rank']:
-                stats_state = self.settings_manager.get_setting_state(user_id, setting_type)
+                stats_state = await self.settings_manager.get_setting_state(user_id, setting_type)
                 if stats_state and stats_state['group_id'] == chat_id:
                     await self._process_stats_setting(update, context, stats_state, setting_type)
                     return
-                    
+                
             # 处理关键词匹配
             if await self.has_permission(chat_id, GroupPermission.KEYWORDS):
                 if update.message.text:
@@ -2227,12 +2228,17 @@ class TelegramBot:
                         update.message
                     )
                     if response:
-                        await self._handle_keyword_response(chat_id, response, context, update.message)
-            
+                        await self.handle_keyword_response(
+                            chat_id, 
+                            response, 
+                            context, 
+                            update.message
+                        )
+        
             # 处理消息统计
             if await self.has_permission(chat_id, GroupPermission.STATS):
                 await self.stats_manager.add_message_stat(chat_id, user_id, update.message)
-                
+            
         except Exception as e:
             logger.error(f"处理消息错误: {e}")
             logger.error(traceback.format_exc())
