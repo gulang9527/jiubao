@@ -353,6 +353,10 @@ class ErrorHandler:
             'NetworkError': self._handle_network_error,
             'ChatMigrated': self._handle_chat_migrated,
             'TelegramError': self._handle_telegram_error,
+            'MessageTooLong': self._handle_message_too_long,
+            'FloodWait': self._handle_flood_wait,
+            'RetryAfter': self._handle_retry_after,
+            'BadRequest': self._handle_bad_request
         })
         
     async def _handle_invalid_token(self, update: Update, error: Exception) -> str:
@@ -379,15 +383,33 @@ class ErrorHandler:
         """处理群组迁移错误"""
         self.logger.info(f"Chat migrated to {error.new_chat_id}")
         return "群组ID已更新，请重新设置"
+
+    async def _handle_message_too_long(self, update: Update, error: Exception) -> str:
+        """处理消息过长错误"""
+        self.logger.warning(f"Message too long: {error}")
+        return "❌ 消息内容过长，请缩短后重试"
+
+    async def _handle_flood_wait(self, update: Update, error: Exception) -> str:
+        """处理洪水等待错误"""
+        wait_time = getattr(error, 'retry_after', 60)
+        self.logger.warning(f"Flood wait error: {error}, retry after {wait_time} seconds")
+        return f"❌ 操作过于频繁，请等待 {wait_time} 秒后重试"
+
+    async def _handle_retry_after(self, update: Update, error: Exception) -> str:
+        """处理重试等待错误"""
+        retry_after = getattr(error, 'retry_after', 30)
+        self.logger.warning(f"Need to retry after {retry_after} seconds")
+        return f"❌ 请等待 {retry_after} 秒后重试"
+
+    async def _handle_bad_request(self, update: Update, error: Exception) -> str:
+        """处理错误请求"""
+        self.logger.error(f"Bad request error: {error}")
+        return "❌ 无效的请求，请检查输入"
         
     async def _handle_telegram_error(self, update: Update, error: Exception) -> str:
         """处理一般Telegram错误"""
         self.logger.error(f"Telegram error occurred: {error}")
         return "❌ 操作失败，请重试"
-        
-    def register_handler(self, error_type: str, handler: Callable):
-        """注册自定义错误处理器"""
-        self._error_handlers[error_type] = handler
         
     async def handle_error(self, update: Update, context: CallbackContext) -> None:
         """统一错误处理入口"""
@@ -411,14 +433,20 @@ class ErrorHandler:
             )
             
             # 发送错误消息
-            if update.callback_query:
-                await update.callback_query.answer()
-                await update.callback_query.edit_message_text(error_message)
-            elif update.message:
-                await update.message.reply_text(error_message)
-                
+            if update and update.effective_message:
+                if update.callback_query:
+                    await update.callback_query.answer()
+                    await update.callback_query.edit_message_text(error_message)
+                else:
+                    await update.effective_message.reply_text(error_message)
+                    
         except Exception as e:
             self.logger.error(f"Error handling failed: {e}")
+            self.logger.error(traceback.format_exc())
+
+    def register_handler(self, error_type: str, handler: Callable):
+        """注册自定义错误处理器"""
+        self._error_handlers[error_type] = handler
 
 class ErrorHandlingMiddleware:
     """错误处理中间件"""
@@ -2569,60 +2597,6 @@ class TelegramBot:
             logger.error(f"处理轮播消息添加错误: {e}")
             await update.message.reply_text("❌ 添加轮播消息时出错")
             await self.settings_manager.clear_setting_state(update.effective_user.id, 'broadcast')
-
-    async def _handle_keyword_response_type_callback(self, update: Update, context):
-        """处理关键词响应类型的回调"""
-        query = update.callback_query
-        await query.answer()
-    
-        try:
-            data = query.data
-            parts = data.split('_')
-            response_type = parts[2]  # 获取响应类型
-            group_id = int(parts[3])  # 获取群组ID
-        
-            # 获取当前设置状态
-            setting_state = self.settings_manager.get_setting_state(
-                update.effective_user.id,
-                'keyword'
-            )
-        
-            if not setting_state:
-                await query.edit_message_text("❌ 设置会话已过期，请重新开始")
-                return
-            
-            # 更新设置状态
-            setting_state['data']['response_type'] = response_type
-        
-            # 根据响应类型提示用户
-            if response_type == 'text':
-                prompt = "请发送关键词的文本回复内容："
-            elif response_type == 'photo':
-                prompt = "请发送关键词要回复的图片："
-            elif response_type == 'video':
-                prompt = "请发送关键词要回复的视频："
-            elif response_type == 'document':
-                prompt = "请发送关键词要回复的文件："
-            else:
-                await query.edit_message_text("❌ 不支持的响应类型")
-                return
-            
-            await query.edit_message_text(
-                f"{prompt}\n"
-                "发送 /cancel 取消"
-            )
-        
-            # 更新设置状态到下一步
-            self.settings_manager.update_setting_state(
-                update.effective_user.id,
-                'keyword',
-                {'response_type': response_type}
-            )
-        
-        except Exception as e:
-            logger.error(f"处理关键词响应类型回调错误: {e}")
-            logger.error(traceback.format_exc())
-            await query.edit_message_text("❌ 处理响应类型选择时出错")
 
 def async_main():
     """异步主入口点"""
