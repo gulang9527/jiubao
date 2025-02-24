@@ -31,6 +31,12 @@ from telegram.ext import (
     CallbackQueryHandler,
     filters
 )
+
+def register_middleware(application: Application, middlewares: list) -> None:
+    """注册中间件"""
+    for middleware in middlewares:
+        application.post_init = middleware
+        
 from dotenv import load_dotenv
 
 from db import Database, UserRole, GroupPermission
