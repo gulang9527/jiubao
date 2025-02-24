@@ -1225,6 +1225,7 @@ class TelegramBot:
         self.application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, self._handle_message))
         @handle_callback_errors
 
+    @handle_callback_errors
     async def _handle_keyword_callback(self, update: Update, context):
         """处理关键词回调"""
         query = update.callback_query
@@ -1616,30 +1617,31 @@ class TelegramBot:
             await query.edit_message_text("❌ 显示设置分区时出错")
 
     async def _show_stats_settings(self, query, group_id: int, settings: dict):
-        """显示统计设置页面"""
+        from utils import CallbackDataBuilder  # 确保导入
+            """显示统计设置页面"""
         keyboard = [
             [
                 InlineKeyboardButton(
                     f"最小统计字节数: {settings.get('min_bytes', 0)} 字节", 
-                    callback_data=f"stats_edit|min_bytes|{group_id}"
+                    callback_data=CallbackDataBuilder.stats_settings('min_bytes', group_id)
                 )
             ],
             [
                 InlineKeyboardButton(
                     f"统计多媒体: {'是' if settings.get('count_media', False) else '否'}", 
-                    callback_data=f"stats_edit|toggle_media|{group_id}"
+                    callback_data=CallbackDataBuilder.stats_settings('toggle_media', group_id)
                 )
             ],
             [
                 InlineKeyboardButton(
                     f"日排行显示数量: {settings.get('daily_rank_size', 15)}", 
-                    callback_data=f"stats_edit|daily_rank|{group_id}"
+                    callback_data=CallbackDataBuilder.stats_settings('daily_rank', group_id)
                 )
             ],
             [
                 InlineKeyboardButton(
                     f"月排行显示数量: {settings.get('monthly_rank_size', 15)}", 
-                    callback_data=f"stats_edit|monthly_rank|{group_id}"
+                    callback_data=CallbackDataBuilder.stats_settings('monthly_rank', group_id)
                 )
             ],
             [
@@ -2011,46 +2013,6 @@ class TelegramBot:
                 await query.edit_message_text("❌ 处理设置时出错，请重试")
             except Exception:
                 pass
-
-    async def _show_stats_settings(self, query, group_id: int, settings: dict):
-        """显示统计设置页面"""
-        keyboard = [
-            [
-                InlineKeyboardButton(
-                    f"最小统计字节数: {settings.get('min_bytes', 0)} 字节", 
-                    callback_data=f"stats_edit_min_bytes_{group_id}"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    f"统计多媒体: {'是' if settings.get('count_media', False) else '否'}", 
-                    callback_data=f"stats_edit_toggle_media_{group_id}"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    f"日排行显示数量: {settings.get('daily_rank_size', 15)}", 
-                    callback_data=f"stats_edit_daily_rank_{group_id}"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    f"月排行显示数量: {settings.get('monthly_rank_size', 15)}", 
-                    callback_data=f"stats_edit_monthly_rank_{group_id}"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "返回设置菜单", 
-                    callback_data=f"settings_select_{group_id}"
-                )
-            ]
-        ]
-
-        await query.edit_message_text(
-            f"群组 {group_id} 的统计设置",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
 
     async def _process_stats_setting(self, update: Update, context, stats_state, setting_type):
         """处理统计设置编辑"""
