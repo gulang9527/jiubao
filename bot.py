@@ -1223,7 +1223,6 @@ class TelegramBot:
     
         # 注册通用消息处理器
         self.application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, self._handle_message))
-        @handle_callback_errors
 
     @handle_callback_errors
     async def _handle_keyword_callback(self, update: Update, context):
