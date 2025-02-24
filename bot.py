@@ -29,7 +29,8 @@ from telegram.ext import (
     CommandHandler,
     MessageHandler,
     CallbackQueryHandler,
-    filters
+    filters,
+    BaseMiddleware
 )
 from dotenv import load_dotenv
 
@@ -511,15 +512,11 @@ class MessageMiddleware:
     
     def __init__(self, bot):
         self.bot = bot
+        super().__init__()
         
-    async def __call__(
-        self, 
-        update: Update, 
-        context: ContextTypes.DEFAULT_TYPE
-    ) -> Any:
-        """中间件处理入口"""
+    async def __call__(self, update: Update, context: CallbackContext) -> None:
         if not update.effective_message:
-            return await context.dispatch()
+            return await context.next_handler(update, context)
 
         try:
             # 1. 基本安全检查
@@ -617,14 +614,17 @@ class MessageMiddleware:
             
         return True
 
+from telegram.ext import Application, BaseMiddleware
+
 class ErrorHandlingMiddleware:
     """错误处理中间件"""
-    def __init__(self, error_handler: ErrorHandler):
+    def __init__(self, error_handler):
         self.error_handler = error_handler
+        super().__init__()
         
-    async def __call__(self, update: Update, context: CallbackContext) -> Any:
+    async def __call__(self, update: Update, context: CallbackContext) -> None:
         try:
-            return await context.dispatch()
+            return await context.next_handler(update, context)
         except Exception as e:
             await self.error_handler.handle_error(update, context)
             # 重新抛出错误以便框架处理
@@ -1196,6 +1196,10 @@ class TelegramBot:
         self.application.middleware.append(error_middleware)
         message_middleware = MessageMiddleware(self)
         self.application.middleware.append(message_middleware)
+
+        # 注册中间件
+        self.application.add_handler(ErrorHandlingMiddleware(self.error_handler))
+        self.application.add_handler(MessageMiddleware(self))
         
         # 普通命令（所有用户可用）
         self.application.add_handler(CommandHandler("start", self._handle_start))
