@@ -742,21 +742,39 @@ class CommandHelper:
             
         return True
         
-    async def check_command_usage(func: Callable) -> Callable:
-        """命令使用检查装饰器"""
-        @functools.wraps(func)
-        async def wrapper(self, update: Update, context: CallbackContext, *args, **kwargs):
-            if not update.effective_message:
-                return
+def check_command_usage(func: Callable) -> Callable:
+    """命令使用检查装饰器"""
+    @functools.wraps(func)
+    async def wrapper(self, update: Update, context: CallbackContext, *args, **kwargs):
+        if not update.effective_message:
+            return
             
-            message = update.effective_message
-            command = message.text.split()[0].lstrip('/').split('@')[0]
+        message = update.effective_message
+        command = message.text.split()[0].lstrip('/').split('@')[0]
         
-            if not await CommandHelper.check_usage(update, command, context.args):
-                return
+        user_id = update.effective_user.id if update.effective_user else None
+        if not user_id:
+            return
             
-            return await func(self, update, context, *args, **kwargs)
-        return wrapper
+        # 检查命令使用是否正确
+        usage = CommandHelper.get_usage(command)
+        if not usage:
+            return True
+            
+        # 检查管理员权限
+        if usage['admin_only'] and not await self.is_admin(user_id):
+            await update.message.reply_text("❌ 该命令仅管理员可用")
+            return False
+            
+        # 检查参数
+        if '<' in usage['usage'] and not context.args:
+            await update.message.reply_text(
+                f"❌ 命令使用方法不正确\n{CommandHelper.format_usage(command)}"
+            )
+            return False
+            
+        return await func(self, update, context, *args, **kwargs)
+    return wrapper
     
 class TelegramBot:
     
