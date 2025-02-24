@@ -18,6 +18,9 @@ import traceback
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Tuple
 from bson import ObjectId
+from typing import Optional, Callable, Any
+from telegram import Update
+from telegram.ext import ContextTypes
 
 from aiohttp import web
 from telegram import Update, Message, InlineKeyboardButton, InlineKeyboardMarkup
@@ -499,6 +502,117 @@ class ErrorHandler:
         """注册自定义错误处理器"""
         self._error_handlers[error_type] = handler
 
+class MessageMiddleware:
+    """消息处理中间件"""
+    
+    def __init__(self, bot):
+        self.bot = bot
+        
+    async def __call__(
+        self, 
+        update: Update, 
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> Any:
+        """中间件处理入口"""
+        if not update.effective_message:
+            return await context.dispatch()
+
+        try:
+            # 1. 基本安全检查
+            if not await self._check_basic_security(update):
+                return
+                
+            # 2. 权限检查
+            if not await self._check_permissions(update):
+                return
+                
+            # 3. 消息清理和验证
+            cleaned_message = await self._clean_message(update)
+            if not cleaned_message:
+                return
+                
+            # 4. 速率限制检查
+            if not await self._check_rate_limit(update):
+                return
+                
+            # 5. 处理消息
+            return await context.dispatch()
+            
+        except Exception as e:
+            logger.error(f"中间件处理错误: {e}")
+            return
+            
+    async def _check_basic_security(self, update: Update) -> bool:
+        """基本安全检查"""
+        message = update.effective_message
+        
+        # 检查消息大小
+        if message.text and len(message.text) > 4096:  # Telegram消息长度限制
+            await message.reply_text("❌ 消息内容过长")
+            return False
+            
+        # 检查文件大小
+        if message.document and message.document.file_size > 20 * 1024 * 1024:  # 20MB
+            await message.reply_text("❌ 文件大小超过限制")
+            return False
+            
+        return True
+        
+    async def _check_permissions(self, update: Update) -> bool:
+        """权限检查"""
+        if not update.effective_chat or not update.effective_user:
+            return False
+            
+        chat_id = update.effective_chat.id
+        user_id = update.effective_user.id
+        
+        # 检查用户是否被封禁
+        if await self.bot.db.is_user_banned(user_id):
+            return False
+            
+        # 检查群组是否已授权
+        if not await self.bot.db.get_group(chat_id):
+            return False
+            
+        return True
+        
+    async def _clean_message(self, update: Update) -> Optional[str]:
+        """消息清理和验证"""
+        message = update.effective_message
+        
+        if not message.text:
+            return None
+            
+        # 清理HTML标签
+        cleaned_text = html.escape(message.text)
+        
+        # 清理危险字符
+        cleaned_text = re.sub(r'[^\w\s\-.,?!@#$%^&*()]', '', cleaned_text)
+        
+        return cleaned_text
+        
+    async def _check_rate_limit(self, update: Update) -> bool:
+        """速率限制检查"""
+        if not update.effective_user:
+            return False
+            
+        user_id = update.effective_user.id
+        
+        # 获取用户最近的消息数量
+        recent_messages = await self.bot.db.get_recent_message_count(
+            user_id,
+            seconds=60  # 检查最近60秒
+        )
+        
+        # 如果超过限制，拒绝处理
+        if recent_messages > 30:  # 每分钟最多30条消息
+            await update.effective_message.reply_text(
+                "❌ 消息发送过于频繁，请稍后再试"
+            )
+            return False
+            
+        return True
+
 class ErrorHandlingMiddleware:
     """错误处理中间件"""
     def __init__(self, error_handler: ErrorHandler):
@@ -703,6 +817,15 @@ class TelegramBot:
     async def initialize(self):
         """初始化机器人"""
         try:
+            from config_validator import validate_config, ConfigValidationError
+            import config
+        
+            try:
+                validate_config(config)
+            except ConfigValidationError as e:
+                logger.error(f"配置验证失败: {e}")
+                return False
+                
             logger.info("开始初始化机器人")
     
             # 初始化数据库
@@ -1914,6 +2037,13 @@ class TelegramBot:
 
     async def _handle_message(self, update: Update, context):
         """处理消息"""
+        if not await self.check_message_security(update):
+            return
+        
+        # 检查权限
+        if not await self.check_user_permissions(update):
+            return
+            
         if not update.effective_chat or not update.effective_user or not update.message:
             return
     
@@ -2650,6 +2780,43 @@ class TelegramBot:
             logger.error(f"处理轮播消息添加错误: {e}")
             await update.message.reply_text("❌ 添加轮播消息时出错")
             await self.settings_manager.clear_setting_state(update.effective_user.id, 'broadcast')
+
+    async def check_message_security(self, update: Update) -> bool:
+        """检查消息安全性"""
+        if not update.effective_message:
+            return False
+        
+        message = update.effective_message
+    
+        # 检查消息大小
+        if message.text and len(message.text) > 4096:
+            await message.reply_text("❌ 消息内容过长")
+            return False
+        
+        # 检查文件大小
+        if message.document and message.document.file_size > 20 * 1024 * 1024:
+            await message.reply_text("❌ 文件大小超过限制")
+            return False
+        
+        return True
+
+    async def check_user_permissions(self, update: Update) -> bool:
+        """检查用户权限"""
+        if not update.effective_chat or not update.effective_user:
+            return False
+        
+        chat_id = update.effective_chat.id
+        user_id = update.effective_user.id
+    
+        # 检查用户是否被封禁
+        if await self.db.is_user_banned(user_id):
+            return False
+        
+        # 检查群组是否已授权
+        if not await self.db.get_group(chat_id):
+            return False
+        
+        return True
 
 def async_main():
     """异步主入口点"""
