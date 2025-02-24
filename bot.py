@@ -1266,6 +1266,138 @@ class TelegramBot:
             self._handle_show_manageable_groups, 
             pattern=r'^show_manageable_groups$'
         ))
+
+    @handle_callback_errors
+    async def _handle_keyword_callback(self, update: Update, context):
+        """处理关键词回调"""
+        query = update.callback_query
+        await query.answer()
+
+        try:
+            data = query.data
+            parts = data.split('_')
+            action = parts[1]  # detail/add/edit/delete
+
+            if len(parts) < 3:
+                await query.edit_message_text("❌ 无效的操作")
+                return
+
+            try:
+                group_id = int(parts[2])
+            except ValueError:
+                await query.edit_message_text("❌ 无效的群组ID")
+                return
+
+            # 验证权限
+            if not await self.db.can_manage_group(update.effective_user.id, group_id):
+                await query.edit_message_text("❌ 无权限管理此群组")
+                return
+
+            if not await self.has_permission(group_id, GroupPermission.KEYWORDS):
+                await query.edit_message_text("❌ 此群组未启用关键词功能")
+                return
+
+            if action == "add":
+                # 让用户选择匹配类型
+                keyboard = [
+                    [
+                        InlineKeyboardButton(
+                            "精确匹配", 
+                            callback_data=f"keyword_type_exact_{group_id}"
+                        ),
+                        InlineKeyboardButton(
+                            "正则匹配", 
+                            callback_data=f"keyword_type_regex_{group_id}"
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "取消", 
+                            callback_data=f"settings_keywords_{group_id}"
+                        )
+                    ]
+                ]
+                await query.edit_message_text(
+                    "请选择关键词匹配类型：",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+
+            elif action == "type":
+                match_type = parts[2]  # exact/regex
+                await self.settings_manager.start_setting(
+                    update.effective_user.id,
+                    'keyword',
+                    group_id
+                )
+            
+                await self.settings_manager.update_setting_state(
+                    update.effective_user.id,
+                    'keyword',
+                    {'match_type': match_type}
+                )
+
+                await query.edit_message_text(
+                    "请发送关键词：\n\n"
+                    "发送 /cancel 取消"
+                )
+
+            elif action == "detail":
+                if len(parts) < 4:
+                    await query.edit_message_text("❌ 无效的关键词ID")
+                    return
+
+                keyword_id = parts[3]
+                keyword = await self.keyword_manager.get_keyword_by_id(group_id, keyword_id)
+            
+                if not keyword:
+                    await query.edit_message_text("❌ 未找到该关键词")
+                    return
+
+                pattern = keyword['pattern']
+                response = keyword['response']
+                response_type = keyword['response_type']
+                match_type = keyword['type']
+
+                keyboard = [
+                    [
+                        InlineKeyboardButton(
+                            "❌ 删除", 
+                            callback_data=f"keyword_delete_{group_id}_{keyword_id}"
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "返回列表", 
+                            callback_data=f"settings_keywords_{group_id}"
+                        )
+                    ]
+                ]
+
+                text = (
+                    f"关键词详情：\n\n"
+                    f"匹配类型：{'正则匹配' if match_type == 'regex' else '精确匹配'}\n"
+                    f"关键词：{pattern}\n"
+                    f"回复类型：{response_type}\n"
+                )
+
+                await query.edit_message_text(
+                    text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+
+            elif action == "delete":
+                if len(parts) < 4:
+                    await query.edit_message_text("❌ 无效的关键词ID")
+                    return
+
+                keyword_id = parts[3]
+                await self.db.remove_keyword(group_id, keyword_id)
+                await self._show_keyword_settings(query, group_id)
+
+        except Exception as e:
+            logger.error(f"处理关键词回调错误: {e}")
+            logger.error(traceback.format_exc())
+            await query.edit_message_text("❌ 处理关键词设置时出错")
         
     @check_command_usage
     async def _handle_start(self, update: Update, context):
