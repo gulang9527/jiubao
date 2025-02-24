@@ -718,7 +718,7 @@ class CommandHelper:
         return "\n".join(text)
         
     @classmethod
-    def check_usage(cls, update: Update, command: str, args: list) -> bool:
+    async def check_usage(cls, update: Update, command: str, args: list) -> bool:
         """检查命令使用是否正确"""
         usage = cls.get_usage(command)
         if not usage:
@@ -737,22 +737,22 @@ class CommandHelper:
             return False
             
         return True
-
-async def check_command_usage(func: Callable) -> Callable:
-    """命令使用检查装饰器"""
-    @functools.wraps(func)
-    async def wrapper(self, update: Update, context: CallbackContext, *args, **kwargs):
-        if not update.effective_message:
-            return
-            
-        message = update.effective_message
-        command = message.text.split()[0].lstrip('/').split('@')[0]
         
-        if not await CommandHelper.check_usage(update, command, context.args):
-            return
+    async def check_command_usage(func: Callable) -> Callable:
+        """命令使用检查装饰器"""
+        @functools.wraps(func)
+        async def wrapper(self, update: Update, context: CallbackContext, *args, **kwargs):
+            if not update.effective_message:
+                return
             
-        return await func(self, update, context, *args, **kwargs)
-    return wrapper
+            message = update.effective_message
+            command = message.text.split()[0].lstrip('/').split('@')[0]
+        
+            if not await CommandHelper.check_usage(update, command, context.args):
+                return
+            
+            return await func(self, update, context, *args, **kwargs)
+        return wrapper
     
 class TelegramBot:
     
