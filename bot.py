@@ -2168,84 +2168,80 @@ class TelegramBot:
             
             return keyboard
 
-    async def update_stats_setting(self, group_id: int, setting_type: str, value: int):
-        """更新统计设置"""
-        settings = await self.db.get_group_settings(group_id)
-        if setting_type == 'stats_min_bytes':
-            settings['min_bytes'] = value
-            tips = f"最小统计字节数已设置为 {value} 字节"
-        elif setting_type == 'stats_daily_rank':
-            settings['daily_rank_size'] = value
-            tips = f"日排行显示数量已设置为 {value}"
-        elif setting_type == 'stats_monthly_rank':
-            settings['monthly_rank_size'] = value
-            tips = f"月排行显示数量已设置为 {value}"
-        await self.db.update_group_settings(group_id, settings)
-        return tips
-
     async def _handle_message(self, update: Update, context):
         """处理消息"""
-        # 检查消息安全性
-        if not await self.check_message_security(update):
+        # 安全检查：确保消息和用户有效
+        if not update.effective_message or not update.effective_user:
             return
     
-        # 检查用户权限
-        if not await self.check_user_permissions(update):
-            return
-        
-        if not update.effective_chat or not update.effective_user or not update.message:
-            return
-    
+        # 获取必要的信息
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
         message = update.message
 
-        # 获取用户角色
-        user = await self.db.get_user(user_id)
-        user_role = user['role'] if user else 'user'
+        try:
+            # 检查消息安全性
+            if not await self.check_message_security(update):
+                return
+        
+            # 检查用户权限
+            if not await self.check_user_permissions(update):
+                return
 
-        # 检查是否有正在进行的设置操作
-        setting_states = {
-            'keyword': await self.settings_manager.get_setting_state(user_id, 'keyword'),
-            'broadcast': await self.settings_manager.get_setting_state(user_id, 'broadcast'),
-            'stats_min_bytes': await self.settings_manager.get_setting_state(user_id, 'stats_min_bytes'),
-            'stats_daily_rank': await self.settings_manager.get_setting_state(user_id, 'stats_daily_rank'),
-            'stats_monthly_rank': await self.settings_manager.get_setting_state(user_id, 'stats_monthly_rank')
-        }
+            # 获取用户角色
+            user = await self.db.get_user(user_id)
+            user_role = user['role'] if user else 'user'
 
-        active_states = {k: v for k, v in setting_states.items() if v}
+            # 检查是否有正在进行的设置操作
+            setting_states = {
+                'keyword': await self.settings_manager.get_setting_state(user_id, 'keyword'),
+                'broadcast': await self.settings_manager.get_setting_state(user_id, 'broadcast'),
+                'stats_min_bytes': await self.settings_manager.get_setting_state(user_id, 'stats_min_bytes'),
+                'stats_daily_rank': await self.settings_manager.get_setting_state(user_id, 'stats_daily_rank'),
+                'stats_monthly_rank': await self.settings_manager.get_setting_state(user_id, 'stats_monthly_rank')
+            }
 
-        # 检查是否免除自动删除
-        command = message.text.split()[0] if message.text else None
-        if not is_auto_delete_exempt(user_role, command):
-            # 获取消息元数据
-            metadata = get_message_metadata(message)
-            # 计算删除超时时间
-            timeout = validate_delete_timeout(
-                message_type=metadata['type']
-            )
-    
-            # 调度消息删除
-            await self.message_deletion_manager.schedule_message_deletion(
-                message, 
-                timeout
-            )
+            # 获取用户的活动设置状态
+            active_states = {k: v for k, v in setting_states.items() if v and v['group_id'] == chat_id}
 
-        if update.message.text and update.message.text.lower() == '/cancel':
-            # 清除所有设置状态
-            setting_types = [
-                'keyword', 'broadcast', 
-                'stats_min_bytes', 'stats_daily_rank', 'stats_monthly_rank'
-            ]
-            for setting_type in setting_types:
-                state = await self.settings_manager.get_setting_state(user_id, setting_type)
-                if state and state['group_id'] == chat_id:
+            # 处理取消操作
+            if message.text and message.text.lower() == '/cancel':
+                for setting_type, state in active_states.items():
                     await self.settings_manager.clear_setting_state(user_id, setting_type)
-                    await update.message.reply_text(f"✅ 已取消 {setting_type} 的设置操作")
+                    await message.reply_text(f"✅ 已取消 {setting_type} 的设置操作")
                     return
 
-            await update.message.reply_text("✅ 没有正在进行的设置操作")
-            return
+            # 处理设置状态下的消息
+            for setting_type, state in active_states.items():
+                logger.info(f"检测到设置状态：{setting_type}, 状态：{state}")
+            
+                if setting_type == 'keyword':
+                    await self._process_keyword_adding(update, context, state)
+                    return
+            
+                elif setting_type == 'broadcast':
+                    await self._process_broadcast_adding(update, context, state)
+                    return
+            
+                elif setting_type in ['stats_min_bytes', 'stats_daily_rank', 'stats_monthly_rank']:
+                    await self._process_stats_setting(update, context, state, setting_type)
+                    return
+
+            # 检查是否免除自动删除
+            command = message.text.split()[0] if message.text else None
+            if not is_auto_delete_exempt(user_role, command):
+                # 获取消息元数据
+                metadata = get_message_metadata(message)
+                # 计算删除超时时间
+                timeout = validate_delete_timeout(
+                    message_type=metadata['type']
+                )
+        
+                # 调度消息删除
+                await self.message_deletion_manager.schedule_message_deletion(
+                    message, 
+                    timeout
+                )
     
         try:
             # 检查是否正在进行关键词添加流程
@@ -2272,24 +2268,24 @@ class TelegramBot:
                 
             # 处理关键词匹配
             if await self.has_permission(chat_id, GroupPermission.KEYWORDS):
-                if update.message.text:
+                if message.text:
                     # 尝试匹配关键词
                     response = await self.keyword_manager.match_keyword(
                         chat_id,
-                        update.message.text,
-                        update.message
+                        message.text,
+                        message
                     )
                     if response:
                         await self.handle_keyword_response(
                             chat_id, 
                             response, 
                             context, 
-                            update.message
+                            message
                         )
         
             # 处理消息统计
             if await self.has_permission(chat_id, GroupPermission.STATS):
-                await self.stats_manager.add_message_stat(chat_id, user_id, update.message)
+                await self.stats_manager.add_message_stat(chat_id, user_id, message)
             
         except Exception as e:
             logger.error(f"处理消息错误: {e}")
@@ -2756,7 +2752,7 @@ class TelegramBot:
 
     async def _process_keyword_adding(self, update: Update, context, setting_state):
         try:
-            logger.info(f"处理关键词添加，当前状态: {setting_state}")
+            logger.info(f"进入关键词添加处理，状态: {setting_state}")
         
             step = setting_state['step']
             group_id = setting_state['group_id']
@@ -2799,6 +2795,9 @@ class TelegramBot:
 
             elif step == 2:  # 处理响应内容
                 logger.info("开始处理响应内容")
+                # 尝试识别响应类型
+                response_type = None
+                file_id = None
 
                 if update.message.text:
                     response_type = 'text'
@@ -2812,6 +2811,8 @@ class TelegramBot:
                 elif update.message.document:
                     response_type = 'document'
                     file_id = update.message.document.file_id
+
+                logger.info(f"识别的响应类型: {response_type}, file_id: {file_id}")
 
                 if not file_id:
                     await update.message.reply_text("❌ 请发送有效的响应内容")
