@@ -1220,6 +1220,7 @@ class TelegramBot:
         self.application.add_handler(CallbackQueryHandler(self._handle_settings_callback, pattern=r'^settings_'))
         self.application.add_handler(CallbackQueryHandler(self._handle_keyword_callback, pattern=r'^keyword_'))
         self.application.add_handler(CallbackQueryHandler(self._handle_broadcast_callback, pattern=r'^broadcast_'))
+        self.application.add_handler(CallbackQueryHandler(self._handle_keyword_continue_callback, pattern=r'^keyword_continue_'))
     
         # 注册通用消息处理器
         self.application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, self._handle_message))
@@ -1358,6 +1359,51 @@ class TelegramBot:
             logger.error(f"处理关键词回调错误: {e}")
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 处理关键词设置时出错")
+
+    @handle_callback_errors
+    async def _handle_keyword_continue_callback(self, update: Update, context):
+        """处理关键词添加后的继续操作回调"""
+        query = update.callback_query
+        await query.answer()
+
+        try:
+            data = query.data
+            parts = data.split('_')
+        
+            group_id = int(parts[2])
+
+            # 验证权限
+            if not await self.db.can_manage_group(update.effective_user.id, group_id):
+                await query.edit_message_text("❌ 无权限管理此群组")
+                return
+
+            # 直接跳转到关键词添加的匹配类型选择
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        "精确匹配", 
+                        callback_data=f"keyword_type_exact_{group_id}"
+                    ),
+                    InlineKeyboardButton(
+                        "正则匹配", 
+                        callback_data=f"keyword_type_regex_{group_id}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "取消", 
+                        callback_data=f"settings_keywords_{group_id}"
+                    )
+                ]
+            ]
+            await query.edit_message_text(
+                "请选择关键词匹配类型：",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+
+        except Exception as e:
+            logger.error(f"处理关键词继续添加回调错误: {e}")
+            logger.error(traceback.format_exc())
         
     @check_command_usage
     async def _handle_start(self, update: Update, context):
@@ -2715,23 +2761,26 @@ class TelegramBot:
                 if len(pattern) > max_length:
                     await update.message.reply_text(f"❌ 关键词过长，请不要超过 {max_length} 个字符")
                     return
-        
+    
                 # 如果是正则，验证正则表达式
                 if match_type == 'regex':
                     if not validate_regex(pattern):
                         await update.message.reply_text("❌ 无效的正则表达式格式")
                         return
             
-                setting_state['data']['pattern'] = pattern
-                setting_state['data']['type'] = match_type
+                # 更新设置状态
+                await self.settings_manager.update_setting_state(
+                    update.effective_user.id,
+                    'keyword',
+                    {
+                        'pattern': pattern,
+                        'type': match_type
+                    }
+                )
 
-                # 修改为直接提示输入响应内容
+                # 直接提示输入响应内容
                 await update.message.reply_text(
-                    "请选择并发送关键词的响应内容：\n"
-                    "• 文本：直接发送文字\n"
-                    "• 图片：发送图片\n"
-                    "• 视频：发送视频\n"
-                    "• 文件：发送文件\n\n"
+                    "请直接发送关键词的回复内容（支持文字/图片/视频/文件）：\n\n"
                     "发送 /cancel 取消"
                 )
 
@@ -2781,10 +2830,21 @@ class TelegramBot:
                     'response_type': response_type
                 })
 
-                await update.message.reply_text("✅ 关键词添加成功！")
+                # 询问是否继续添加
+                keyboard = [
+                    [
+                        InlineKeyboardButton("继续添加关键词", callback_data=f"keyword_continue_{group_id}"),
+                        InlineKeyboardButton("返回关键词设置", callback_data=f"settings_keywords_{group_id}")
+                    ]
+                ]
+
+                await update.message.reply_text(
+                    "✅ 关键词添加成功！",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
 
                 # 清除设置状态
-                self.settings_manager.clear_setting_state(update.effective_user.id, 'keyword')
+                await self.settings_manager.clear_setting_state(update.effective_user.id, 'keyword')
 
         except Exception as e:
             logger.error(f"处理关键词添加错误: {e}")
