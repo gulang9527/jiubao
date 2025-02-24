@@ -103,7 +103,9 @@ class SettingsManager:
         self.db = db
         self._states = {}
         self._locks = {}
+        self._state_locks = {}
         self._cleanup_task = None
+        self._max_states_per_user = 5  # 每个用户最大并发状态数
         
     async def start(self):
         """启动状态管理器"""
@@ -117,18 +119,27 @@ class SettingsManager:
                 await self._cleanup_task
             except asyncio.CancelledError:
                 pass
-                
+
+    async def _get_state_lock(self, user_id: int):
+        """获取用户状态锁"""
+        if user_id not in self._state_locks:
+            self._state_locks[user_id] = asyncio.Lock()
+        return self._state_locks[user_id]
+
     async def _cleanup_loop(self):
         """清理过期状态"""
         while True:
             try:
                 now = datetime.now()
                 expired_keys = []
-                for key, state in self._states.items():
-                    if (now - state['timestamp']).total_seconds() > 300:  # 5分钟超时
-                        expired_keys.append(key)
-                for key in expired_keys:
-                    del self._states[key]
+                async with asyncio.Lock():  # 使用锁保护状态清理
+                    for key, state in self._states.items():
+                        if (now - state['timestamp']).total_seconds() > 300:  # 5分钟超时
+                            expired_keys.append(key)
+                    
+                    for key in expired_keys:
+                        await self._cleanup_state(key)
+                        
                 await asyncio.sleep(60)  # 每分钟检查一次
             except asyncio.CancelledError:
                 break
@@ -136,48 +147,88 @@ class SettingsManager:
                 logger.error(f"State cleanup error: {e}")
                 await asyncio.sleep(60)
 
+    async def _cleanup_state(self, key: str):
+        """清理特定状态"""
+        if key in self._states:
+            del self._states[key]
+        if key in self._locks:
+            del self._locks[key]
+                
     async def get_current_page(self, group_id: int, section: str) -> int:
         """获取当前页码"""
         state_key = f"page_{group_id}_{section}"
-        state = self._states.get(state_key, {})
-        return state.get('page', 1)
+        async with asyncio.Lock():  # 使用锁保护状态读取
+            state = self._states.get(state_key, {})
+            return state.get('page', 1)
         
     async def set_current_page(self, group_id: int, section: str, page: int):
         """设置当前页码"""
         state_key = f"page_{group_id}_{section}"
-        self._states[state_key] = {
-            'page': page,
-            'timestamp': datetime.now()
-        }
-        
+        async with asyncio.Lock():  # 使用锁保护状态写入
+            self._states[state_key] = {
+                'page': page,
+                'timestamp': datetime.now()
+            }
+            
     async def start_setting(self, user_id: int, setting_type: str, group_id: int):
         """开始设置过程"""
-        state_key = f"setting_{user_id}_{setting_type}"
-        self._states[state_key] = {
-            'group_id': group_id,
-            'step': 1,
-            'data': {},
-            'timestamp': datetime.now()
-        }
+        state_lock = await self._get_state_lock(user_id)
+        async with state_lock:
+            # 检查用户当前状态数量
+            user_states = sum(1 for k in self._states if k.startswith(f"setting_{user_id}"))
+            if user_states >= self._max_states_per_user:
+                raise ValueError(f"用户同时进行的设置操作不能超过 {self._max_states_per_user} 个")
+            
+            state_key = f"setting_{user_id}_{setting_type}"
+            self._states[state_key] = {
+                'group_id': group_id,
+                'step': 1,
+                'data': {},
+                'timestamp': datetime.now()
+            }
         
     async def get_setting_state(self, user_id: int, setting_type: str) -> dict:
         """获取设置状态"""
         state_key = f"setting_{user_id}_{setting_type}"
-        return self._states.get(state_key)
+        async with asyncio.Lock():
+            return self._states.get(state_key)
         
     async def update_setting_state(self, user_id: int, setting_type: str, data: dict):
         """更新设置状态"""
         state_key = f"setting_{user_id}_{setting_type}"
-        if state_key in self._states:
-            self._states[state_key]['data'].update(data)
-            self._states[state_key]['step'] += 1
-            self._states[state_key]['timestamp'] = datetime.now()
+        state_lock = await self._get_state_lock(user_id)
+        
+        async with state_lock:
+            if state_key in self._states:
+                self._states[state_key]['data'].update(data)
+                self._states[state_key]['step'] += 1
+                self._states[state_key]['timestamp'] = datetime.now()
             
     async def clear_setting_state(self, user_id: int, setting_type: str):
         """清除设置状态"""
         state_key = f"setting_{user_id}_{setting_type}"
-        if state_key in self._states:
-            del self._states[state_key]
+        state_lock = await self._get_state_lock(user_id)
+        
+        async with state_lock:
+            await self._cleanup_state(state_key)
+
+    async def get_active_settings(self, user_id: int) -> list:
+        """获取用户当前活动的设置列表"""
+        async with asyncio.Lock():
+            return [
+                k.split('_')[2] 
+                for k in self._states 
+                if k.startswith(f"setting_{user_id}")
+            ]
+
+    async def check_setting_conflict(self, user_id: int, setting_type: str) -> bool:
+        """检查是否存在设置冲突"""
+        async with asyncio.Lock():
+            return any(
+                k for k in self._states 
+                if k.startswith(f"setting_{user_id}") 
+                and setting_type in k
+            )
             
 class StatsManager:
     def __init__(self, db):
@@ -998,6 +1049,8 @@ class TelegramBot:
         """注册各种事件处理器"""
         error_middleware = ErrorHandlingMiddleware(self.error_handler)
         self.application.middleware.append(error_middleware)
+        message_middleware = MessageMiddleware(self)
+        self.application.middleware.append(message_middleware)
         
         # 普通命令（所有用户可用）
         self.application.add_handler(CommandHandler("start", self._handle_start))
