@@ -1616,8 +1616,8 @@ class TelegramBot:
             await query.edit_message_text("❌ 显示设置分区时出错")
 
     async def _show_stats_settings(self, query, group_id: int, settings: dict):
-        from utils import CallbackDataBuilder  # 确保导入
-            """显示统计设置页面"""
+        from utils import CallbackDataBuilder 
+        """显示统计设置页面"""
         keyboard = [
             [
                 InlineKeyboardButton(
