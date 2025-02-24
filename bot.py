@@ -1233,14 +1233,16 @@ class TelegramBot:
         try:
             data = query.data
             parts = data.split('_')
-            action = parts[1]  # detail/add/edit/delete
-
+        
+            # 确保有足够的参数
             if len(parts) < 3:
                 await query.edit_message_text("❌ 无效的操作")
                 return
 
+            action = parts[1]  # detail/add/edit/delete/type
+
             try:
-                group_id = int(parts[2])
+                group_id = int(parts[-1])
             except ValueError:
                 await query.edit_message_text("❌ 无效的群组ID")
                 return
@@ -1254,6 +1256,7 @@ class TelegramBot:
                 await query.edit_message_text("❌ 此群组未启用关键词功能")
                 return
 
+            # 处理不同的关键词操作
             if action == "add":
                 # 让用户选择匹配类型
                 keyboard = [
@@ -1286,7 +1289,7 @@ class TelegramBot:
                     'keyword',
                     group_id
                 )
-            
+        
                 await self.settings_manager.update_setting_state(
                     update.effective_user.id,
                     'keyword',
@@ -1525,14 +1528,20 @@ class TelegramBot:
 
         try:
             data = query.data
+            # 处理特殊的返回群组列表的回调
+            if data == "show_manageable_groups":
+                await self._handle_show_manageable_groups(update, context)
+                return
+
             parts = data.split('_')
-            action = parts[1]
         
             # 确保有足够的参数
             if len(parts) < 3:
                 await query.edit_message_text("❌ 无效的操作")
                 return
 
+            action = parts[1]
+        
             try:
                 group_id = int(parts[2])
             except ValueError:
