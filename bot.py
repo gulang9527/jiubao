@@ -613,7 +613,7 @@ class MessageMiddleware:
             
         return True
 
-from telegram.ext import Application, BaseMiddleware
+from telegram.ext import Application
 
 class ErrorHandlingMiddleware:
     """错误处理中间件"""
@@ -1189,26 +1189,26 @@ class TelegramBot:
 
     async def _register_handlers(self):
         """注册各种事件处理器"""
-        error_middleware = ErrorHandlingMiddleware(self.error_handler)
-        self.application.middleware.append(error_middleware)
-        message_middleware = MessageMiddleware(self)
-        self.application.middleware.append(message_middleware)
+        # 注册中间件
         message_middleware = MessageMiddleware(self)
         error_middleware = ErrorHandlingMiddleware(self.error_handler)
-    
+        
+        register_middleware(self.application, [
+            message_middleware,
+            error_middleware
+        ])
+
+        # 注册处理器
         self.application.add_handler(
             MessageHandler(
                 filters.ALL,
                 message_middleware
             )
         )
+        
         # 注册错误处理器
         self.application.add_error_handler(error_middleware)
 
-        # 注册中间件
-        self.application.add_handler(ErrorHandlingMiddleware(self.error_handler))
-        self.application.add_handler(MessageMiddleware(self))
-        
         # 普通命令（所有用户可用）
         self.application.add_handler(CommandHandler("start", self._handle_start))
         self.application.add_handler(CommandHandler("tongji", self._handle_rank_command))
@@ -1226,7 +1226,7 @@ class TelegramBot:
         self.application.add_handler(CommandHandler("authgroup", self._handle_auth_group))
         self.application.add_handler(CommandHandler("deauthgroup", self._handle_deauth_group))
 
-         # 新增配置检查命令
+        # 新增配置检查命令
         self.application.add_handler(CommandHandler("checkconfig", self._handle_check_config))
         
         # 消息处理器
@@ -1260,7 +1260,7 @@ class TelegramBot:
             self._handle_show_manageable_groups, 
             pattern=r'^show_manageable_groups$'
         ))
-
+        
     @check_command_usage
     async def _handle_start(self, update: Update, context):
         """处理 start 命令"""
