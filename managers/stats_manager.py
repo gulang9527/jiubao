@@ -3,12 +3,12 @@ from datetime import datetime
 from db import Database
 
 class StatsManager:
-    """Í³¼Æ¹ÜÀíÀà"""
+    """ç»Ÿè®¡ç®¡ç†ç±»"""
     def __init__(self, db):
         self.db = db
 
     async def record_message(self, user_id: int, group_id: int, message_text: str):
-        """¼ÇÂ¼ÏûÏ¢"""
+        """è®°å½•æ¶ˆæ¯"""
         collection = self.db['messages']
         await collection.insert_one({
             'user_id': user_id,
@@ -18,7 +18,7 @@ class StatsManager:
         })
 
     async def get_stats(self, group_id: int, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
-        """»ñÈ¡Í³¼ÆĞÅÏ¢"""
+        """è·å–ç»Ÿè®¡ä¿¡æ¯"""
         collection = self.db['messages']
         pipeline = [
             {'$match': {
@@ -31,5 +31,6 @@ class StatsManager:
                 'unique_users': {'$sum': {'$cond': [{'$addToSet': '$user_id'}, 1, 0]}}
             }}
         ]
+        
         result = await collection.aggregate(pipeline).to_list(length=None)
         return result[0] if result else {}
