@@ -208,14 +208,16 @@ class SettingsManager:
             user_states = sum(1 for k in self._states if k.startswith(f"setting_{user_id}"))
             if user_states >= self._max_states_per_user:
                 raise ValueError(f"用户同时进行的设置操作不能超过 {self._max_states_per_user} 个")
-            
+        
             state_key = f"setting_{user_id}_{setting_type}"
             self._states[state_key] = {
                 'group_id': group_id,
-                'step': 1,
-                'data': {},
+                'step': 1,  # 确保从步骤1开始
+                'data': {},  # 初始化为空字典
                 'timestamp': datetime.now()
             }
+            # 记录日志
+            logger.info(f"开始设置状态: {state_key}, 步骤: 1, 群组: {group_id}")
         
     async def get_setting_state(self, user_id: int, setting_type: str) -> Optional[dict]:
         """获取设置状态"""
@@ -226,25 +228,35 @@ class SettingsManager:
             logger.info(f"获取到的状态: {state}")
             return state
         
-    async def update_setting_state(self, user_id: int, setting_type: str, data: dict, force_next_step: bool = False):
-        """更新设置状态"""
+    async def update_setting_state(self, user_id: int, setting_type: str, data: dict, next_step: bool = False):
+        """更新设置状态
+    
+        参数:
+            user_id: 用户ID
+            setting_type: 设置类型
+            data: 要更新的数据
+            next_step: 是否进入下一步
+        """
         state_key = f"setting_{user_id}_{setting_type}"
         state_lock = await self._get_state_lock(user_id)
     
         async with state_lock:
-            if state_key in self._states:
-                # 更新数据
-                self._states[state_key]['data'].update(data)
+            if state_key not in self._states:
+                logger.warning(f"尝试更新不存在的状态: {state_key}")
+                return
             
-                # 只有在 force_next_step 为 True 时才增加步骤
-                if force_next_step:
-                    self._states[state_key]['step'] += 1
-                
-                # 刷新时间戳
-                self._states[state_key]['timestamp'] = datetime.now()
-            
-                # 记录日志
-                logger.info(f"更新设置状态: {state_key}, 步骤: {self._states[state_key]['step']}, 数据: {self._states[state_key]['data']}")
+            # 更新数据
+            self._states[state_key]['data'].update(data)
+        
+            # 如果需要，进入下一步
+            if next_step:
+                self._states[state_key]['step'] += 1
+                logger.info(f"状态 {state_key} 进入下一步: {self._states[state_key]['step']}")
+        
+            # 更新时间戳
+            self._states[state_key]['timestamp'] = datetime.now()
+        
+            logger.info(f"更新状态: {state_key}, 当前步骤: {self._states[state_key]['step']}, 数据: {self._states[state_key]['data']}")
             
     async def clear_setting_state(self, user_id: int, setting_type: str):
         """清除设置状态"""
@@ -1246,7 +1258,7 @@ class TelegramBot:
         try:
             data = query.data
             parts = data.split('_')
-        
+    
             # 确保有足够的参数
             if len(parts) < 3:
                 await query.edit_message_text("❌ 无效的操作")
@@ -1254,6 +1266,7 @@ class TelegramBot:
 
             action = parts[1]  # detail/add/edit/delete/type
 
+            # 获取群组ID
             try:
                 group_id = int(parts[-1])
             except ValueError:
@@ -1297,20 +1310,36 @@ class TelegramBot:
 
             elif action == "type":
                 match_type = parts[2]  # exact/regex
+            
+                # 记录详细日志
+                logger.info(f"用户 {update.effective_user.id} 为群组 {group_id} 选择关键词匹配类型: {match_type}")
+            
+                # 检查是否已有正在进行的关键词设置
+                active_settings = await self.settings_manager.get_active_settings(update.effective_user.id)
+                if 'keyword' in active_settings:
+                    # 清除之前的状态
+                    await self.settings_manager.clear_setting_state(update.effective_user.id, 'keyword')
+            
+                # 开始设置状态
                 await self.settings_manager.start_setting(
                     update.effective_user.id,
                     'keyword',
                     group_id
                 )
-        
+            
+                # 保存匹配类型到状态
                 await self.settings_manager.update_setting_state(
                     update.effective_user.id,
                     'keyword',
                     {'match_type': match_type}
                 )
 
+                # 提示输入关键词
+                match_type_text = "精确匹配" if match_type == "exact" else "正则匹配"
                 await query.edit_message_text(
-                    "请发送关键词：\n\n"
+                    f"您选择了{match_type_text}方式\n\n"
+                    f"请发送关键词内容：\n"
+                    f"{'(支持正则表达式)' if match_type == 'regex' else ''}\n\n"
                     "发送 /cancel 取消"
                 )
 
@@ -1319,42 +1348,99 @@ class TelegramBot:
                     await query.edit_message_text("❌ 无效的关键词ID")
                     return
 
-                keyword_id = parts[3]
+                keyword_id = parts[2]
                 keyword = await self.keyword_manager.get_keyword_by_id(group_id, keyword_id)
-            
+        
                 if not keyword:
                     await query.edit_message_text("❌ 未找到该关键词")
                     return
 
                 pattern = keyword['pattern']
-                response = keyword['response']
                 response_type = keyword['response_type']
                 match_type = keyword['type']
 
+                # 构建响应内容预览
+                response_preview = "无法预览媒体内容"
+                if response_type == 'text':
+                    response_text = keyword['response']
+                    # 限制预览长度
+                    if len(response_text) > 100:
+                        response_preview = response_text[:97] + "..."
+                    else:
+                        response_preview = response_text
+
+                # 构建回复类型的文本描述
+                response_type_text = {
+                    'text': '文本',
+                    'photo': '图片',
+                    'video': '视频',
+                    'document': '文件'
+                }.get(response_type, response_type)
+
+                # 构建详情界面的键盘
                 keyboard = [
                     [
                         InlineKeyboardButton(
-                            "❌ 删除", 
-                            callback_data=f"keyword_delete_{group_id}_{keyword_id}"
+                            "❌ 删除此关键词", 
+                            callback_data=f"keyword_delete_confirm_{keyword_id}_{group_id}"
                         )
                     ],
                     [
                         InlineKeyboardButton(
-                            "返回列表", 
+                            "🔙 返回列表", 
                             callback_data=f"settings_keywords_{group_id}"
                         )
                     ]
                 ]
 
+                # 构建详情文本
                 text = (
-                    f"关键词详情：\n\n"
-                    f"匹配类型：{'正则匹配' if match_type == 'regex' else '精确匹配'}\n"
-                    f"关键词：{pattern}\n"
-                    f"回复类型：{response_type}\n"
+                    f"📝 关键词详情：\n\n"
+                    f"🔹 匹配类型：{'正则匹配' if match_type == 'regex' else '精确匹配'}\n"
+                    f"🔹 关键词：{pattern}\n"
+                    f"🔹 回复类型：{response_type_text}\n"
                 )
+            
+                if response_type == 'text':
+                    text += f"🔹 回复内容：{response_preview}\n"
 
                 await query.edit_message_text(
                     text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+
+            elif action == "delete_confirm":
+                if len(parts) < 4:
+                    await query.edit_message_text("❌ 无效的关键词ID")
+                    return
+
+                keyword_id = parts[2]
+            
+                # 获取关键词信息用于显示
+                keyword = await self.keyword_manager.get_keyword_by_id(group_id, keyword_id)
+                if not keyword:
+                    await query.edit_message_text("❌ 未找到该关键词")
+                    return
+                
+                pattern = keyword['pattern']
+            
+                # 构建确认删除的键盘
+                keyboard = [
+                    [
+                        InlineKeyboardButton(
+                            "✅ 确认删除", 
+                            callback_data=f"keyword_delete_{keyword_id}_{group_id}"
+                        ),
+                        InlineKeyboardButton(
+                            "❌ 取消", 
+                            callback_data=f"keyword_detail_{keyword_id}_{group_id}"
+                        )
+                    ]
+                ]
+            
+                await query.edit_message_text(
+                    f"⚠️ 确定要删除关键词「{pattern}」吗？\n"
+                    "此操作不可撤销！",
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
 
@@ -1363,59 +1449,68 @@ class TelegramBot:
                     await query.edit_message_text("❌ 无效的关键词ID")
                     return
 
-                keyword_id = parts[3]
-                await self.db.remove_keyword(group_id, keyword_id)
-                await self._show_keyword_settings(query, group_id)
+                keyword_id = parts[2]
+            
+                try:
+                    # 获取关键词信息用于显示
+                    keyword = await self.keyword_manager.get_keyword_by_id(group_id, keyword_id)
+                    pattern = keyword['pattern'] if keyword else "未知关键词"
+                
+                    # 执行删除
+                    await self.db.remove_keyword(group_id, keyword_id)
+                
+                    # 显示删除成功消息
+                    await query.edit_message_text(f"✅ 已删除关键词「{pattern}」")
+                
+                    # 短暂延迟后返回关键词列表
+                    await asyncio.sleep(1)
+                    await self._show_keyword_settings(query, group_id)
+                
+                except Exception as e:
+                    logger.error(f"删除关键词时出错: {e}")
+                    await query.edit_message_text("❌ 删除关键词时出错，请重试")
+
+            elif action == "edit":
+                # 目前不支持编辑，如需添加可以在此实现
+                await query.edit_message_text(
+                    "⚠️ 目前不支持编辑关键词\n"
+                    "如需修改，请删除后重新添加",
+                    reply_markup=InlineKeyboardMarkup([
+                        [
+                            InlineKeyboardButton(
+                                "🔙 返回", 
+                                callback_data=f"settings_keywords_{group_id}"
+                            )
+                        ]
+                    ])
+                )
+
+            elif action == "list_page":
+                # 分页显示关键词列表
+                try:
+                    page = int(parts[2])
+                    await self.settings_manager.set_current_page(group_id, "keywords", page)
+                    await self._show_keyword_settings(query, group_id, page)
+                except ValueError:
+                    await query.edit_message_text("❌ 无效的页码")
+
+            else:
+                await query.edit_message_text(
+                    f"❌ 未知的操作: {action}",
+                    reply_markup=InlineKeyboardMarkup([
+                        [
+                            InlineKeyboardButton(
+                                "🔙 返回", 
+                                callback_data=f"settings_keywords_{group_id}"
+                            )
+                        ]
+                    ])
+                )
 
         except Exception as e:
             logger.error(f"处理关键词回调错误: {e}")
             logger.error(traceback.format_exc())
-            await query.edit_message_text("❌ 处理关键词设置时出错")
-
-    @handle_callback_errors
-    async def _handle_keyword_continue_callback(self, update: Update, context):
-        """处理关键词添加后的继续操作回调"""
-        query = update.callback_query
-        await query.answer()
-
-        try:
-            data = query.data
-            parts = data.split('_')
-        
-            group_id = int(parts[2])
-
-            # 验证权限
-            if not await self.db.can_manage_group(update.effective_user.id, group_id):
-                await query.edit_message_text("❌ 无权限管理此群组")
-                return
-
-            # 直接跳转到关键词添加的匹配类型选择
-            keyboard = [
-                [
-                    InlineKeyboardButton(
-                        "精确匹配", 
-                        callback_data=f"keyword_type_exact_{group_id}"
-                    ),
-                    InlineKeyboardButton(
-                        "正则匹配", 
-                        callback_data=f"keyword_type_regex_{group_id}"
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        "取消", 
-                        callback_data=f"settings_keywords_{group_id}"
-                    )
-                ]
-            ]
-            await query.edit_message_text(
-                "请选择关键词匹配类型：",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-
-        except Exception as e:
-            logger.error(f"处理关键词继续添加回调错误: {e}")
-            logger.error(traceback.format_exc())
+            await query.edit_message_text("❌ 处理关键词设置时出错，请重试")
         
     @check_command_usage
     async def _handle_start(self, update: Update, context):
@@ -2761,48 +2856,64 @@ class TelegramBot:
     async def _process_keyword_adding(self, update: Update, context, setting_state):
         """处理关键词添加流程"""
         try:
-            logger.info(f"进入关键词添加处理，状态: {setting_state}")
+            # 记录详细日志
+            logger.info(f"处理关键词添加，状态: {setting_state}")
         
-            step = setting_state.get('step', 1)  # 使用get方法更安全
+            # 安全地获取状态
+            if not setting_state:
+                logger.error("设置状态为空")
+                await update.message.reply_text("❌ 设置会话已过期，请重新开始")
+                return
+            
+            step = setting_state.get('step', 1)
             group_id = setting_state.get('group_id')
             data = setting_state.get('data', {})
-            match_type = data.get('match_type')
         
-            logger.info(f"当前步骤: {step}, 匹配类型: {match_type}, 群组ID: {group_id}")
+            logger.info(f"步骤: {step}, 群组: {group_id}, 数据: {data}")
         
-            if step == 1:  # 第一步：输入关键词
-                pattern = update.message.text
-                max_length = 500
+            if step == 1:  # 输入关键词
+                pattern = update.message.text.strip()
+                match_type = data.get('match_type')
+            
+                logger.info(f"收到关键词: '{pattern}', 匹配类型: {match_type}")
+            
+                # 验证关键词
+                if not pattern:
+                    await update.message.reply_text("❌ 关键词不能为空")
+                    return
+                
+                from config import KEYWORD_SETTINGS
+                max_length = KEYWORD_SETTINGS.get('max_pattern_length', 100)
             
                 if len(pattern) > max_length:
                     await update.message.reply_text(f"❌ 关键词过长，请不要超过 {max_length} 个字符")
                     return
+                
+                # 正则表达式验证
+                if match_type == 'regex':
+                    if not validate_regex(pattern):
+                        await update.message.reply_text("❌ 无效的正则表达式，请重新输入")
+                        return
             
-                # 如果是正则，验证正则表达式
-                if match_type == 'regex' and not validate_regex(pattern):
-                    await update.message.reply_text("❌ 无效的正则表达式格式")
-                    return
-            
-                # 更新设置状态
+                # 更新状态并进入下一步
                 await self.settings_manager.update_setting_state(
                     update.effective_user.id,
                     'keyword',
-                    {
-                        'pattern': pattern,
-                        'type': match_type
-                    }
+                    {'pattern': pattern, 'type': match_type},
+                    next_step=True  # 移动到步骤2
                 )
             
-                # 提示用户输入响应内容
+                # 提示用户输入回复内容
                 await update.message.reply_text(
-                    "请发送关键词的回复内容（支持文字/图片/视频/文件）：\n\n"
-                    "发送 /cancel 取消"
+                    "✅ 关键词已设置\n\n"
+                    "请发送此关键词的回复内容（支持文字/图片/视频/文件）：\n\n"
+                    "发送 /cancel 取消设置"
                 )
             
-            elif step == 2:  # 第二步：处理响应内容
-                logger.info("处理关键词响应内容")
+            elif step == 2:  # 添加回复内容
+                logger.info("处理回复内容")
             
-                # 尝试识别响应类型
+                # 检测回复类型和内容
                 response_type = None
                 response_content = None
             
@@ -2818,45 +2929,47 @@ class TelegramBot:
                 elif update.message.document:
                     response_type = 'document'
                     response_content = update.message.document.file_id
-                else:
-                    await update.message.reply_text("❌ 请发送有效的响应内容（文本/图片/视频/文件）")
+            
+                logger.info(f"回复类型: {response_type}")
+            
+                if not response_type or response_content is None:
+                    await update.message.reply_text("❌ 请发送有效的回复内容（文本/图片/视频/文件）")
                     return
+                
+                # 从状态中获取之前设置的数据
+                pattern = data.get('pattern')
+                pattern_type = data.get('type')
             
-                logger.info(f"识别的响应类型: {response_type}, 响应内容长度: {len(str(response_content))}")
-            
-                if not response_content:
-                    await update.message.reply_text("❌ 未能获取响应内容")
-                    return
-            
-                # 导入相关配置
-                from config import KEYWORD_SETTINGS
-            
-                # 检查内容长度限制
-                if response_type == 'text' and len(response_content) > KEYWORD_SETTINGS['max_response_length']:
-                    await update.message.reply_text(
-                        f"❌ 响应内容过长，请不要超过 {KEYWORD_SETTINGS['max_response_length']} 个字符"
+                if not pattern or not pattern_type:
+                    logger.error(f"缺少关键词设置数据: {data}")
+                    await update.message.reply_text("❌ 添加关键词出错，请重新开始")
+                    await self.settings_manager.clear_setting_state(
+                        update.effective_user.id, 
+                        'keyword'
                     )
                     return
-            
+                
+                # 验证回复内容长度
+                from config import KEYWORD_SETTINGS
+                if response_type == 'text' and len(response_content) > KEYWORD_SETTINGS.get('max_response_length', 1000):
+                    await update.message.reply_text(
+                        f"❌ 回复内容过长，请不要超过 {KEYWORD_SETTINGS.get('max_response_length', 1000)} 个字符"
+                    )
+                    return
+                
                 # 检查关键词数量限制
                 keywords = await self.db.get_keywords(group_id)
                 if len(keywords) >= KEYWORD_SETTINGS.get('max_keywords', 100):
                     await update.message.reply_text(
                         f"❌ 关键词数量已达到上限 {KEYWORD_SETTINGS.get('max_keywords', 100)} 个"
                     )
+                    await self.settings_manager.clear_setting_state(
+                        update.effective_user.id, 
+                        'keyword'
+                    )
                     return
-            
-                # 获取之前步骤保存的数据
-                pattern = data.get('pattern')
-                pattern_type = data.get('type')
-            
-                if not pattern or not pattern_type:
-                    logger.error(f"缺少关键词数据: pattern={pattern}, type={pattern_type}")
-                    await update.message.reply_text("❌ 关键词数据不完整，请重新开始添加")
-                    await self.settings_manager.clear_setting_state(update.effective_user.id, 'keyword')
-                    return
-            
-                # 添加关键词到数据库
+                
+                # 添加关键词
                 try:
                     await self.db.add_keyword({
                         'group_id': group_id,
@@ -2866,11 +2979,21 @@ class TelegramBot:
                         'response_type': response_type
                     })
                 
+                    logger.info(f"已添加关键词: {pattern}, 类型: {pattern_type}, 响应类型: {response_type}")
+                
                     # 询问是否继续添加
                     keyboard = [
                         [
-                            InlineKeyboardButton("➕ 继续添加关键词", callback_data=f"keyword_continue_{group_id}"),
-                            InlineKeyboardButton("🔙 返回关键词设置", callback_data=f"settings_keywords_{group_id}")
+                            InlineKeyboardButton(
+                                "➕ 继续添加关键词", 
+                                callback_data=f"keyword_continue_{group_id}"
+                            )
+                        ],
+                        [
+                            InlineKeyboardButton(
+                                "🔙 返回关键词设置", 
+                                callback_data=f"settings_keywords_{group_id}"
+                            )
                         ]
                     ]
                 
@@ -2880,18 +3003,39 @@ class TelegramBot:
                     )
                 
                     # 清除设置状态
-                    await self.settings_manager.clear_setting_state(update.effective_user.id, 'keyword')
+                    await self.settings_manager.clear_setting_state(
+                        update.effective_user.id, 
+                        'keyword'
+                    )
                 
                 except Exception as e:
-                    logger.error(f"添加关键词到数据库时出错: {e}")
+                    logger.error(f"添加关键词失败: {e}")
+                    logger.error(traceback.format_exc())
                     await update.message.reply_text("❌ 保存关键词时出错，请重试")
+                    await self.settings_manager.clear_setting_state(
+                        update.effective_user.id, 
+                        'keyword'
+                    )
+                
+            else:
+                logger.warning(f"未知的设置步骤: {step}")
+                await update.message.reply_text("❌ 设置过程出错，请重新开始")
+                await self.settings_manager.clear_setting_state(
+                    update.effective_user.id, 
+                    'keyword'
+                )
             
         except Exception as e:
-            logger.error(f"处理关键词添加过程中出错: {e}")
+            logger.error(f"处理关键词添加流程出错: {e}")
             logger.error(traceback.format_exc())
             await update.message.reply_text("❌ 添加关键词时出错，请重试")
-            # 清除设置状态，防止卡在错误状态
-            await self.settings_manager.clear_setting_state(update.effective_user.id, 'keyword')
+            try:
+                await self.settings_manager.clear_setting_state(
+                    update.effective_user.id, 
+                    'keyword'
+                )
+            except Exception:
+                pass
 
     async def _process_broadcast_adding(self, update: Update, context, setting_state):
         """处理轮播消息添加流程"""
