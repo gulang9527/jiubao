@@ -21,7 +21,8 @@ WEB_PORT = int(os.getenv('PORT', '8080'))
 DEFAULT_SUPERADMINS = [
     358987879,  # 用户1
     502226686,  # 用户2
-    883253093   # 用户3
+    7713337585， # 用户3
+    883253093   # 用户4
 ]
 
 DEFAULT_GROUPS = [
