@@ -226,16 +226,25 @@ class SettingsManager:
             logger.info(f"获取到的状态: {state}")
             return state
         
-    async def update_setting_state(self, user_id: int, setting_type: str, data: dict):
+    async def update_setting_state(self, user_id: int, setting_type: str, data: dict, force_next_step: bool = False):
         """更新设置状态"""
         state_key = f"setting_{user_id}_{setting_type}"
         state_lock = await self._get_state_lock(user_id)
-        
+    
         async with state_lock:
             if state_key in self._states:
+                # 更新数据
                 self._states[state_key]['data'].update(data)
-                self._states[state_key]['step'] += 1
+            
+                # 只有在 force_next_step 为 True 时才增加步骤
+                if force_next_step:
+                    self._states[state_key]['step'] += 1
+                
+                # 刷新时间戳
                 self._states[state_key]['timestamp'] = datetime.now()
+            
+                # 记录日志
+                logger.info(f"更新设置状态: {state_key}, 步骤: {self._states[state_key]['step']}, 数据: {self._states[state_key]['data']}")
             
     async def clear_setting_state(self, user_id: int, setting_type: str):
         """清除设置状态"""
