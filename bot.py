@@ -2157,45 +2157,59 @@ class TelegramBot:
 
         try:
             data = query.data
-            parts = data.split('_')  # 修改为使用下划线分隔
-    
-            # 确保有足够的参数
-            if len(parts) < 4:  # stats_edit_setting-type_group-id 格式需要至少4部分
-                await query.edit_message_text("❌ 无效的操作")
-                return
-    
-            action = parts[0] + "_" + parts[1]  # stats_edit
-            setting_type = parts[2]  # min_bytes, toggle_media 等
-            group_id = int(parts[3])  # 群组ID
-    
-            # 尝试获取group_id，处理可能的异常情况
-            try:
-                group_id = int(parts[2])
-            except ValueError:
-                await query.edit_message_text("❌ 无效的群组ID")
-                return
+            # 记录收到的数据，帮助调试
+            logger.info(f"收到统计设置回调数据: {data}")
+        
+            # 检查数据格式
+            if "_" in data:
+                parts = data.split('_')
+                # 对于类似stats_edit_min_bytes_123456的格式
+                if len(parts) >= 4 and parts[0] == "stats" and parts[1] == "edit":
+                    setting_type = parts[2]
+                
+                    # 尝试从最后一部分获取群组ID
+                    try:
+                        group_id = int(parts[-1])
+                    except ValueError:
+                        # 如果最后一部分不是数字，可能是类似min_bytes的格式
+                        logger.error(f"无法解析群组ID: {parts}")
+                        await query.edit_message_text("❌ 回调数据格式错误")
+                        return
+                else:
+                    logger.error(f"回调数据部分不足或格式错误: {parts}")
+                    await query.edit_message_text("❌ 无效的操作")
+                    return
+            else:
+                parts = data.split('|')
+                # 对于类似stats_edit|min_bytes|123456的格式
+                if len(parts) >= 3 and parts[0] == "stats_edit":
+                    setting_type = parts[1]
+                
+                    try:
+                        group_id = int(parts[2])
+                    except ValueError:
+                        logger.error(f"无法解析群组ID: {parts}")
+                        await query.edit_message_text("❌ 回调数据格式错误")
+                        return
+                else:
+                    logger.error(f"回调数据部分不足或格式错误: {parts}")
+                    await query.edit_message_text("❌ 无效的操作")
+                    return
 
             # 验证权限
             if not await self.db.can_manage_group(update.effective_user.id, group_id):
                 await query.edit_message_text("❌ 无权限管理此群组")
                 return
-    
+
             if not await self.has_permission(group_id, GroupPermission.STATS):
                 await query.edit_message_text("❌ 此群组未启用统计功能")
                 return
-    
+
+            # 获取当前设置
             settings = await self.db.get_group_settings(group_id)
 
-            if setting_type == "toggle_media":
-                # 切换是否统计多媒体
-                current_value = settings.get('count_media', False)
-                settings['count_media'] = not current_value
-                await self.db.update_group_settings(group_id, settings)
-    
-                # 刷新统计设置页面
-                await self._show_stats_settings(query, group_id, settings)
-    
-            elif setting_type == "min_bytes":
+            # 处理不同类型的设置
+            if setting_type == "min_bytes":
                 # 开始输入最小字节数的流程
                 await query.edit_message_text(
                     "请输入最小统计字节数：\n"
@@ -2204,12 +2218,21 @@ class TelegramBot:
                     "发送 /cancel 取消"
                 )
                 # 开始设置流程
-                self.settings_manager.start_setting(
+                await self.settings_manager.start_setting(
                     update.effective_user.id,
                     'stats_min_bytes',
                     group_id
                 )
-    
+
+            elif setting_type == "toggle_media":
+                # 切换是否统计多媒体
+                current_value = settings.get('count_media', False)
+                settings['count_media'] = not current_value
+                await self.db.update_group_settings(group_id, settings)
+
+                # 刷新统计设置页面
+                await self._show_stats_settings(query, group_id, settings)
+
             elif setting_type == "daily_rank":
                 await query.edit_message_text(
                     "请输入日排行显示的用户数量：\n"
@@ -2217,12 +2240,12 @@ class TelegramBot:
                     "发送 /cancel 取消"
                 )
                 # 开始设置流程
-                self.settings_manager.start_setting(
+                await self.settings_manager.start_setting(
                     update.effective_user.id,
                     'stats_daily_rank',
                     group_id
                 )
-    
+
             elif setting_type == "monthly_rank":
                 await query.edit_message_text(
                     "请输入月排行显示的用户数量：\n"
@@ -2230,12 +2253,14 @@ class TelegramBot:
                     "发送 /cancel 取消"
                 )
                 # 开始设置流程
-                self.settings_manager.start_setting(
+                await self.settings_manager.start_setting(
                     update.effective_user.id,
                     'stats_monthly_rank',
                     group_id
                 )
-    
+            else:
+                await query.edit_message_text(f"❌ 未知的设置类型: {setting_type}")
+
         except Exception as e:
             logger.error(f"处理统计设置编辑回调错误: {e}")
             logger.error(traceback.format_exc())
