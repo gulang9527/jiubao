@@ -140,6 +140,7 @@ class SettingsManager:
     async def start(self):
         """启动状态管理器"""
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+        logger.info("状态管理器已启动")
         
     async def stop(self):
         """停止状态管理器"""
@@ -149,6 +150,7 @@ class SettingsManager:
                 await self._cleanup_task
             except asyncio.CancelledError:
                 pass
+        logger.info("状态管理器已停止")
 
     async def _get_state_lock(self, user_id: int):
         """获取用户状态锁"""
@@ -168,13 +170,14 @@ class SettingsManager:
                             expired_keys.append(key)
                     
                     for key in expired_keys:
+                        logger.info(f"清理过期状态: {key}")
                         await self._cleanup_state(key)
                         
                 await asyncio.sleep(60)  # 每分钟检查一次
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"State cleanup error: {e}")
+                logger.error(f"状态清理错误: {e}")
                 await asyncio.sleep(60)
 
     async def _cleanup_state(self, key: str):
@@ -183,6 +186,7 @@ class SettingsManager:
             del self._states[key]
         if key in self._locks:
             del self._locks[key]
+        logger.info(f"状态已清理: {key}")
                 
     async def get_current_page(self, group_id: int, section: str) -> int:
         """获取当前页码"""
@@ -199,6 +203,7 @@ class SettingsManager:
                 'page': page,
                 'timestamp': datetime.now()
             }
+            logger.info(f"设置页码: {state_key} => {page}")
             
     async def start_setting(self, user_id: int, setting_type: str, group_id: int):
         """开始设置过程"""
@@ -208,55 +213,60 @@ class SettingsManager:
             user_states = sum(1 for k in self._states if k.startswith(f"setting_{user_id}"))
             if user_states >= self._max_states_per_user:
                 raise ValueError(f"用户同时进行的设置操作不能超过 {self._max_states_per_user} 个")
-        
+            
+            # 清除可能存在的旧状态
+            old_state_key = f"setting_{user_id}_{setting_type}"
+            if old_state_key in self._states:
+                del self._states[old_state_key]
+                logger.info(f"清除旧状态: {old_state_key}")
+            
+            # 创建新状态
             state_key = f"setting_{user_id}_{setting_type}"
             self._states[state_key] = {
                 'group_id': group_id,
-                'step': 1,  # 确保从步骤1开始
-                'data': {},  # 初始化为空字典
+                'step': 1,  # 总是从步骤1开始
+                'data': {},
                 'timestamp': datetime.now()
             }
-            # 记录日志
-            logger.info(f"开始设置状态: {state_key}, 步骤: 1, 群组: {group_id}")
+            logger.info(f"创建设置状态: {state_key}, 群组: {group_id}")
         
     async def get_setting_state(self, user_id: int, setting_type: str) -> Optional[dict]:
         """获取设置状态"""
         async with asyncio.Lock():
             state_key = f"setting_{user_id}_{setting_type}"
-            logger.info(f"获取状态: {state_key}")
             state = self._states.get(state_key)
-            logger.info(f"获取到的状态: {state}")
+            logger.info(f"获取状态: {state_key} => {state}")
             return state
         
     async def update_setting_state(self, user_id: int, setting_type: str, data: dict, next_step: bool = False):
         """更新设置状态
-    
+        
         参数:
             user_id: 用户ID
             setting_type: 设置类型
-            data: 要更新的数据
+            data: 更新的数据
             next_step: 是否进入下一步
         """
         state_key = f"setting_{user_id}_{setting_type}"
         state_lock = await self._get_state_lock(user_id)
-    
+        
         async with state_lock:
             if state_key not in self._states:
-                logger.warning(f"尝试更新不存在的状态: {state_key}")
+                logger.warning(f"更新不存在的状态: {state_key}")
                 return
-            
+                
             # 更新数据
             self._states[state_key]['data'].update(data)
-        
+            
             # 如果需要，进入下一步
             if next_step:
                 self._states[state_key]['step'] += 1
                 logger.info(f"状态 {state_key} 进入下一步: {self._states[state_key]['step']}")
-        
+            
             # 更新时间戳
             self._states[state_key]['timestamp'] = datetime.now()
-        
-            logger.info(f"更新状态: {state_key}, 当前步骤: {self._states[state_key]['step']}, 数据: {self._states[state_key]['data']}")
+            
+            logger.info(f"更新状态: {state_key}, 步骤: {self._states[state_key]['step']}, 数据: {self._states[state_key]['data']}")
             
     async def clear_setting_state(self, user_id: int, setting_type: str):
         """清除设置状态"""
@@ -264,25 +274,33 @@ class SettingsManager:
         state_lock = await self._get_state_lock(user_id)
         
         async with state_lock:
-            await self._cleanup_state(state_key)
+            if state_key in self._states:
+                await self._cleanup_state(state_key)
+                logger.info(f"清除设置状态: {state_key}")
 
     async def get_active_settings(self, user_id: int) -> list:
         """获取用户当前活动的设置列表"""
         async with asyncio.Lock():
-            return [
+            settings = [
                 k.split('_')[2] 
                 for k in self._states 
                 if k.startswith(f"setting_{user_id}")
             ]
+            logger.info(f"用户 {user_id} 的活动设置: {settings}")
+            return settings
 
     async def check_setting_conflict(self, user_id: int, setting_type: str) -> bool:
         """检查是否存在设置冲突"""
         async with asyncio.Lock():
-            return any(
+            conflicts = [
                 k for k in self._states 
                 if k.startswith(f"setting_{user_id}") 
                 and setting_type in k
-            )
+            ]
+            has_conflict = bool(conflicts)
+            if has_conflict:
+                logger.warning(f"检测到设置冲突: 用户 {user_id}, 类型 {setting_type}, 冲突: {conflicts}")
+            return has_conflict
             
 class StatsManager:
     def __init__(self, db):
@@ -2229,47 +2247,72 @@ class TelegramBot:
     async def _process_stats_setting(self, update: Update, context, stats_state, setting_type):
         """处理统计设置编辑"""
         try:
-            group_id = stats_state['group_id']
+            logger.info(f"处理统计设置: {setting_type}, 状态: {stats_state}")
+        
+            if not stats_state:
+                await update.message.reply_text("❌ 设置会话已过期，请重新开始")
+                return
+            
+            group_id = stats_state.get('group_id')
         
             # 获取用户输入的值
             try:
                 value = int(update.message.text)
-                if value < 0:
+                if value < 0 and setting_type != 'stats_min_bytes':  # min_bytes可以为0
                     raise ValueError("值不能为负")
             except ValueError:
                 await update.message.reply_text("❌ 请输入一个有效的数字")
                 return
-            
-            # 根据设置类型更新相应的值
-            tips = await self.update_stats_setting(group_id, setting_type, value)
         
-            # 获取最新设置
+            # 根据设置类型更新相应的值
             settings = await self.db.get_group_settings(group_id)
+        
+            if setting_type == 'stats_min_bytes':
+                settings['min_bytes'] = value
+                tips = f"最小统计字节数已设置为 {value} 字节"
+            elif setting_type == 'stats_daily_rank':
+                if value < 1 or value > 50:
+                    await update.message.reply_text("❌ 显示数量必须在1-50之间")
+                    return
+                settings['daily_rank_size'] = value
+                tips = f"日排行显示数量已设置为 {value}"
+            elif setting_type == 'stats_monthly_rank':
+                if value < 1 or value > 50:
+                    await update.message.reply_text("❌ 显示数量必须在1-50之间")
+                    return
+                settings['monthly_rank_size'] = value
+                tips = f"月排行显示数量已设置为 {value}"
+            else:
+                await update.message.reply_text("❌ 未知的设置类型")
+                return
+            
+            # 更新设置到数据库
+            await self.db.update_group_settings(group_id, settings)
         
             # 显示更新后的统计设置页面
             keyboard = [
                 [
                     InlineKeyboardButton(
                         f"最小统计字节数: {settings.get('min_bytes', 0)} 字节", 
-                        callback_data=f"stats_edit_min_bytes_{group_id}"
+                        callback_data=f"stats_edit|min_bytes|{group_id}"
                     )
                 ],
                 [
                     InlineKeyboardButton(
                         f"统计多媒体: {'是' if settings.get('count_media', False) else '否'}", 
-                        callback_data=f"stats_edit_toggle_media_{group_id}"
+                        callback_data=f"stats_edit|toggle_media|{group_id}"
                     )
                 ],
                 [
                     InlineKeyboardButton(
                         f"日排行显示数量: {settings.get('daily_rank_size', 15)}", 
-                        callback_data=f"stats_edit_daily_rank_{group_id}"
+                        callback_data=f"stats_edit|daily_rank|{group_id}"
                     )
                 ],
                 [
                     InlineKeyboardButton(
                         f"月排行显示数量: {settings.get('monthly_rank_size', 15)}", 
-                        callback_data=f"stats_edit_monthly_rank_{group_id}"
+                        callback_data=f"stats_edit|monthly_rank|{group_id}"
                     )
                 ],
                 [
@@ -2286,11 +2329,16 @@ class TelegramBot:
             )
         
             # 清除设置状态
-            self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
+            await self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
         
         except Exception as e:
             logger.error(f"处理统计设置错误: {e}")
+            logger.error(traceback.format_exc())
             await update.message.reply_text("❌ 更新设置时出错")
+            try:
+                await self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
+            except Exception:
+                pass
 
     def _create_navigation_keyboard(
             self,
@@ -3074,13 +3122,22 @@ class TelegramBot:
                 pass
 
     async def _process_broadcast_adding(self, update: Update, context, setting_state):
-        """处理轮播消息添加流程"""
+        """处理轮播消息添加流程修复"""
         try:
-            step = setting_state['step']
-            group_id = setting_state['group_id']
-            content_type = setting_state['data'].get('content_type')
+            logger.info(f"处理轮播消息添加，状态: {setting_state}")
+        
+            if not setting_state:
+                await update.message.reply_text("❌ 设置会话已过期，请重新开始")
+                return
+            
+            step = setting_state.get('step', 1)
+            group_id = setting_state.get('group_id')
+            data = setting_state.get('data', {})
+            content_type = data.get('content_type')
+        
+            logger.info(f"步骤: {step}, 群组: {group_id}, 内容类型: {content_type}")
 
-            if step == 1:
+            if step == 1:  # 获取消息内容
                 # 获取消息内容
                 content = None
                 if content_type == 'text':
@@ -3102,23 +3159,30 @@ class TelegramBot:
                     await self.settings_manager.clear_setting_state(update.effective_user.id, 'broadcast')
                     return
 
+                # 更新状态
+                await self.settings_manager.update_setting_state(
+                    update.effective_user.id,
+                    'broadcast',
+                    {'content': content}
+                )
+            
+                # 手动更新步骤到2
+                state_key = f"setting_{update.effective_user.id}_broadcast"
+                async with asyncio.Lock():
+                    if state_key in self.settings_manager._states:
+                        self.settings_manager._states[state_key]['step'] = 2
+                        self.settings_manager._states[state_key]['timestamp'] = datetime.now()
+                        logger.info(f"手动更新轮播设置步骤到2: {self.settings_manager._states[state_key]}")
+
                 await update.message.reply_text(
+                    "✅ 内容已设置\n\n"
                     "请设置轮播时间参数：\n"
                     "格式：开始时间 结束时间 间隔(秒)\n"
                     "例如：2024-02-22 08:00 2024-03-22 20:00 3600\n\n"
                     "发送 /cancel 取消"
                 )
 
-                await self.settings_manager.update_setting_state(
-                    update.effective_user.id,
-                    'broadcast',
-                    {
-                        'content_type': content_type,
-                        'content': content
-                    }
-                )
-
-            elif step == 2:
+            elif step == 2:  # 设置时间参数
                 try:
                     parts = update.message.text.split()
                     if len(parts) != 5:
@@ -3134,22 +3198,23 @@ class TelegramBot:
                     if start_time >= end_time:
                         raise ValueError("结束时间必须晚于开始时间")
 
-                    if interval < BROADCAST_SETTINGS['min_interval']:
-                        raise ValueError(f"间隔时间不能小于{format_duration(BROADCAST_SETTINGS['min_interval'])}")
+                    from config import BROADCAST_SETTINGS
+                    if interval < BROADCAST_SETTINGS.get('min_interval', 300):
+                        raise ValueError(f"间隔时间不能小于{format_duration(BROADCAST_SETTINGS.get('min_interval', 300))}")
 
                     # 检查轮播消息数量限制
                     broadcasts = await self.db.db.broadcasts.count_documents({'group_id': group_id})
-                    if broadcasts >= BROADCAST_SETTINGS['max_broadcasts']:
+                    if broadcasts >= BROADCAST_SETTINGS.get('max_broadcasts', 10):
                         await update.message.reply_text(
-                            f"❌ 轮播消息数量已达到上限 {BROADCAST_SETTINGS['max_broadcasts']} 条"
+                            f"❌ 轮播消息数量已达到上限 {BROADCAST_SETTINGS.get('max_broadcasts', 10)} 条"
                         )
                         return
 
                     # 添加轮播消息
                     await self.db.db.broadcasts.insert_one({
                         'group_id': group_id,
-                        'content_type': setting_state['data']['content_type'],
-                        'content': setting_state['data']['content'],
+                        'content_type': data.get('content_type'),
+                        'content': data.get('content'),
                         'start_time': start_time,
                         'end_time': end_time,
                         'interval': interval
@@ -3165,8 +3230,12 @@ class TelegramBot:
 
         except Exception as e:
             logger.error(f"处理轮播消息添加错误: {e}")
+            logger.error(traceback.format_exc())
             await update.message.reply_text("❌ 添加轮播消息时出错")
-            await self.settings_manager.clear_setting_state(update.effective_user.id, 'broadcast')
+            try:
+                await self.settings_manager.clear_setting_state(update.effective_user.id, 'broadcast')
+            except Exception:
+                pass
 
     async def check_message_security(self, update: Update) -> bool:
         """检查消息安全性"""
