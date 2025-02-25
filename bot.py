@@ -1511,6 +1511,57 @@ class TelegramBot:
             logger.error(f"处理关键词回调错误: {e}")
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 处理关键词设置时出错，请重试")
+
+    @handle_callback_errors
+    async def _handle_keyword_continue_callback(self, update: Update, context):
+        """处理关键词添加后的继续操作回调"""
+        query = update.callback_query
+        await query.answer()
+
+        try:
+            data = query.data
+            parts = data.split('_')
+        
+            # 确保有足够的参数
+            if len(parts) < 3:
+                await query.edit_message_text("❌ 无效的操作")
+                return
+    
+            group_id = int(parts[2])
+
+            # 验证权限
+            if not await self.db.can_manage_group(update.effective_user.id, group_id):
+                await query.edit_message_text("❌ 无权限管理此群组")
+                return
+
+            # 直接跳转到关键词添加的匹配类型选择
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        "精确匹配", 
+                        callback_data=f"keyword_type_exact_{group_id}"
+                    ),
+                    InlineKeyboardButton(
+                        "正则匹配", 
+                        callback_data=f"keyword_type_regex_{group_id}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "取消", 
+                        callback_data=f"settings_keywords_{group_id}"
+                    )
+                ]
+            ]
+            await query.edit_message_text(
+                "请选择关键词匹配类型：",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+
+        except Exception as e:
+            logger.error(f"处理关键词继续添加回调错误: {e}")
+            logger.error(traceback.format_exc())
+            await query.edit_message_text("❌ 处理操作时出错，请重试")
         
     @check_command_usage
     async def _handle_start(self, update: Update, context):
