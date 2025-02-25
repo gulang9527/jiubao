@@ -31,5 +31,5 @@ class StatsManager:
                 'unique_users': {'$sum': {'$cond': [{'$addToSet': '$user_id'}, 1, 0]}}
             }}
         ]
-                result = await collection.aggregate(pipeline).to_list(length=None)
+        result = await collection.aggregate(pipeline).to_list(length=None)
         return result[0] if result else {}
