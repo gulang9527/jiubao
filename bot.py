@@ -892,30 +892,30 @@ class TelegramBot:
         try:
             from config_validator import validate_config, ConfigValidationError
             import config
-        
+    
             try:
                 validate_config(config)
             except ConfigValidationError as e:
                 logger.error(f"配置验证失败: {e}")
                 return False
-                
+            
             logger.info("开始初始化机器人")
-    
+
             # 初始化数据库
             self.db = Database()
             if not await self.db.connect(MONGODB_URI, MONGODB_DB):
                 logger.error("数据库连接失败")
                 return False
-    
+
             # 初始化管理器
             self.settings_manager = SettingsManager(self.db)
             await self.settings_manager.start()  # 启动设置管理器
-        
+    
             self.keyword_manager = KeywordManager(self.db)
             self.broadcast_manager = BroadcastManager(self.db, self)
             self.stats_manager = StatsManager(self.db)
             self.message_deletion_manager = self.MessageDeletionManager(self)
-        
+    
             # 强制更新所有默认超级管理员
             for admin_id in DEFAULT_SUPERADMINS:
                 await self.db.add_user({
@@ -923,38 +923,19 @@ class TelegramBot:
                     'role': UserRole.SUPERADMIN.value
                 })
                 logger.info(f"已设置超级管理员: {admin_id}")
-        
-            # 初始化默认群组
-            default_groups = [
-                {
-                    'group_id': -1001234567890,  # 替换为你的群组ID
-                    'permissions': ['keywords', 'stats', 'broadcast']
-                }
-                # 可以添加更多群组
-            ]
-        
-            for group in default_groups:
-                await self.db.add_group({
-                    'group_id': group['group_id'],
-                    'permissions': group['permissions']
-                })
-                logger.info(f"已设置群组权限: {group['group_id']}")
-        
-            # 获取webhook域名
-            webhook_domain = os.getenv('WEBHOOK_DOMAIN')
-            if not webhook_domain:
-                logger.warning("WEBHOOK_DOMAIN环境变量未设置，使用默认值")
-                webhook_domain = 'your-render-app-name.onrender.com'
-        
+    
             # 创建Telegram Bot应用
             self.application = (
                 Application.builder()
                 .token(TELEGRAM_TOKEN)
                 .build()
             )
-        
+    
             # 注册处理器
             await self._register_handlers()
+    
+            # 重要：确保application正确初始化
+            await self.application.initialize()
         
             # 创建 web 应用并添加路由
             self.web_app = web.Application()
@@ -962,6 +943,7 @@ class TelegramBot:
             self.web_app.router.add_get('/health', self.handle_healthcheck)
 
             # 设置webhook路径并添加路由
+            webhook_domain = os.getenv('WEBHOOK_DOMAIN', 'your-render-app-name.onrender.com')
             webhook_url = f"https://{webhook_domain}/webhook/{TELEGRAM_TOKEN}"
             webhook_path = f"/webhook/{TELEGRAM_TOKEN}"
             self.web_app.router.add_post(webhook_path, self._handle_webhook)
@@ -979,20 +961,17 @@ class TelegramBot:
                 url=webhook_url,
                 allowed_updates=["message", "callback_query", "my_chat_member"]
             )
-
-            # 禁用轮询
-            self.application.updater = None
         
             logger.info(f"Webhook已设置为 {webhook_url}")
-        
+    
             # 验证初始化
             if not await self.verify_initialization():
                 logger.error("初始化验证失败")
                 return False
-            
+        
             logger.info("机器人初始化完成")
             return True
-        
+    
         except Exception as e:
             logger.error(f"机器人初始化失败: {e}")
             logger.error(traceback.format_exc())
@@ -1055,7 +1034,6 @@ class TelegramBot:
                 logger.error("机器人未初始化。初始化失败。")
                 return False
         
-            await self.application.initialize()
             await self.application.start()
             self.running = True
         
@@ -1215,18 +1193,39 @@ class TelegramBot:
             if request.content_type != 'application/json':
                 logger.warning(f"收到无效的内容类型: {request.content_type}")
                 return web.Response(status=415)
-        
+    
             update_data = await request.json()
             logger.info(f"收到webhook更新: {update_data}")
-        
+    
             update = Update.de_json(update_data, self.application.bot)
             if update:
+                # 确保应用已初始化
+                if not getattr(self.application, '_initialized', False):
+                    logger.error("应用未初始化，尝试重新初始化")
+                    await self.application.initialize()
+                
                 await self.application.process_update(update)
                 logger.info("成功处理更新")
             else:
                 logger.warning("收到无效的更新数据")
-        
+    
             return web.Response(status=200)
+        except RuntimeError as e:
+            if "not initialized" in str(e):
+                logger.error(f"应用未初始化: {e}")
+                # 尝试重新初始化和启动
+                try:
+                    await self.application.initialize()
+                    await self.application.start()
+                    logger.info("应用已重新初始化和启动")
+                    # 重试处理更新
+                    if update:
+                        await self.application.process_update(update)
+                except Exception as re_init_error:
+                    logger.error(f"重新初始化失败: {re_init_error}")
+            else:
+                logger.error(f"处理webhook错误: {e}", exc_info=True)
+            return web.Response(status=500)
         except Exception as e:
             logger.error(f"处理webhook错误: {e}", exc_info=True)
             return web.Response(status=500)
