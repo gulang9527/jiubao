@@ -2750,30 +2750,29 @@ class TelegramBot:
             return sent_message
 
     async def _process_keyword_adding(self, update: Update, context, setting_state):
+        """处理关键词添加流程"""
         try:
             logger.info(f"进入关键词添加处理，状态: {setting_state}")
         
-            step = setting_state['step']
-            group_id = setting_state['group_id']
-            match_type = setting_state['data'].get('match_type')
-
-            logger.info(f"当前步骤: {step}, 匹配类型: {match_type}")
-
-            if step == 1:  # 输入关键词
+            step = setting_state.get('step', 1)  # 使用get方法更安全
+            group_id = setting_state.get('group_id')
+            data = setting_state.get('data', {})
+            match_type = data.get('match_type')
+        
+            logger.info(f"当前步骤: {step}, 匹配类型: {match_type}, 群组ID: {group_id}")
+        
+            if step == 1:  # 第一步：输入关键词
                 pattern = update.message.text
                 max_length = 500
-
-                logger.info(f"收到的关键词: {pattern}")
-
+            
                 if len(pattern) > max_length:
                     await update.message.reply_text(f"❌ 关键词过长，请不要超过 {max_length} 个字符")
                     return
-    
+            
                 # 如果是正则，验证正则表达式
-                if match_type == 'regex':
-                    if not validate_regex(pattern):
-                        await update.message.reply_text("❌ 无效的正则表达式格式")
-                        return
+                if match_type == 'regex' and not validate_regex(pattern):
+                    await update.message.reply_text("❌ 无效的正则表达式格式")
+                    return
             
                 # 更新设置状态
                 await self.settings_manager.update_setting_state(
@@ -2782,85 +2781,108 @@ class TelegramBot:
                     {
                         'pattern': pattern,
                         'type': match_type
-                    },
-                    force_next_step=True
+                    }
                 )
-
-                # 直接提示输入响应内容
+            
+                # 提示用户输入响应内容
                 await update.message.reply_text(
-                    "请直接发送关键词的回复内容（支持文字/图片/视频/文件）：\n\n"
+                    "请发送关键词的回复内容（支持文字/图片/视频/文件）：\n\n"
                     "发送 /cancel 取消"
                 )
-
-            elif step == 2:  # 处理响应内容
-                logger.info("开始处理响应内容")
+            
+            elif step == 2:  # 第二步：处理响应内容
+                logger.info("处理关键词响应内容")
+            
                 # 尝试识别响应类型
                 response_type = None
-                file_id = None
-
+                response_content = None
+            
                 if update.message.text:
                     response_type = 'text'
-                    file_id = update.message.text
+                    response_content = update.message.text
                 elif update.message.photo:
                     response_type = 'photo'
-                    file_id = update.message.photo[-1].file_id
+                    response_content = update.message.photo[-1].file_id
                 elif update.message.video:
                     response_type = 'video'
-                    file_id = update.message.video.file_id
+                    response_content = update.message.video.file_id
                 elif update.message.document:
                     response_type = 'document'
-                    file_id = update.message.document.file_id
-
-                logger.info(f"识别的响应类型: {response_type}, file_id: {file_id}")
-
-                if not file_id:
-                    await update.message.reply_text("❌ 请发送有效的响应内容")
+                    response_content = update.message.document.file_id
+                else:
+                    await update.message.reply_text("❌ 请发送有效的响应内容（文本/图片/视频/文件）")
                     return
-
-                # 检查内容长度
-                if response_type == 'text' and len(file_id) > KEYWORD_SETTINGS['max_response_length']:
+            
+                logger.info(f"识别的响应类型: {response_type}, 响应内容长度: {len(str(response_content))}")
+            
+                if not response_content:
+                    await update.message.reply_text("❌ 未能获取响应内容")
+                    return
+            
+                # 导入相关配置
+                from config import KEYWORD_SETTINGS
+            
+                # 检查内容长度限制
+                if response_type == 'text' and len(response_content) > KEYWORD_SETTINGS['max_response_length']:
                     await update.message.reply_text(
                         f"❌ 响应内容过长，请不要超过 {KEYWORD_SETTINGS['max_response_length']} 个字符"
                     )
                     return
-
+            
                 # 检查关键词数量限制
                 keywords = await self.db.get_keywords(group_id)
-                if len(keywords) >= KEYWORD_SETTINGS['max_keywords']:
+                if len(keywords) >= KEYWORD_SETTINGS.get('max_keywords', 100):
                     await update.message.reply_text(
-                        f"❌ 关键词数量已达到上限 {KEYWORD_SETTINGS['max_keywords']} 个"
+                        f"❌ 关键词数量已达到上限 {KEYWORD_SETTINGS.get('max_keywords', 100)} 个"
                     )
                     return
-
-                # 添加关键词
-                await self.db.add_keyword({
-                    'group_id': group_id,
-                    'pattern': setting_state['data']['pattern'],
-                    'type': setting_state['data']['type'],
-                    'response': file_id,
-                    'response_type': response_type
-                })
-
-                # 询问是否继续添加
-                keyboard = [
-                    [
-                        InlineKeyboardButton("继续添加关键词", callback_data=f"keyword_continue_{group_id}"),
-                        InlineKeyboardButton("返回关键词设置", callback_data=f"settings_keywords_{group_id}")
+            
+                # 获取之前步骤保存的数据
+                pattern = data.get('pattern')
+                pattern_type = data.get('type')
+            
+                if not pattern or not pattern_type:
+                    logger.error(f"缺少关键词数据: pattern={pattern}, type={pattern_type}")
+                    await update.message.reply_text("❌ 关键词数据不完整，请重新开始添加")
+                    await self.settings_manager.clear_setting_state(update.effective_user.id, 'keyword')
+                    return
+            
+                # 添加关键词到数据库
+                try:
+                    await self.db.add_keyword({
+                        'group_id': group_id,
+                        'pattern': pattern,
+                        'type': pattern_type,
+                        'response': response_content,
+                        'response_type': response_type
+                    })
+                
+                    # 询问是否继续添加
+                    keyboard = [
+                        [
+                            InlineKeyboardButton("➕ 继续添加关键词", callback_data=f"keyword_continue_{group_id}"),
+                            InlineKeyboardButton("🔙 返回关键词设置", callback_data=f"settings_keywords_{group_id}")
+                        ]
                     ]
-                ]
-
-                await update.message.reply_text(
-                    "✅ 关键词添加成功！",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-
-                # 清除设置状态
-                await self.settings_manager.clear_setting_state(update.effective_user.id, 'keyword')
-
+                
+                    await update.message.reply_text(
+                        f"✅ 关键词 「{pattern}」 添加成功！",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                
+                    # 清除设置状态
+                    await self.settings_manager.clear_setting_state(update.effective_user.id, 'keyword')
+                
+                except Exception as e:
+                    logger.error(f"添加关键词到数据库时出错: {e}")
+                    await update.message.reply_text("❌ 保存关键词时出错，请重试")
+            
         except Exception as e:
-            logger.error(f"处理关键词添加错误: {e}")
+            logger.error(f"处理关键词添加过程中出错: {e}")
             logger.error(traceback.format_exc())
-            await update.message.reply_text("❌ 添加关键词时出错")
+            await update.message.reply_text("❌ 添加关键词时出错，请重试")
+            # 清除设置状态，防止卡在错误状态
+            await self.settings_manager.clear_setting_state(update.effective_user.id, 'keyword')
 
     async def _process_broadcast_adding(self, update: Update, context, setting_state):
         """处理轮播消息添加流程"""
