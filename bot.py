@@ -1275,33 +1275,118 @@ class TelegramBot:
 
         try:
             data = query.data
+            logger.info(f"处理关键词回调: 用户ID={update.effective_user.id}, 回调数据={data}")
+        
+            # 标准化参数解析
             parts = data.split('_')
-    
-            # 确保有足够的参数
+        
+            # 基本验证 - 确保至少有基本结构 (keyword_action_...)
             if len(parts) < 3:
+                logger.warning(f"无效的回调数据格式: {data} (部分不足)")
                 await query.edit_message_text("❌ 无效的操作")
                 return
 
-            action = parts[1]  # detail/add/edit/delete/type
-
-            # 获取群组ID
+            # 提取操作类型
+            action = parts[1]
+            logger.info(f"关键词操作类型: {action}")
+        
+            # 统一解析群组ID (在所有回调数据中保持一致位置)
             try:
-                group_id = int(parts[-1])
-            except ValueError:
+                # 对于所有操作，群组ID都是第三个参数
+                group_id = int(parts[2])
+                logger.info(f"群组ID: {group_id}")
+            except (ValueError, IndexError) as e:
+                logger.error(f"无法解析群组ID: {e}, 回调数据={data}")
                 await query.edit_message_text("❌ 无效的群组ID")
                 return
-
-            # 验证权限
+            
+            # 权限验证 - 对所有操作都进行验证
             if not await self.db.can_manage_group(update.effective_user.id, group_id):
+                logger.warning(f"权限不足: 用户ID={update.effective_user.id}, 群组ID={group_id}")
                 await query.edit_message_text("❌ 无权限管理此群组")
                 return
 
             if not await self.has_permission(group_id, GroupPermission.KEYWORDS):
+                logger.warning(f"群组未启用关键词功能: 群组ID={group_id}")
                 await query.edit_message_text("❌ 此群组未启用关键词功能")
                 return
 
-            # 处理不同的关键词操作
-            if action == "add":
+            # 根据不同的操作类型处理
+            if action == "detail":
+                # 格式: keyword_detail_group_id_keyword_id
+                if len(parts) < 4:
+                    logger.warning(f"关键词详情缺少参数: {data}")
+                    await query.edit_message_text("❌ 无效的关键词ID")
+                    return
+                
+                keyword_id = parts[3]
+                logger.info(f"查看关键词详情: 关键词ID={keyword_id}")
+            
+                # 获取关键词信息
+                keyword = await self.keyword_manager.get_keyword_by_id(group_id, keyword_id)
+    
+                if not keyword:
+                    logger.warning(f"未找到关键词: ID={keyword_id}, 群组ID={group_id}")
+                    await query.edit_message_text("❌ 未找到该关键词")
+                    return
+
+                pattern = keyword['pattern']
+                response_type = keyword['response_type']
+                match_type = keyword['type']
+                logger.info(f"关键词信息: 模式={pattern}, 响应类型={response_type}, 匹配类型={match_type}")
+
+                # 构建响应内容预览
+                response_preview = "无法预览媒体内容"
+                if response_type == 'text':
+                    response_text = keyword['response']
+                    # 限制预览长度
+                    if len(response_text) > 100:
+                        response_preview = response_text[:97] + "..."
+                    else:
+                        response_preview = response_text
+
+                # 构建回复类型的文本描述
+                response_type_text = {
+                    'text': '文本',
+                    'photo': '图片',
+                    'video': '视频',
+                    'document': '文件'
+                }.get(response_type, response_type)
+
+                # 构建详情界面的键盘 - 注意保持群组ID在关键词ID之前的一致性
+                keyboard = [
+                    [
+                        InlineKeyboardButton(
+                            "❌ 删除此关键词", 
+                            callback_data=f"keyword_delete_confirm_{group_id}_{keyword_id}"
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "🔙 返回列表", 
+                            callback_data=f"settings_keywords_{group_id}"
+                        )
+                    ]
+                ]
+
+                # 构建详情文本
+                text = (
+                    f"📝 关键词详情：\n\n"
+                    f"🔹 匹配类型：{'正则匹配' if match_type == 'regex' else '精确匹配'}\n"
+                    f"🔹 关键词：{pattern}\n"
+                    f"🔹 回复类型：{response_type_text}\n"
+                )
+        
+                if response_type == 'text':
+                    text += f"🔹 回复内容：{response_preview}\n"
+
+                await query.edit_message_text(
+                    text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                logger.info(f"已显示关键词详情: ID={keyword_id}")
+            
+            elif action == "add":
                 # 让用户选择匹配类型
                 keyboard = [
                     [
@@ -1325,32 +1410,44 @@ class TelegramBot:
                     "请选择关键词匹配类型：",
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
+                logger.info(f"已显示关键词匹配类型选择: 群组ID={group_id}")
 
             elif action == "type":
-                match_type = parts[2]  # exact/regex
-            
+                if len(parts) < 4:
+                    logger.warning(f"关键词类型选择缺少参数: {data}")
+                    await query.edit_message_text("❌ 无效的匹配类型")
+                    return
+                
+                match_type = parts[3]  # exact/regex
+                if match_type not in ['exact', 'regex']:
+                    logger.warning(f"无效的匹配类型: {match_type}")
+                    await query.edit_message_text("❌ 无效的匹配类型")
+                    return
+        
                 # 记录详细日志
                 logger.info(f"用户 {update.effective_user.id} 为群组 {group_id} 选择关键词匹配类型: {match_type}")
-            
+        
                 # 检查是否已有正在进行的关键词设置
                 active_settings = await self.settings_manager.get_active_settings(update.effective_user.id)
                 if 'keyword' in active_settings:
                     # 清除之前的状态
                     await self.settings_manager.clear_setting_state(update.effective_user.id, 'keyword')
-            
+                    logger.info(f"清除用户 {update.effective_user.id} 之前的关键词设置状态")
+        
                 # 开始设置状态
                 await self.settings_manager.start_setting(
                     update.effective_user.id,
                     'keyword',
                     group_id
                 )
-            
+        
                 # 保存匹配类型到状态
                 await self.settings_manager.update_setting_state(
                     update.effective_user.id,
                     'keyword',
                     {'match_type': match_type}
                 )
+                logger.info(f"已更新设置状态: 用户ID={update.effective_user.id}, 匹配类型={match_type}")
 
                 # 提示输入关键词
                 match_type_text = "精确匹配" if match_type == "exact" else "正则匹配"
@@ -1360,136 +1457,86 @@ class TelegramBot:
                     f"{'(支持正则表达式)' if match_type == 'regex' else ''}\n\n"
                     "发送 /cancel 取消"
                 )
-
-            elif action == "detail":
-                if len(parts) < 4:
-                    await query.edit_message_text("❌ 无效的关键词ID")
-                    return
-
-                keyword_id = parts[2]
-                keyword = await self.keyword_manager.get_keyword_by_id(group_id, keyword_id)
-        
-                if not keyword:
-                    await query.edit_message_text("❌ 未找到该关键词")
-                    return
-
-                pattern = keyword['pattern']
-                response_type = keyword['response_type']
-                match_type = keyword['type']
-
-                # 构建响应内容预览
-                response_preview = "无法预览媒体内容"
-                if response_type == 'text':
-                    response_text = keyword['response']
-                    # 限制预览长度
-                    if len(response_text) > 100:
-                        response_preview = response_text[:97] + "..."
-                    else:
-                        response_preview = response_text
-
-                # 构建回复类型的文本描述
-                response_type_text = {
-                    'text': '文本',
-                    'photo': '图片',
-                    'video': '视频',
-                    'document': '文件'
-                }.get(response_type, response_type)
-
-                # 构建详情界面的键盘
-                keyboard = [
-                    [
-                        InlineKeyboardButton(
-                            "❌ 删除此关键词", 
-                            callback_data=f"keyword_delete_confirm_{keyword_id}_{group_id}"
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            "🔙 返回列表", 
-                            callback_data=f"settings_keywords_{group_id}"
-                        )
-                    ]
-                ]
-
-                # 构建详情文本
-                text = (
-                    f"📝 关键词详情：\n\n"
-                    f"🔹 匹配类型：{'正则匹配' if match_type == 'regex' else '精确匹配'}\n"
-                    f"🔹 关键词：{pattern}\n"
-                    f"🔹 回复类型：{response_type_text}\n"
-                )
-            
-                if response_type == 'text':
-                    text += f"🔹 回复内容：{response_preview}\n"
-
-                await query.edit_message_text(
-                    text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                logger.info(f"已提示用户输入关键词: 用户ID={update.effective_user.id}")
 
             elif action == "delete_confirm":
                 if len(parts) < 4:
+                    logger.warning(f"关键词删除确认缺少参数: {data}")
                     await query.edit_message_text("❌ 无效的关键词ID")
                     return
-
-                keyword_id = parts[2]
-            
+                
+                keyword_id = parts[3]
+                logger.info(f"确认删除关键词: ID={keyword_id}, 群组ID={group_id}")
+        
                 # 获取关键词信息用于显示
                 keyword = await self.keyword_manager.get_keyword_by_id(group_id, keyword_id)
                 if not keyword:
+                    logger.warning(f"未找到要删除的关键词: ID={keyword_id}")
                     await query.edit_message_text("❌ 未找到该关键词")
                     return
-                
-                pattern = keyword['pattern']
             
-                # 构建确认删除的键盘
+                pattern = keyword['pattern']
+                logger.info(f"关键词信息: 模式={pattern}")
+        
+                # 构建确认删除的键盘 - 保持群组ID在关键词ID之前
                 keyboard = [
                     [
                         InlineKeyboardButton(
                             "✅ 确认删除", 
-                            callback_data=f"keyword_delete_{keyword_id}_{group_id}"
+                            callback_data=f"keyword_delete_{group_id}_{keyword_id}"
                         ),
                         InlineKeyboardButton(
                             "❌ 取消", 
-                            callback_data=f"keyword_detail_{keyword_id}_{group_id}"
+                            callback_data=f"keyword_detail_{group_id}_{keyword_id}"
                         )
                     ]
                 ]
-            
+        
                 await query.edit_message_text(
                     f"⚠️ 确定要删除关键词「{pattern}」吗？\n"
                     "此操作不可撤销！",
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
+                logger.info(f"已显示删除确认: 关键词={pattern}")
 
             elif action == "delete":
                 if len(parts) < 4:
+                    logger.warning(f"关键词删除缺少参数: {data}")
                     await query.edit_message_text("❌ 无效的关键词ID")
                     return
-
-                keyword_id = parts[2]
-            
+                
+                keyword_id = parts[3]
+                logger.info(f"删除关键词: ID={keyword_id}, 群组ID={group_id}")
+        
                 try:
                     # 获取关键词信息用于显示
                     keyword = await self.keyword_manager.get_keyword_by_id(group_id, keyword_id)
-                    pattern = keyword['pattern'] if keyword else "未知关键词"
-                
+                    if not keyword:
+                        logger.warning(f"未找到要删除的关键词: ID={keyword_id}")
+                        await query.edit_message_text("❌ 未找到该关键词")
+                        return
+                    
+                    pattern = keyword['pattern']
+                    logger.info(f"关键词信息: 模式={pattern}")
+            
                     # 执行删除
                     await self.db.remove_keyword(group_id, keyword_id)
-                
+                    logger.info(f"已删除关键词: ID={keyword_id}, 模式={pattern}")
+            
                     # 显示删除成功消息
                     await query.edit_message_text(f"✅ 已删除关键词「{pattern}」")
-                
+            
                     # 短暂延迟后返回关键词列表
                     await asyncio.sleep(1)
                     await self._show_keyword_settings(query, group_id)
-                
+            
                 except Exception as e:
                     logger.error(f"删除关键词时出错: {e}")
                     await query.edit_message_text("❌ 删除关键词时出错，请重试")
 
             elif action == "edit":
                 # 目前不支持编辑，如需添加可以在此实现
+                logger.info(f"尝试编辑关键词 (不支持): 群组ID={group_id}")
                 await query.edit_message_text(
                     "⚠️ 目前不支持编辑关键词\n"
                     "如需修改，请删除后重新添加",
@@ -1506,13 +1553,21 @@ class TelegramBot:
             elif action == "list_page":
                 # 分页显示关键词列表
                 try:
-                    page = int(parts[2])
+                    if len(parts) < 4:
+                        logger.warning(f"关键词分页缺少参数: {data}")
+                        await query.edit_message_text("❌ 无效的页码")
+                        return
+                    
+                    page = int(parts[3])
+                    logger.info(f"显示关键词列表页: 页码={page}, 群组ID={group_id}")
+                
                     await self.settings_manager.set_current_page(group_id, "keywords", page)
                     await self._show_keyword_settings(query, group_id, page)
-                except ValueError:
+                except ValueError as e:
+                    logger.error(f"无效的页码: {e}")
                     await query.edit_message_text("❌ 无效的页码")
-
             else:
+                logger.warning(f"未知的关键词操作: {action}")
                 await query.edit_message_text(
                     f"❌ 未知的操作: {action}",
                     reply_markup=InlineKeyboardMarkup([
@@ -1538,18 +1593,35 @@ class TelegramBot:
 
         try:
             data = query.data
+            logger.info(f"处理关键词继续添加回调: 用户ID={update.effective_user.id}, 回调数据={data}")
+        
             parts = data.split('_')
         
-            # 确保有足够的参数
+            # 基本验证 - 确保至少有基本结构
             if len(parts) < 3:
+                logger.warning(f"无效的回调数据格式: {data} (部分不足)")
                 await query.edit_message_text("❌ 无效的操作")
                 return
     
-            group_id = int(parts[2])
+            # 提取群组ID
+            try:
+                group_id = int(parts[2])
+                logger.info(f"群组ID: {group_id}")
+            except (ValueError, IndexError) as e:
+                logger.error(f"无法解析群组ID: {e}, 回调数据={data}")
+                await query.edit_message_text("❌ 无效的群组ID")
+                return
 
             # 验证权限
             if not await self.db.can_manage_group(update.effective_user.id, group_id):
+                logger.warning(f"权限不足: 用户ID={update.effective_user.id}, 群组ID={group_id}")
                 await query.edit_message_text("❌ 无权限管理此群组")
+                return
+
+            # 验证关键词功能是否启用
+            if not await self.has_permission(group_id, GroupPermission.KEYWORDS):
+                logger.warning(f"群组未启用关键词功能: 群组ID={group_id}")
+                await query.edit_message_text("❌ 此群组未启用关键词功能")
                 return
 
             # 直接跳转到关键词添加的匹配类型选择
@@ -1575,6 +1647,7 @@ class TelegramBot:
                 "请选择关键词匹配类型：",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
+            logger.info(f"已显示关键词匹配类型选择: 群组ID={group_id}")
 
         except Exception as e:
             logger.error(f"处理关键词继续添加回调错误: {e}")
@@ -1921,38 +1994,106 @@ class TelegramBot:
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-    async def _show_keyword_settings(self, query, group_id: int):
-        """显示关键词设置页面"""
-        keywords = await self.db.get_keywords(group_id)
+    async def _show_keyword_settings(self, query, group_id: int, page: int = 1):
+        """显示关键词设置页面
     
-        keyboard = []
-        for kw in keywords:
-            keyword_text = kw['pattern'][:20] + '...' if len(kw['pattern']) > 20 else kw['pattern']
+        """
+        try:
+            logger.info(f"显示群组 {group_id} 的关键词设置，页码: {page}")
+        
+            # 获取群组的关键词列表
+            keywords = await self.db.get_keywords(group_id)
+        
+            # 分页处理
+            page_size = 10  # 每页显示的关键词数量
+            total_keywords = len(keywords)
+            total_pages = (total_keywords + page_size - 1) // page_size
+        
+            # 确保页码有效
+            if page < 1:
+                page = 1
+            elif page > total_pages and total_pages > 0:
+                page = total_pages
+            
+            # 切片当前页的关键词
+            start_idx = (page - 1) * page_size
+            end_idx = start_idx + page_size
+            current_page_keywords = keywords[start_idx:end_idx] if keywords else []
+        
+            logger.info(f"关键词总数: {total_keywords}, 总页数: {total_pages}, 当前页: {page}")
+    
+            keyboard = []
+        
+            # 添加关键词按钮
+            for kw in current_page_keywords:
+                keyword_text = kw['pattern']
+                # 限制显示长度
+                if len(keyword_text) > 20:
+                    keyword_text = keyword_text[:17] + '...'
+                
+                # 生成回调数据，格式：keyword_detail_group_id_keyword_id
+                callback_data = f"keyword_detail_{group_id}_{kw['_id']}"
+            
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"🔑 {keyword_text}", 
+                        callback_data=callback_data
+                    )
+                ])
+            
+            # 添加分页导航
+            if total_pages > 1:
+                nav_row = []
+            
+                if page > 1:
+                    nav_row.append(
+                        InlineKeyboardButton(
+                            "◀️ 上一页", 
+                            callback_data=f"keyword_list_page_{group_id}_{page-1}"
+                        )
+                    )
+                
+                if page < total_pages:
+                    nav_row.append(
+                        InlineKeyboardButton(
+                            "下一页 ▶️", 
+                            callback_data=f"keyword_list_page_{group_id}_{page+1}"
+                        )
+                    )
+                
+                if nav_row:
+                    keyboard.append(nav_row)
+    
+            # 添加功能按钮
             keyboard.append([
                 InlineKeyboardButton(
-                    f"🔑 {keyword_text}", 
-                    callback_data=f"keyword_detail_{group_id}_{kw['_id']}"
+                    "➕ 添加关键词", 
+                    callback_data=f"keyword_add_{group_id}"
                 )
             ])
     
-        keyboard.append([
-            InlineKeyboardButton(
-                "➕ 添加关键词", 
-                callback_data=f"keyword_add_{group_id}"
-            )
-        ])
+            keyboard.append([
+                InlineKeyboardButton(
+                    "返回设置菜单", 
+                    callback_data=f"settings_select_{group_id}"
+                )
+            ])
+        
+            # 组装页面标题
+            title = f"群组 {group_id} 的关键词设置"
+            if total_pages > 1:
+                title += f" (第 {page}/{total_pages} 页)"
     
-        keyboard.append([
-            InlineKeyboardButton(
-                "返回设置菜单", 
-                callback_data=f"settings_select_{group_id}"
+            await query.edit_message_text(
+                title,
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
-        ])
-    
-        await query.edit_message_text(
-            f"群组 {group_id} 的关键词设置",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+            logger.info(f"已显示关键词设置页面: 群组ID={group_id}, 页码={page}")
+        
+        except Exception as e:
+            logger.error(f"显示关键词设置出错: {e}")
+            logger.error(traceback.format_exc())
+            await query.edit_message_text("❌ 加载关键词设置时出错，请重试")
 
     @check_command_usage
     async def _handle_rank_command(self, update: Update, context):
