@@ -1263,6 +1263,7 @@ class TelegramBot:
         self.application.add_handler(CallbackQueryHandler(self._handle_keyword_callback, pattern=r'^keyword_'))
         self.application.add_handler(CallbackQueryHandler(self._handle_broadcast_callback, pattern=r'^broadcast_'))
         self.application.add_handler(CallbackQueryHandler(self._handle_keyword_continue_callback, pattern=r'^keyword_continue_'))
+        self.application.add_handler(CallbackQueryHandler(self._handle_stats_edit_callback, pattern=r'^stats_edit_'))
     
         # 注册通用消息处理器
         self.application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, self._handle_message))
@@ -1847,31 +1848,30 @@ class TelegramBot:
             await query.edit_message_text("❌ 显示设置分区时出错")
 
     async def _show_stats_settings(self, query, group_id: int, settings: dict):
-        from utils import CallbackDataBuilder 
         """显示统计设置页面"""
         keyboard = [
             [
                 InlineKeyboardButton(
                     f"最小统计字节数: {settings.get('min_bytes', 0)} 字节", 
-                    callback_data=CallbackDataBuilder.stats_settings('min_bytes', group_id)
+                    callback_data=f"stats_edit_min_bytes_{group_id}"  # 直接使用字符串格式
                 )
             ],
             [
                 InlineKeyboardButton(
                     f"统计多媒体: {'是' if settings.get('count_media', False) else '否'}", 
-                    callback_data=CallbackDataBuilder.stats_settings('toggle_media', group_id)
+                    callback_data=f"stats_edit_toggle_media_{group_id}"
                 )
             ],
             [
                 InlineKeyboardButton(
                     f"日排行显示数量: {settings.get('daily_rank_size', 15)}", 
-                    callback_data=CallbackDataBuilder.stats_settings('daily_rank', group_id)
+                    callback_data=f"stats_edit_daily_rank_{group_id}"
                 )
             ],
             [
                 InlineKeyboardButton(
                     f"月排行显示数量: {settings.get('monthly_rank_size', 15)}", 
-                    callback_data=CallbackDataBuilder.stats_settings('monthly_rank', group_id)
+                    callback_data=f"stats_edit_monthly_rank_{group_id}"
                 )
             ],
             [
@@ -1886,7 +1886,7 @@ class TelegramBot:
             f"群组 {group_id} 的统计设置",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-
+        
     async def _show_broadcast_settings(self, query, group_id: int):
         """显示轮播消息设置页面"""
         broadcasts = await self.db.db.broadcasts.find({
@@ -2157,14 +2157,16 @@ class TelegramBot:
 
         try:
             data = query.data
-            parts = data.split('|')
+            parts = data.split('_')  # 修改为使用下划线分隔
     
-            # 健壮性检查
-            if len(parts) < 3:
+            # 确保有足够的参数
+            if len(parts) < 4:  # stats_edit_setting-type_group-id 格式需要至少4部分
                 await query.edit_message_text("❌ 无效的操作")
                 return
     
-            setting_type = parts[1]  # min_bytes, toggle_media 等
+            action = parts[0] + "_" + parts[1]  # stats_edit
+            setting_type = parts[2]  # min_bytes, toggle_media 等
+            group_id = int(parts[3])  # 群组ID
     
             # 尝试获取group_id，处理可能的异常情况
             try:
