@@ -2908,9 +2908,8 @@ class TelegramBot:
         """处理关键词添加流程"""
         try:
             # 记录详细日志
-            logger.info(f"处理关键词添加，状态: {setting_state}")
+            logger.info(f"处理关键词添加: {setting_state}")
         
-            # 安全地获取状态
             if not setting_state:
                 logger.error("设置状态为空")
                 await update.message.reply_text("❌ 设置会话已过期，请重新开始")
@@ -2919,40 +2918,26 @@ class TelegramBot:
             step = setting_state.get('step', 1)
             group_id = setting_state.get('group_id')
             data = setting_state.get('data', {})
+            match_type = data.get('match_type')
         
-            logger.info(f"步骤: {step}, 群组: {group_id}, 数据: {data}")
+            logger.info(f"步骤: {step}, 群组: {group_id}, 匹配类型: {match_type}")
         
-            if step == 1:  # 输入关键词
+            # 接收关键词
+            if step == 1:
                 pattern = update.message.text.strip()
-                match_type = data.get('match_type')
+                logger.info(f"收到关键词: '{pattern}'")
             
-                logger.info(f"收到关键词: '{pattern}', 匹配类型: {match_type}")
+                # 更新状态
+                new_data = {'pattern': pattern, 'type': match_type}
+                await self.settings_manager.update_setting_state(update.effective_user.id, 'keyword', new_data)
             
-                # 验证关键词
-                if not pattern:
-                    await update.message.reply_text("❌ 关键词不能为空")
-                    return
-                
-                from config import KEYWORD_SETTINGS
-                max_length = KEYWORD_SETTINGS.get('max_pattern_length', 100)
-            
-                if len(pattern) > max_length:
-                    await update.message.reply_text(f"❌ 关键词过长，请不要超过 {max_length} 个字符")
-                    return
-                
-                # 正则表达式验证
-                if match_type == 'regex':
-                    if not validate_regex(pattern):
-                        await update.message.reply_text("❌ 无效的正则表达式，请重新输入")
-                        return
-            
-                # 更新状态并进入下一步
-                await self.settings_manager.update_setting_state(
-                    update.effective_user.id,
-                    'keyword',
-                    {'pattern': pattern, 'type': match_type},
-                    next_step=True  # 移动到步骤2
-                )
+                # 手动更新步骤到2
+                state_key = f"setting_{update.effective_user.id}_keyword"
+                async with asyncio.Lock():
+                    if state_key in self.settings_manager._states:
+                        self.settings_manager._states[state_key]['step'] = 2
+                        self.settings_manager._states[state_key]['timestamp'] = datetime.now()
+                        logger.info(f"手动更新步骤到2: {self.settings_manager._states[state_key]}")
             
                 # 提示用户输入回复内容
                 await update.message.reply_text(
