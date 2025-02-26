@@ -2750,7 +2750,7 @@ class TelegramBot:
             logger.error(f"解除群组授权错误: {e}")
             await update.message.reply_text("❌ 解除群组授权时出错")
 
-  async def _handle_show_manageable_groups(self, update: Update, context):
+    async def _handle_show_manageable_groups(self, update: Update, context):
         """处理显示可管理的群组列表"""
         query = update.callback_query
         await query.answer()
