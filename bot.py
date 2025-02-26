@@ -3536,3 +3536,11 @@ def _create_navigation_keyboard(self,current_page: int,total_pages: int, base_ca
 
 # 入口点
 if __name__ == '__main__':
+    try:
+        asyncio.run(TelegramBot.main())
+    except KeyboardInterrupt:
+        logger.info("机器人被用户停止")
+    except Exception as e:
+        logger.error(f"机器人停止，错误原因: {e}")
+        logger.error(traceback.format_exc())
+        raise
