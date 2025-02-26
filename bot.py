@@ -3391,7 +3391,7 @@ def _create_navigation_keyboard(self,current_page: int,total_pages: int, base_ca
             context, 
             original_message: Optional[Message] = None
         ) -> Optional[Message]:
-            """处理关键词响应，并可能进行自动删除
+            """处理关键词响应,并可能进行自动删除
         
             :param chat_id: 聊天ID
             :param response: 响应内容
