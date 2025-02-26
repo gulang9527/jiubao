@@ -1,14 +1,3 @@
-# 注意: 需要创建 config.py 文件，并定义以下变量:
-# TELEGRAM_TOKEN - Telegram 机器人的 API 令牌
-# MONGODB_URI - MongoDB 数据库的连接 URI
-# MONGODB_DB - MongoDB 数据库名称
-# DEFAULT_SUPERADMINS - 默认超级管理员的用户 ID 列表
-# DEFAULT_SETTINGS - 默认机器人设置
-# BROADCAST_SETTINGS - 轮播消息设置
-# KEYWORD_SETTINGS - 关键词设置
-# AUTO_DELETE_SETTINGS - 自动删除消息设置
-# WEB_HOST - Web 服务器主机
-# WEB_PORT - Web 服务器端口
 import os
 import json
 import signal
@@ -16,63 +5,51 @@ import asyncio
 import logging
 import traceback
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, Callable, Union
+from enum import Enum
+from functools import wraps
 from bson import ObjectId
-from typing import Optional, Callable, Any
-from telegram import Update
-from telegram.ext import ContextTypes
 
+import html
+import re
 from aiohttp import web
 from telegram import Update, Message, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    filters
+    Application, CommandHandler, MessageHandler, CallbackQueryHandler,
+    filters, ContextTypes, CallbackContext
 )
-
-def register_middleware(application: Application, middlewares: list) -> None:
-    """注册中间件"""
-    for middleware in middlewares:
-        application.post_init = middleware
-        
 from dotenv import load_dotenv
 
-from db import Database, UserRole, GroupPermission
-from utils import (
-    validate_time_format,
-    validate_interval,
-    format_file_size,
-    validate_regex,
-    get_media_type,
-    format_duration,
-    validate_delete_timeout,
-    is_auto_delete_exempt,
-    get_message_metadata,
-    parse_command_args,
-    escape_markdown
+# 配置日志
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO,
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('bot.log', encoding='utf-8')
+    ]
 )
-from config import (
-    TELEGRAM_TOKEN, 
-    MONGODB_URI, 
-    MONGODB_DB, 
-    DEFAULT_SUPERADMINS,
-    DEFAULT_SETTINGS,
-    BROADCAST_SETTINGS,
-    KEYWORD_SETTINGS,
-    AUTO_DELETE_SETTINGS,
-    WEB_HOST,
-    WEB_PORT
-)
-import functools
-from typing import Callable
-from telegram import Update
-from telegram.ext import CallbackContext
+logger = logging.getLogger(__name__)
 
-def require_group_permission(permission):
+# 加载环境变量
+load_dotenv()
+
+# 用户角色和群组权限枚举
+class UserRole(Enum):
+    USER = 'user'
+    ADMIN = 'admin'
+    SUPERADMIN = 'superadmin'
+
+class GroupPermission(Enum):
+    KEYWORDS = 'keywords'
+    STATS = 'stats'
+    BROADCAST = 'broadcast'
+
+# 装饰器和工具函数
+def require_group_permission(permission: GroupPermission):
     """权限验证装饰器"""
     def decorator(func):
+        @wraps(func)
         async def wrapper(self, update, context, *args, **kwargs):
             if not update.effective_chat:
                 return
@@ -85,6 +62,7 @@ def require_group_permission(permission):
 
 def handle_callback_errors(func):
     """回调错误处理装饰器"""
+    @wraps(func)
     async def wrapper(self, update, context, *args, **kwargs):
         try:
             return await func(self, update, context, *args, **kwargs)
@@ -96,38 +74,446 @@ def handle_callback_errors(func):
                     "❌ 操作出错，请重试"
                 )
     return wrapper
-    
-# 配置日志
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO,
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('bot.log', encoding='utf-8')
-    ]
-)
-logger = logging.getLogger(__name__)
 
-def verify_environment():
-    """验证环境变量"""
-    required_vars = {
-        'TELEGRAM_TOKEN': '机器人令牌',
-        'MONGODB_URI': 'MongoDB连接URI',
-        'MONGODB_DB': 'MongoDB数据库名',
-        'WEBHOOK_DOMAIN': 'Webhook域名'
-    }
-    
-    missing = []
-    for var, desc in required_vars.items():
-        if not os.getenv(var):
-            missing.append(f"{var} ({desc})")
-    
-    if missing:
-        raise ValueError(f"缺少必要的环境变量: {', '.join(missing)}")
+def error_handler(func: Callable) -> Callable:
+    """错误处理装饰器"""
+    @wraps(func)
+    async def wrapper(self, update: Update, context: CallbackContext, *args, **kwargs):
+        try:
+            return await func(self, update, context, *args, **kwargs)
+        except Exception as e:
+            await self.error_handler.handle_error(update, context)
+            raise
+    return wrapper
+
+def check_command_usage(func: Callable) -> Callable:
+    """命令使用检查装饰器"""
+    @wraps(func)
+    async def wrapper(self, update: Update, context: CallbackContext, *args, **kwargs):
+        if not update.effective_message:
+            return
+            
+        message = update.effective_message
+        command = message.text.split()[0].lstrip('/').split('@')[0]
         
-# 加载环境变量
-load_dotenv()
+        user_id = update.effective_user.id if update.effective_user else None
+        if not user_id:
+            return
+            
+        # 检查命令使用是否正确
+        usage = CommandHelper.get_usage(command)
+        if not usage:
+            return await func(self, update, context, *args, **kwargs)
+            
+        # 检查管理员权限
+        if usage['admin_only'] and not await self.is_admin(user_id):
+            await update.message.reply_text("❌ 该命令仅管理员可用")
+            return
+            
+        # 检查参数
+        if '<' in usage['usage'] and not context.args:
+            await update.message.reply_text(
+                f"❌ 命令使用方法不正确\n{CommandHelper.format_usage(command)}"
+            )
+            return
+            
+        return await func(self, update, context, *args, **kwargs)
+    return wrapper
 
+def register_middleware(application: Application, middlewares: list) -> None:
+    """注册中间件"""
+    for middleware in middlewares:
+        application.post_init = middleware
+
+# 工具函数模块
+class Utils:
+    @staticmethod
+    def validate_time_format(time_str: str) -> Optional[datetime]:
+        """验证时间格式"""
+        try:
+            return datetime.strptime(time_str, '%Y-%m-%d %H:%M')
+        except ValueError:
+            return None
+            
+    @staticmethod
+    def validate_interval(interval_str: str) -> Optional[int]:
+        """验证间隔时间"""
+        try:
+            interval = int(interval_str)
+            return interval if interval > 0 else None
+        except ValueError:
+            return None
+            
+    @staticmethod
+    def format_file_size(size_bytes: int) -> str:
+        """格式化文件大小"""
+        if size_bytes < 1024:
+            return f"{size_bytes}B"
+        elif size_bytes < 1024 * 1024:
+            return f"{size_bytes/1024:.2f}KB"
+        elif size_bytes < 1024 * 1024 * 1024:
+            return f"{size_bytes/(1024*1024):.2f}MB"
+        else:
+            return f"{size_bytes/(1024*1024*1024):.2f}GB"
+            
+    @staticmethod
+    def validate_regex(pattern: str) -> bool:
+        """验证正则表达式"""
+        try:
+            re.compile(pattern)
+            return True
+        except re.error:
+            return False
+            
+    @staticmethod
+    def get_media_type(message: Message) -> Optional[str]:
+        """获取媒体类型"""
+        if message.photo:
+            return 'photo'
+        elif message.video:
+            return 'video'
+        elif message.document:
+            return 'document'
+        elif message.audio:
+            return 'audio'
+        elif message.voice:
+            return 'voice'
+        elif message.animation:
+            return 'animation'
+        elif message.sticker:
+            return 'sticker'
+        return None
+            
+    @staticmethod
+    def format_duration(seconds: int) -> str:
+        """格式化时长"""
+        if seconds < 60:
+            return f"{seconds}秒"
+        elif seconds < 3600:
+            return f"{seconds//60}分{seconds%60}秒"
+        else:
+            return f"{seconds//3600}小时{(seconds%3600)//60}分{seconds%3600%60}秒"
+            
+    @staticmethod
+    def validate_delete_timeout(message_type: str = None) -> int:
+        """验证删除超时时间"""
+        # 从配置中获取默认超时时间，这里使用一个默认值
+        default_timeout = 300  # 5分钟
+        
+        # 根据消息类型可以返回不同的超时时间
+        timeouts = {
+            'photo': 600,    # 10分钟
+            'video': 600,    # 10分钟
+            'document': 600, # 10分钟
+            'text': 300      # 5分钟
+        }
+        
+        return timeouts.get(message_type, default_timeout)
+            
+    @staticmethod
+    def is_auto_delete_exempt(role: str, command: str = None) -> bool:
+        """检查是否免除自动删除"""
+        # 超级管理员和管理员免除自动删除
+        if role in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]:
+            return True
+            
+        # 特定命令免除自动删除
+        exempt_commands = ['/start', '/help', '/settings', '/tongji', '/tongji30']
+        if command and command in exempt_commands:
+            return True
+            
+        return False
+            
+    @staticmethod
+    def get_message_metadata(message: Message) -> Dict:
+        """获取消息元数据"""
+        metadata = {
+            'type': 'text',
+            'size': 0,
+            'duration': 0
+        }
+        
+        if not message:
+            return metadata
+            
+        # 设置消息类型和大小
+        if message.text:
+            metadata['type'] = 'text'
+            metadata['size'] = len(message.text)
+        elif message.photo:
+            metadata['type'] = 'photo'
+            metadata['size'] = message.photo[-1].file_size
+        elif message.video:
+            metadata['type'] = 'video'
+            metadata['size'] = message.video.file_size
+            metadata['duration'] = message.video.duration
+        elif message.document:
+            metadata['type'] = 'document'
+            metadata['size'] = message.document.file_size
+            
+        return metadata
+            
+    @staticmethod
+    def parse_command_args(message: Message) -> List[str]:
+        """解析命令参数"""
+        if not message or not message.text:
+            return []
+            
+        parts = message.text.split()
+        if len(parts) <= 1:
+            return []
+            
+        return parts[1:]
+            
+    @staticmethod
+    def escape_markdown(text: str) -> str:
+        """Markdown转义"""
+        escape_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+        for char in escape_chars:
+            text = text.replace(char, '\\' + char)
+        return text
+            
+    @staticmethod
+    def verify_environment():
+        """验证环境变量"""
+        required_vars = {
+            'TELEGRAM_TOKEN': '机器人令牌',
+            'MONGODB_URI': 'MongoDB连接URI',
+            'MONGODB_DB': 'MongoDB数据库名',
+            'WEBHOOK_DOMAIN': 'Webhook域名'
+        }
+        
+        missing = []
+        for var, desc in required_vars.items():
+            if not os.getenv(var):
+                missing.append(f"{var} ({desc})")
+        
+        if missing:
+            raise ValueError(f"缺少必要的环境变量: {', '.join(missing)}")
+
+# 数据库模块
+class Database:
+    def __init__(self):
+        self.client = None
+        self.db = None
+        
+    async def connect(self, uri: str, db_name: str) -> bool:
+        """连接数据库"""
+        try:
+            from motor.motor_asyncio import AsyncIOMotorClient
+            
+            self.client = AsyncIOMotorClient(uri)
+            self.db = self.client[db_name]
+            
+            # 尝试访问以验证连接
+            await self.db.command('ping')
+            logger.info(f"成功连接到数据库 {db_name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"连接数据库失败: {e}")
+            return False
+            
+    async def close(self):
+        """关闭数据库连接"""
+        if self.client:
+            self.client.close()
+            logger.info("数据库连接已关闭")
+            
+    async def get_user(self, user_id: int) -> Optional[Dict]:
+        """获取用户"""
+        return await self.db.users.find_one({'user_id': user_id})
+            
+    async def add_user(self, user_data: Dict) -> bool:
+        """添加或更新用户"""
+        try:
+            user_id = user_data['user_id']
+            result = await self.db.users.update_one(
+                {'user_id': user_id},
+                {'$set': user_data},
+                upsert=True
+            )
+            return result.acknowledged
+        except Exception as e:
+            logger.error(f"添加用户错误: {e}")
+            return False
+            
+    async def remove_user(self, user_id: int) -> bool:
+        """删除用户"""
+        try:
+            result = await self.db.users.delete_one({'user_id': user_id})
+            return result.deleted_count > 0
+        except Exception as e:
+            logger.error(f"删除用户错误: {e}")
+            return False
+            
+    async def get_users_by_role(self, role: str) -> List[Dict]:
+        """通过角色获取用户"""
+        return await self.db.users.find({'role': role}).to_list(None)
+            
+    async def is_user_banned(self, user_id: int) -> bool:
+        """检查用户是否被封禁"""
+        user = await self.get_user(user_id)
+        return user and user.get('banned', False)
+            
+    async def get_group(self, group_id: int) -> Optional[Dict]:
+        """获取群组"""
+        return await self.db.groups.find_one({'group_id': group_id})
+            
+    async def add_group(self, group_data: Dict) -> bool:
+        """添加或更新群组"""
+        try:
+            group_id = group_data['group_id']
+            result = await self.db.groups.update_one(
+                {'group_id': group_id},
+                {'$set': group_data},
+                upsert=True
+            )
+            return result.acknowledged
+        except Exception as e:
+            logger.error(f"添加群组错误: {e}")
+            return False
+            
+    async def remove_group(self, group_id: int) -> bool:
+        """删除群组"""
+        try:
+            result = await self.db.groups.delete_one({'group_id': group_id})
+            return result.deleted_count > 0
+        except Exception as e:
+            logger.error(f"删除群组错误: {e}")
+            return False
+            
+    async def find_all_groups(self) -> List[Dict]:
+        """获取所有群组"""
+        return await self.db.groups.find().to_list(None)
+            
+    async def can_manage_group(self, user_id: int, group_id: int) -> bool:
+        """检查用户是否可以管理群组"""
+        # 获取用户信息
+        user = await self.get_user(user_id)
+        if not user:
+            return False
+            
+        # 超级管理员可以管理所有群组
+        if user['role'] == UserRole.SUPERADMIN.value:
+            return True
+            
+        # 普通管理员只能管理指定的群组
+        if user['role'] == UserRole.ADMIN.value:
+            group = await self.get_group(group_id)
+            return group is not None
+            
+        return False
+            
+    async def get_manageable_groups(self, user_id: int) -> List[Dict]:
+        """获取用户可管理的群组"""
+        user = await self.get_user(user_id)
+        if not user:
+            return []
+            
+        if user['role'] == UserRole.SUPERADMIN.value:
+            return await self.find_all_groups()
+        elif user['role'] == UserRole.ADMIN.value:
+            # 管理员可以管理所有已授权群组
+            return await self.find_all_groups()
+            
+        return []
+            
+    async def get_group_settings(self, group_id: int) -> Dict:
+        """获取群组设置"""
+        group = await self.get_group(group_id)
+        if not group:
+            return {}
+            
+        settings = group.get('settings', {})
+        # 合并默认设置
+        from config import DEFAULT_SETTINGS
+        return {**DEFAULT_SETTINGS, **settings}
+            
+    async def update_group_settings(self, group_id: int, settings: Dict) -> bool:
+        """更新群组设置"""
+        try:
+            result = await self.db.groups.update_one(
+                {'group_id': group_id},
+                {'$set': {'settings': settings}}
+            )
+            return result.acknowledged
+        except Exception as e:
+            logger.error(f"更新群组设置错误: {e}")
+            return False
+            
+    async def get_keywords(self, group_id: int) -> List[Dict]:
+        """获取群组关键词列表"""
+        return await self.db.keywords.find({'group_id': group_id}).to_list(None)
+            
+    async def add_keyword(self, keyword_data: Dict) -> ObjectId:
+        """添加关键词"""
+        result = await self.db.keywords.insert_one(keyword_data)
+        return result.inserted_id
+            
+    async def remove_keyword(self, group_id: int, keyword_id: str) -> bool:
+        """删除关键词"""
+        try:
+            result = await self.db.keywords.delete_one({
+                'group_id': group_id,
+                '_id': ObjectId(keyword_id)
+            })
+            return result.deleted_count > 0
+        except Exception as e:
+            logger.error(f"删除关键词错误: {e}")
+            return False
+            
+    async def add_message_stat(self, stat_data: Dict) -> bool:
+        """添加消息统计"""
+        try:
+            # 更新现有记录或插入新记录
+            result = await self.db.message_stats.update_one(
+                {
+                    'group_id': stat_data['group_id'],
+                    'user_id': stat_data['user_id'],
+                    'date': stat_data['date'],
+                    'media_type': stat_data['media_type']
+                },
+                {
+                    '$inc': {
+                        'total_messages': stat_data['total_messages'],
+                        'total_size': stat_data['total_size']
+                    }
+                },
+                upsert=True
+            )
+            return result.acknowledged
+        except Exception as e:
+            logger.error(f"添加消息统计错误: {e}")
+            return False
+            
+    async def get_recent_message_count(self, user_id: int, seconds: int = 60) -> int:
+        """获取用户最近的消息数量"""
+        try:
+            time_threshold = datetime.now() - timedelta(seconds=seconds)
+            count = await self.db.message_stats.count_documents({
+                'user_id': user_id,
+                'timestamp': {'$gte': time_threshold}
+            })
+            return count
+        except Exception as e:
+            logger.error(f"获取最近消息数量错误: {e}")
+            return 0
+            
+    async def cleanup_old_stats(self, days: int = 30) -> bool:
+        """清理旧统计数据"""
+        try:
+            cutoff_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+            result = await self.db.message_stats.delete_many({
+                'date': {'$lt': cutoff_date}
+            })
+            logger.info(f"已清理 {result.deleted_count} 条旧统计数据")
+            return True
+        except Exception as e:
+            logger.error(f"清理旧统计数据错误: {e}")
+            return False
+
+# 设置管理模块
 class SettingsManager:
     def __init__(self, db):
         self.db = db
@@ -239,14 +625,7 @@ class SettingsManager:
             return state
         
     async def update_setting_state(self, user_id: int, setting_type: str, data: dict, next_step: bool = False):
-        """更新设置状态
-        
-        参数:
-            user_id: 用户ID
-            setting_type: 设置类型
-            data: 更新的数据
-            next_step: 是否进入下一步
-        """
+        """更新设置状态"""
         state_key = f"setting_{user_id}_{setting_type}"
         state_lock = await self._get_state_lock(user_id)
         
@@ -301,14 +680,15 @@ class SettingsManager:
             if has_conflict:
                 logger.warning(f"检测到设置冲突: 用户 {user_id}, 类型 {setting_type}, 冲突: {conflicts}")
             return has_conflict
-            
+
+# 统计管理模块
 class StatsManager:
     def __init__(self, db):
         self.db = db
 
     async def add_message_stat(self, group_id: int, user_id: int, message: Message):
         """添加消息统计"""
-        media_type = get_media_type(message)
+        media_type = Utils.get_media_type(message)
         message_size = len(message.text or '') if message.text else 0
         
         if media_type and message.effective_attachment:
@@ -329,8 +709,20 @@ class StatsManager:
         await self.db.add_message_stat(stat_data)
 
     async def get_daily_stats(self, group_id: int, page: int = 1) -> Tuple[List[Dict], int]:
-        """获取每日统计"""
+        """获取每日统计，仅统计消息数量
+        
+        Args:
+            group_id: 群组ID
+            page: 页码，从1开始
+            
+        Returns:
+            Tuple[List[Dict], int]: 统计数据列表和总页数
+        """
         today = datetime.now().strftime('%Y-%m-%d')
+        # 每页15条，最多显示前100名
+        limit = 15
+        max_users = 100
+        
         pipeline = [
             {'$match': {
                 'group_id': group_id,
@@ -338,33 +730,39 @@ class StatsManager:
             }},
             {'$group': {
                 '_id': '$user_id',
-                'total_messages': {'$sum': '$total_messages'},
-                'total_size': {'$sum': '$total_size'}
+                'total_messages': {'$sum': '$total_messages'}
             }},
             {'$sort': {'total_messages': -1}},
-            {'$skip': (page - 1) * 15},
-            {'$limit': 15}
+            {'$limit': max_users}
         ]
-        stats = await self.db.db.message_stats.aggregate(pipeline).to_list(None)
+        all_stats = await self.db.db.message_stats.aggregate(pipeline).to_list(None)
         
-        total_count_pipeline = [
-            {'$match': {
-                'group_id': group_id,
-                'date': today
-            }},
-            {'$group': {
-                '_id': '$user_id'
-            }},
-            {'$count': 'total_users'}
-        ]
-        total_count_result = await self.db.db.message_stats.aggregate(total_count_pipeline).to_list(1)
-        total_pages = (total_count_result[0]['total_users'] + 14) // 15 if total_count_result else 1
+        # 计算总页数
+        total_users = len(all_stats)
+        total_pages = (total_users + limit - 1) // limit
+        
+        # 获取当前页的数据
+        start_idx = (page - 1) * limit
+        end_idx = min(start_idx + limit, total_users)
+        stats = all_stats[start_idx:end_idx]
         
         return stats, total_pages
 
     async def get_monthly_stats(self, group_id: int, page: int = 1) -> Tuple[List[Dict], int]:
-        """获取近30日统计"""
+        """获取近30日统计，仅统计消息数量
+        
+        Args:
+            group_id: 群组ID
+            page: 页码，从1开始
+            
+        Returns:
+            Tuple[List[Dict], int]: 统计数据列表和总页数
+        """
         thirty_days_ago = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+        # 每页15条，最多显示前100名
+        limit = 15
+        max_users = 100
+        
         pipeline = [
             {'$match': {
                 'group_id': group_id,
@@ -372,35 +770,76 @@ class StatsManager:
             }},
             {'$group': {
                 '_id': '$user_id',
-                'total_messages': {'$sum': '$total_messages'},
-                'total_size': {'$sum': '$total_size'}
+                'total_messages': {'$sum': '$total_messages'}
             }},
             {'$sort': {'total_messages': -1}},
-            {'$skip': (page - 1) * 15},
-            {'$limit': 15}
+            {'$limit': max_users}
         ]
-        stats = await self.db.db.message_stats.aggregate(pipeline).to_list(None)
+        all_stats = await self.db.db.message_stats.aggregate(pipeline).to_list(None)
         
-        total_count_pipeline = [
-            {'$match': {
-                'group_id': group_id,
-                'date': {'$gte': thirty_days_ago}
-            }},
-            {'$group': {
-                '_id': '$user_id'
-            }},
-            {'$count': 'total_users'}
-        ]
-        total_count_result = await self.db.db.message_stats.aggregate(total_count_pipeline).to_list(1)
-        total_pages = (total_count_result[0]['total_users'] + 14) // 15 if total_count_result else 1
+        # 计算总页数
+        total_users = len(all_stats)
+        total_pages = (total_users + limit - 1) // limit
+        
+        # 获取当前页的数据
+        start_idx = (page - 1) * limit
+        end_idx = min(start_idx + limit, total_users)
+        stats = all_stats[start_idx:end_idx]
         
         return stats, total_pages
 
+# 广播管理模块
 class BroadcastManager:
     def __init__(self, db, bot):
         self.db = db
         self.bot = bot
+        
+    async def get_broadcasts(self, group_id: int) -> List[Dict]:
+        """获取群组的广播消息"""
+        return await self.db.db.broadcasts.find({'group_id': group_id}).to_list(None)
+        
+    async def add_broadcast(self, broadcast_data: Dict) -> ObjectId:
+        """添加广播消息"""
+        result = await self.db.db.broadcasts.insert_one(broadcast_data)
+        return result.inserted_id
+        
+    async def remove_broadcast(self, group_id: int, broadcast_id: str) -> bool:
+        """删除广播消息"""
+        try:
+            result = await self.db.db.broadcasts.delete_one({
+                'group_id': group_id,
+                '_id': ObjectId(broadcast_id)
+            })
+            return result.deleted_count > 0
+        except Exception as e:
+            logger.error(f"删除广播消息错误: {e}")
+            return False
+            
+    async def get_pending_broadcasts(self) -> List[Dict]:
+        """获取待发送的广播消息"""
+        now = datetime.now()
+        return await self.db.db.broadcasts.find({
+            'start_time': {'$lte': now},
+            'end_time': {'$gt': now},
+            '$or': [
+                {'last_broadcast': {'$exists': False}},
+                {'last_broadcast': {'$lt': now - timedelta(seconds='$interval')}}
+            ]
+        }).to_list(None)
+        
+    async def update_last_broadcast(self, broadcast_id: ObjectId) -> bool:
+        """更新最后发送时间"""
+        try:
+            result = await self.db.db.broadcasts.update_one(
+                {'_id': broadcast_id},
+                {'$set': {'last_broadcast': datetime.now()}}
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"更新广播发送时间错误: {e}")
+            return False
 
+# 关键词管理模块
 class KeywordManager:
     def __init__(self, db):
         self.db = db
@@ -456,10 +895,7 @@ class KeywordManager:
                 return kw
         return None
 
-from typing import Optional, Callable, Any
-from telegram.ext import CallbackContext
-import functools
-
+# 错误处理模块
 class ErrorHandler:
     """统一错误处理器"""
     def __init__(self, logger):
@@ -571,6 +1007,7 @@ class ErrorHandler:
         """注册自定义错误处理器"""
         self._error_handlers[error_type] = handler
 
+# 中间件模块
 class MessageMiddleware:
     """消息处理中间件"""
     def __init__(self, bot):
@@ -667,8 +1104,6 @@ class MessageMiddleware:
             
         return True
 
-from telegram.ext import Application
-
 class ErrorHandlingMiddleware:
     """错误处理中间件"""
     def __init__(self, error_handler):
@@ -681,17 +1116,7 @@ class ErrorHandlingMiddleware:
             await self.error_handler.handle_error(update, context)
             raise
 
-def error_handler(func: Callable) -> Callable:
-    """错误处理装饰器"""
-    @functools.wraps(func)
-    async def wrapper(self, update: Update, context: CallbackContext, *args, **kwargs):
-        try:
-            return await func(self, update, context, *args, **kwargs)
-        except Exception as e:
-            await self.error_handler.handle_error(update, context)
-            raise
-    return wrapper
-
+# 命令帮助模块
 class CommandHelper:
     """命令帮助工具类"""
     
@@ -733,7 +1158,7 @@ class CommandHelper:
             'admin_only': True
         },
         'authgroup': {
-            'usage': '/authgroup <群组ID> [权限1] [权限2] ...',
+            'usage': '/authgroup <群组ID> ...',
             'description': '授权群组',
             'example': '/authgroup -100123456789 keywords stats broadcast',
             'admin_only': True
@@ -771,64 +1196,9 @@ class CommandHelper:
             text.append("注意: 仅管理员可用")
             
         return "\n".join(text)
-        
-    @classmethod
-    async def check_usage(cls, update: Update, command: str, args: list) -> bool:
-        """检查命令使用是否正确"""
-        usage = cls.get_usage(command)
-        if not usage:
-            return True
-            
-        # 检查管理员权限
-        if usage['admin_only'] and not await self.is_admin(update.effective_user.id):
-            await update.message.reply_text("❌ 该命令仅管理员可用")
-            return False
-            
-        # 检查参数
-        if '<' in usage['usage'] and not args:
-            await update.message.reply_text(
-                f"❌ 命令使用方法不正确\n{cls.format_usage(command)}"
-            )
-            return False
-            
-        return True
-        
-def check_command_usage(func: Callable) -> Callable:
-    """命令使用检查装饰器"""
-    @functools.wraps(func)
-    async def wrapper(self, update: Update, context: CallbackContext, *args, **kwargs):
-        if not update.effective_message:
-            return
-            
-        message = update.effective_message
-        command = message.text.split()[0].lstrip('/').split('@')[0]
-        
-        user_id = update.effective_user.id if update.effective_user else None
-        if not user_id:
-            return
-            
-        # 检查命令使用是否正确
-        usage = CommandHelper.get_usage(command)
-        if not usage:
-            return True
-            
-        # 检查管理员权限
-        if usage['admin_only'] and not await self.is_admin(user_id):
-            await update.message.reply_text("❌ 该命令仅管理员可用")
-            return False
-            
-        # 检查参数
-        if '<' in usage['usage'] and not context.args:
-            await update.message.reply_text(
-                f"❌ 命令使用方法不正确\n{CommandHelper.format_usage(command)}"
-            )
-            return False
-            
-        return await func(self, update, context, *args, **kwargs)
-    return wrapper
-    
+
+# 主Bot类
 class TelegramBot:
-    
     def __init__(self):
         self.db = None
         self.application = None
@@ -841,9 +1211,9 @@ class TelegramBot:
         self.keyword_manager = None
         self.broadcast_manager = None
         self.stats_manager = None
+        self.error_handler = None
         self.message_deletion_manager = None
-        self.error_handler = ErrorHandler(logger)
-           
+        
     class MessageDeletionManager:
         """管理消息删除的类"""
         def __init__(self, bot):
@@ -890,32 +1260,51 @@ class TelegramBot:
     async def initialize(self):
         """初始化机器人"""
         try:
-            from config_validator import validate_config, ConfigValidationError
-            import config
-    
+            # 验证配置
             try:
-                validate_config(config)
-            except ConfigValidationError as e:
-                logger.error(f"配置验证失败: {e}")
-                return False
-            
+                from config_validator import validate_config, ConfigValidationError
+                import config
+        
+                try:
+                    validate_config(config)
+                except ConfigValidationError as e:
+                    logger.error(f"配置验证失败: {e}")
+                    return False
+            except ImportError:
+                logger.warning("配置验证模块未找到，跳过配置验证")
+                
             logger.info("开始初始化机器人")
-
+            
+            # 从config导入必要配置
+            from config import (
+                TELEGRAM_TOKEN, 
+                MONGODB_URI, 
+                MONGODB_DB, 
+                DEFAULT_SUPERADMINS,
+                DEFAULT_SETTINGS,
+                BROADCAST_SETTINGS,
+                KEYWORD_SETTINGS,
+                AUTO_DELETE_SETTINGS,
+                WEB_HOST,
+                WEB_PORT
+            )
+    
             # 初始化数据库
             self.db = Database()
             if not await self.db.connect(MONGODB_URI, MONGODB_DB):
                 logger.error("数据库连接失败")
                 return False
-
+    
             # 初始化管理器
+            self.error_handler = ErrorHandler(logger)
             self.settings_manager = SettingsManager(self.db)
             await self.settings_manager.start()  # 启动设置管理器
-    
+        
             self.keyword_manager = KeywordManager(self.db)
             self.broadcast_manager = BroadcastManager(self.db, self)
             self.stats_manager = StatsManager(self.db)
             self.message_deletion_manager = self.MessageDeletionManager(self)
-    
+        
             # 强制更新所有默认超级管理员
             for admin_id in DEFAULT_SUPERADMINS:
                 await self.db.add_user({
@@ -923,19 +1312,38 @@ class TelegramBot:
                     'role': UserRole.SUPERADMIN.value
                 })
                 logger.info(f"已设置超级管理员: {admin_id}")
-    
+        
+            # 初始化默认群组 - 所有群组默认拥有全部功能权限
+            default_groups = [
+                {
+                    'group_id': -1001234567890,  # 替换为你的群组ID
+                    'permissions': [perm.value for perm in GroupPermission]  # 全部权限
+                }
+                # 可以添加更多群组
+            ]
+        
+            for group in default_groups:
+                await self.db.add_group({
+                    'group_id': group['group_id'],
+                    'permissions': group['permissions']
+                })
+                logger.info(f"已设置群组权限: {group['group_id']}")
+        
+            # 获取webhook域名
+            webhook_domain = os.getenv('WEBHOOK_DOMAIN')
+            if not webhook_domain:
+                logger.warning("WEBHOOK_DOMAIN环境变量未设置，使用默认值")
+                webhook_domain = 'your-render-app-name.onrender.com'
+        
             # 创建Telegram Bot应用
             self.application = (
                 Application.builder()
                 .token(TELEGRAM_TOKEN)
                 .build()
             )
-    
+        
             # 注册处理器
             await self._register_handlers()
-    
-            # 重要：确保application正确初始化
-            await self.application.initialize()
         
             # 创建 web 应用并添加路由
             self.web_app = web.Application()
@@ -943,7 +1351,6 @@ class TelegramBot:
             self.web_app.router.add_get('/health', self.handle_healthcheck)
 
             # 设置webhook路径并添加路由
-            webhook_domain = os.getenv('WEBHOOK_DOMAIN', 'your-render-app-name.onrender.com')
             webhook_url = f"https://{webhook_domain}/webhook/{TELEGRAM_TOKEN}"
             webhook_path = f"/webhook/{TELEGRAM_TOKEN}"
             self.web_app.router.add_post(webhook_path, self._handle_webhook)
@@ -961,47 +1368,59 @@ class TelegramBot:
                 url=webhook_url,
                 allowed_updates=["message", "callback_query", "my_chat_member"]
             )
+
+            # 禁用轮询
+            self.application.updater = None
         
             logger.info(f"Webhook已设置为 {webhook_url}")
-    
+        
             # 验证初始化
             if not await self.verify_initialization():
                 logger.error("初始化验证失败")
                 return False
-        
+            
             logger.info("机器人初始化完成")
             return True
-    
+        
         except Exception as e:
             logger.error(f"机器人初始化失败: {e}")
             logger.error(traceback.format_exc())
             return False
-        
+            
     async def verify_initialization(self):
         """验证初始化是否成功"""
-        # 验证超级管理员
-        for admin_id in DEFAULT_SUPERADMINS:
-            user = await self.db.get_user(admin_id)
-            if not user or user['role'] != UserRole.SUPERADMIN.value:
-                logger.error(f"超级管理员 {admin_id} 初始化失败")
+        try:
+            # 从config导入必要配置
+            from config import DEFAULT_SUPERADMINS
+            
+            # 验证超级管理员
+            for admin_id in DEFAULT_SUPERADMINS:
+                user = await self.db.get_user(admin_id)
+                if not user or user['role'] != UserRole.SUPERADMIN.value:
+                    logger.error(f"超级管理员 {admin_id} 初始化失败")
+                    return False
+        
+            # 验证群组权限
+            groups = await self.db.find_all_groups()
+            if not groups:
+                logger.error("没有找到任何已授权的群组")
                 return False
-    
-        # 验证群组权限
-        groups = await self.db.find_all_groups()
-        if not groups:
-            logger.error("没有找到任何已授权的群组")
+        
+            logger.info("初始化验证成功")
+            logger.info(f"超级管理员: {DEFAULT_SUPERADMINS}")
+            logger.info(f"已授权群组: {[g['group_id'] for g in groups]}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"验证初始化失败: {e}")
             return False
-    
-        logger.info("初始化验证成功")
-        logger.info(f"超级管理员: {DEFAULT_SUPERADMINS}")
-        logger.info(f"已授权群组: {[g['group_id'] for g in groups]}")
-        return True
 
+    @classmethod
     async def main(cls):
         """主函数"""
         try:
             # 验证环境变量
-            verify_environment()
+            Utils.verify_environment()
         
             # 创建机器人实例
             bot = cls()
@@ -1034,6 +1453,7 @@ class TelegramBot:
                 logger.error("机器人未初始化。初始化失败。")
                 return False
         
+            await self.application.initialize()
             await self.application.start()
             self.running = True
         
@@ -1146,6 +1566,7 @@ class TelegramBot:
         async def cleanup_routine():
             while self.running:
                 try:
+                    from config import DEFAULT_SETTINGS
                     await self.db.cleanup_old_stats(
                         days=DEFAULT_SETTINGS.get('cleanup_days', 30)
                     )
@@ -1168,6 +1589,32 @@ class TelegramBot:
         except NotImplementedError:
             logger.warning("Signal handlers not supported on this platform")
 
+    async def handle_healthcheck(self, request):
+        """处理健康检查请求"""
+        return web.Response(text="Healthy", status=200)
+
+    async def _handle_webhook(self, request):
+        """处理Telegram webhook请求"""
+        try:
+            if request.content_type != 'application/json':
+                logger.warning(f"收到无效的内容类型: {request.content_type}")
+                return web.Response(status=415)
+        
+            update_data = await request.json()
+            logger.info(f"收到webhook更新: {update_data}")
+        
+            update = Update.de_json(update_data, self.application.bot)
+            if update:
+                await self.application.process_update(update)
+                logger.info("成功处理更新")
+            else:
+                logger.warning("收到无效的更新数据")
+        
+            return web.Response(status=200)
+        except Exception as e:
+            logger.error(f"处理webhook错误: {e}", exc_info=True)
+            return web.Response(status=500)
+
     async def is_superadmin(self, user_id: int) -> bool:
         """检查是否是超级管理员"""
         user = await self.db.get_user(user_id)
@@ -1182,53 +1629,6 @@ class TelegramBot:
         """检查群组权限"""
         group = await self.db.get_group(group_id)
         return group and permission.value in group.get('permissions', [])
-
-    async def handle_healthcheck(self, request):
-        """处理健康检查请求"""
-        return web.Response(text="Healthy", status=200)
-
-    async def _handle_webhook(self, request):
-        """处理Telegram webhook请求"""
-        try:
-            if request.content_type != 'application/json':
-                logger.warning(f"收到无效的内容类型: {request.content_type}")
-                return web.Response(status=415)
-    
-            update_data = await request.json()
-            logger.info(f"收到webhook更新: {update_data}")
-    
-            update = Update.de_json(update_data, self.application.bot)
-            if update:
-                # 确保应用已初始化
-                if not getattr(self.application, '_initialized', False):
-                    logger.error("应用未初始化，尝试重新初始化")
-                    await self.application.initialize()
-                
-                await self.application.process_update(update)
-                logger.info("成功处理更新")
-            else:
-                logger.warning("收到无效的更新数据")
-    
-            return web.Response(status=200)
-        except RuntimeError as e:
-            if "not initialized" in str(e):
-                logger.error(f"应用未初始化: {e}")
-                # 尝试重新初始化和启动
-                try:
-                    await self.application.initialize()
-                    await self.application.start()
-                    logger.info("应用已重新初始化和启动")
-                    # 重试处理更新
-                    if update:
-                        await self.application.process_update(update)
-                except Exception as re_init_error:
-                    logger.error(f"重新初始化失败: {re_init_error}")
-            else:
-                logger.error(f"处理webhook错误: {e}", exc_info=True)
-            return web.Response(status=500)
-        except Exception as e:
-            logger.error(f"处理webhook错误: {e}", exc_info=True)
-            return web.Response(status=500)
 
     async def _register_handlers(self):
         """注册各种事件处理器"""
@@ -1275,118 +1675,33 @@ class TelegramBot:
 
         try:
             data = query.data
-            logger.info(f"处理关键词回调: 用户ID={update.effective_user.id}, 回调数据={data}")
-        
-            # 标准化参数解析
             parts = data.split('_')
-        
-            # 基本验证 - 确保至少有基本结构 (keyword_action_...)
+    
+            # 确保有足够的参数
             if len(parts) < 3:
-                logger.warning(f"无效的回调数据格式: {data} (部分不足)")
                 await query.edit_message_text("❌ 无效的操作")
                 return
 
-            # 提取操作类型
-            action = parts[1]
-            logger.info(f"关键词操作类型: {action}")
-        
-            # 统一解析群组ID (在所有回调数据中保持一致位置)
+            action = parts[1]  # detail/add/edit/delete/type
+
+            # 获取群组ID
             try:
-                # 对于所有操作，群组ID都是第三个参数
-                group_id = int(parts[2])
-                logger.info(f"群组ID: {group_id}")
-            except (ValueError, IndexError) as e:
-                logger.error(f"无法解析群组ID: {e}, 回调数据={data}")
+                group_id = int(parts[-1])
+            except ValueError:
                 await query.edit_message_text("❌ 无效的群组ID")
                 return
-            
-            # 权限验证 - 对所有操作都进行验证
+
+            # 验证权限
             if not await self.db.can_manage_group(update.effective_user.id, group_id):
-                logger.warning(f"权限不足: 用户ID={update.effective_user.id}, 群组ID={group_id}")
                 await query.edit_message_text("❌ 无权限管理此群组")
                 return
 
             if not await self.has_permission(group_id, GroupPermission.KEYWORDS):
-                logger.warning(f"群组未启用关键词功能: 群组ID={group_id}")
                 await query.edit_message_text("❌ 此群组未启用关键词功能")
                 return
 
-            # 根据不同的操作类型处理
-            if action == "detail":
-                # 格式: keyword_detail_group_id_keyword_id
-                if len(parts) < 4:
-                    logger.warning(f"关键词详情缺少参数: {data}")
-                    await query.edit_message_text("❌ 无效的关键词ID")
-                    return
-                
-                keyword_id = parts[3]
-                logger.info(f"查看关键词详情: 关键词ID={keyword_id}")
-            
-                # 获取关键词信息
-                keyword = await self.keyword_manager.get_keyword_by_id(group_id, keyword_id)
-    
-                if not keyword:
-                    logger.warning(f"未找到关键词: ID={keyword_id}, 群组ID={group_id}")
-                    await query.edit_message_text("❌ 未找到该关键词")
-                    return
-
-                pattern = keyword['pattern']
-                response_type = keyword['response_type']
-                match_type = keyword['type']
-                logger.info(f"关键词信息: 模式={pattern}, 响应类型={response_type}, 匹配类型={match_type}")
-
-                # 构建响应内容预览
-                response_preview = "无法预览媒体内容"
-                if response_type == 'text':
-                    response_text = keyword['response']
-                    # 限制预览长度
-                    if len(response_text) > 100:
-                        response_preview = response_text[:97] + "..."
-                    else:
-                        response_preview = response_text
-
-                # 构建回复类型的文本描述
-                response_type_text = {
-                    'text': '文本',
-                    'photo': '图片',
-                    'video': '视频',
-                    'document': '文件'
-                }.get(response_type, response_type)
-
-                # 构建详情界面的键盘 - 注意保持群组ID在关键词ID之前的一致性
-                keyboard = [
-                    [
-                        InlineKeyboardButton(
-                            "❌ 删除此关键词", 
-                            callback_data=f"keyword_delete_confirm_{group_id}_{keyword_id}"
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            "🔙 返回列表", 
-                            callback_data=f"settings_keywords_{group_id}"
-                        )
-                    ]
-                ]
-
-                # 构建详情文本
-                text = (
-                    f"📝 关键词详情：\n\n"
-                    f"🔹 匹配类型：{'正则匹配' if match_type == 'regex' else '精确匹配'}\n"
-                    f"🔹 关键词：{pattern}\n"
-                    f"🔹 回复类型：{response_type_text}\n"
-                )
-        
-                if response_type == 'text':
-                    text += f"🔹 回复内容：{response_preview}\n"
-
-                await query.edit_message_text(
-                    text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-                logger.info(f"已显示关键词详情: ID={keyword_id}")
-            
-            elif action == "add":
+            # 处理不同的关键词操作
+            if action == "add":
                 # 让用户选择匹配类型
                 keyboard = [
                     [
@@ -1410,44 +1725,32 @@ class TelegramBot:
                     "请选择关键词匹配类型：",
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-                logger.info(f"已显示关键词匹配类型选择: 群组ID={group_id}")
 
             elif action == "type":
-                if len(parts) < 4:
-                    logger.warning(f"关键词类型选择缺少参数: {data}")
-                    await query.edit_message_text("❌ 无效的匹配类型")
-                    return
-                
-                match_type = parts[3]  # exact/regex
-                if match_type not in ['exact', 'regex']:
-                    logger.warning(f"无效的匹配类型: {match_type}")
-                    await query.edit_message_text("❌ 无效的匹配类型")
-                    return
-        
+                match_type = parts[2]  # exact/regex
+            
                 # 记录详细日志
                 logger.info(f"用户 {update.effective_user.id} 为群组 {group_id} 选择关键词匹配类型: {match_type}")
-        
+            
                 # 检查是否已有正在进行的关键词设置
                 active_settings = await self.settings_manager.get_active_settings(update.effective_user.id)
                 if 'keyword' in active_settings:
                     # 清除之前的状态
                     await self.settings_manager.clear_setting_state(update.effective_user.id, 'keyword')
-                    logger.info(f"清除用户 {update.effective_user.id} 之前的关键词设置状态")
-        
+            
                 # 开始设置状态
                 await self.settings_manager.start_setting(
                     update.effective_user.id,
                     'keyword',
                     group_id
                 )
-        
+            
                 # 保存匹配类型到状态
                 await self.settings_manager.update_setting_state(
                     update.effective_user.id,
                     'keyword',
                     {'match_type': match_type}
                 )
-                logger.info(f"已更新设置状态: 用户ID={update.effective_user.id}, 匹配类型={match_type}")
 
                 # 提示输入关键词
                 match_type_text = "精确匹配" if match_type == "exact" else "正则匹配"
@@ -1457,86 +1760,136 @@ class TelegramBot:
                     f"{'(支持正则表达式)' if match_type == 'regex' else ''}\n\n"
                     "发送 /cancel 取消"
                 )
-                logger.info(f"已提示用户输入关键词: 用户ID={update.effective_user.id}")
+
+            elif action == "detail":
+                if len(parts) < 4:
+                    await query.edit_message_text("❌ 无效的关键词ID")
+                    return
+
+                keyword_id = parts[2]
+                keyword = await self.keyword_manager.get_keyword_by_id(group_id, keyword_id)
+        
+                if not keyword:
+                    await query.edit_message_text("❌ 未找到该关键词")
+                    return
+
+                pattern = keyword['pattern']
+                response_type = keyword['response_type']
+                match_type = keyword['type']
+
+                # 构建响应内容预览
+                response_preview = "无法预览媒体内容"
+                if response_type == 'text':
+                    response_text = keyword['response']
+                    # 限制预览长度
+                    if len(response_text) > 100:
+                        response_preview = response_text[:97] + "..."
+                    else:
+                        response_preview = response_text
+
+                # 构建回复类型的文本描述
+                response_type_text = {
+                    'text': '文本',
+                    'photo': '图片',
+                    'video': '视频',
+                    'document': '文件'
+                }.get(response_type, response_type)
+
+                # 构建详情界面的键盘
+                keyboard = [
+                    [
+                        InlineKeyboardButton(
+                            "❌ 删除此关键词", 
+                            callback_data=f"keyword_delete_confirm_{keyword_id}_{group_id}"
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "🔙 返回列表", 
+                            callback_data=f"settings_keywords_{group_id}"
+                        )
+                    ]
+                ]
+
+                # 构建详情文本
+                text = (
+                    f"📝 关键词详情：\n\n"
+                    f"🔹 匹配类型：{'正则匹配' if match_type == 'regex' else '精确匹配'}\n"
+                    f"🔹 关键词：{pattern}\n"
+                    f"🔹 回复类型：{response_type_text}\n"
+                )
+            
+                if response_type == 'text':
+                    text += f"🔹 回复内容：{response_preview}\n"
+
+                await query.edit_message_text(
+                    text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
 
             elif action == "delete_confirm":
                 if len(parts) < 4:
-                    logger.warning(f"关键词删除确认缺少参数: {data}")
                     await query.edit_message_text("❌ 无效的关键词ID")
                     return
-                
-                keyword_id = parts[3]
-                logger.info(f"确认删除关键词: ID={keyword_id}, 群组ID={group_id}")
-        
+
+                keyword_id = parts[2]
+            
                 # 获取关键词信息用于显示
                 keyword = await self.keyword_manager.get_keyword_by_id(group_id, keyword_id)
                 if not keyword:
-                    logger.warning(f"未找到要删除的关键词: ID={keyword_id}")
                     await query.edit_message_text("❌ 未找到该关键词")
                     return
-            
+                
                 pattern = keyword['pattern']
-                logger.info(f"关键词信息: 模式={pattern}")
-        
-                # 构建确认删除的键盘 - 保持群组ID在关键词ID之前
+            
+                # 构建确认删除的键盘
                 keyboard = [
                     [
                         InlineKeyboardButton(
                             "✅ 确认删除", 
-                            callback_data=f"keyword_delete_{group_id}_{keyword_id}"
+                            callback_data=f"keyword_delete_{keyword_id}_{group_id}"
                         ),
                         InlineKeyboardButton(
                             "❌ 取消", 
-                            callback_data=f"keyword_detail_{group_id}_{keyword_id}"
+                            callback_data=f"keyword_detail_{keyword_id}_{group_id}"
                         )
                     ]
                 ]
-        
+            
                 await query.edit_message_text(
                     f"⚠️ 确定要删除关键词「{pattern}」吗？\n"
                     "此操作不可撤销！",
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-                logger.info(f"已显示删除确认: 关键词={pattern}")
 
             elif action == "delete":
                 if len(parts) < 4:
-                    logger.warning(f"关键词删除缺少参数: {data}")
                     await query.edit_message_text("❌ 无效的关键词ID")
                     return
-                
-                keyword_id = parts[3]
-                logger.info(f"删除关键词: ID={keyword_id}, 群组ID={group_id}")
-        
+
+                keyword_id = parts[2]
+            
                 try:
                     # 获取关键词信息用于显示
                     keyword = await self.keyword_manager.get_keyword_by_id(group_id, keyword_id)
-                    if not keyword:
-                        logger.warning(f"未找到要删除的关键词: ID={keyword_id}")
-                        await query.edit_message_text("❌ 未找到该关键词")
-                        return
-                    
-                    pattern = keyword['pattern']
-                    logger.info(f"关键词信息: 模式={pattern}")
-            
+                    pattern = keyword['pattern'] if keyword else "未知关键词"
+                
                     # 执行删除
                     await self.db.remove_keyword(group_id, keyword_id)
-                    logger.info(f"已删除关键词: ID={keyword_id}, 模式={pattern}")
-            
+                
                     # 显示删除成功消息
                     await query.edit_message_text(f"✅ 已删除关键词「{pattern}」")
-            
+                
                     # 短暂延迟后返回关键词列表
                     await asyncio.sleep(1)
                     await self._show_keyword_settings(query, group_id)
-            
+                
                 except Exception as e:
                     logger.error(f"删除关键词时出错: {e}")
                     await query.edit_message_text("❌ 删除关键词时出错，请重试")
 
             elif action == "edit":
                 # 目前不支持编辑，如需添加可以在此实现
-                logger.info(f"尝试编辑关键词 (不支持): 群组ID={group_id}")
                 await query.edit_message_text(
                     "⚠️ 目前不支持编辑关键词\n"
                     "如需修改，请删除后重新添加",
@@ -1553,21 +1906,13 @@ class TelegramBot:
             elif action == "list_page":
                 # 分页显示关键词列表
                 try:
-                    if len(parts) < 4:
-                        logger.warning(f"关键词分页缺少参数: {data}")
-                        await query.edit_message_text("❌ 无效的页码")
-                        return
-                    
-                    page = int(parts[3])
-                    logger.info(f"显示关键词列表页: 页码={page}, 群组ID={group_id}")
-                
+                    page = int(parts[2])
                     await self.settings_manager.set_current_page(group_id, "keywords", page)
                     await self._show_keyword_settings(query, group_id, page)
-                except ValueError as e:
-                    logger.error(f"无效的页码: {e}")
+                except ValueError:
                     await query.edit_message_text("❌ 无效的页码")
+
             else:
-                logger.warning(f"未知的关键词操作: {action}")
                 await query.edit_message_text(
                     f"❌ 未知的操作: {action}",
                     reply_markup=InlineKeyboardMarkup([
@@ -1593,35 +1938,18 @@ class TelegramBot:
 
         try:
             data = query.data
-            logger.info(f"处理关键词继续添加回调: 用户ID={update.effective_user.id}, 回调数据={data}")
-        
             parts = data.split('_')
         
-            # 基本验证 - 确保至少有基本结构
+            # 确保有足够的参数
             if len(parts) < 3:
-                logger.warning(f"无效的回调数据格式: {data} (部分不足)")
                 await query.edit_message_text("❌ 无效的操作")
                 return
     
-            # 提取群组ID
-            try:
-                group_id = int(parts[2])
-                logger.info(f"群组ID: {group_id}")
-            except (ValueError, IndexError) as e:
-                logger.error(f"无法解析群组ID: {e}, 回调数据={data}")
-                await query.edit_message_text("❌ 无效的群组ID")
-                return
+            group_id = int(parts[2])
 
             # 验证权限
             if not await self.db.can_manage_group(update.effective_user.id, group_id):
-                logger.warning(f"权限不足: 用户ID={update.effective_user.id}, 群组ID={group_id}")
                 await query.edit_message_text("❌ 无权限管理此群组")
-                return
-
-            # 验证关键词功能是否启用
-            if not await self.has_permission(group_id, GroupPermission.KEYWORDS):
-                logger.warning(f"群组未启用关键词功能: 群组ID={group_id}")
-                await query.edit_message_text("❌ 此群组未启用关键词功能")
                 return
 
             # 直接跳转到关键词添加的匹配类型选择
@@ -1647,177 +1975,14 @@ class TelegramBot:
                 "请选择关键词匹配类型：",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
-            logger.info(f"已显示关键词匹配类型选择: 群组ID={group_id}")
 
         except Exception as e:
             logger.error(f"处理关键词继续添加回调错误: {e}")
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 处理操作时出错，请重试")
-        
-    @check_command_usage
-    async def _handle_start(self, update: Update, context):
-        """处理 start 命令"""
-        if not update.effective_user or not update.message:
-            return
-
-        user_id = update.effective_user.id
-        is_superadmin = await self.is_superadmin(user_id)
-        is_admin = await self.is_admin(user_id)
-
-        welcome_text = (
-            f"👋 你好 {update.effective_user.first_name}！\n\n"
-            "我是啤酒群酒保，主要功能包括：\n"
-            "• 关键词自动回复\n"
-            "• 消息统计\n"
-            "• 轮播消息\n\n"
-            "基础命令：\n"
-            "🔧 /settings - 配置机器人\n"
-            "📊 /tongji - 查看今日统计\n"
-            "📈 /tongji30 - 查看30日统计\n"
-        )
-
-        if is_admin:
-            admin_commands = (
-                "\n管理员命令：\n"
-                "👥 /admingroups - 查看可管理的群组\n"
-                "⚙️ /settings - 群组设置管理\n"
-            )
-            welcome_text += admin_commands
-
-        if is_superadmin:
-            superadmin_commands = (
-                "\n超级管理员命令：\n"
-                "➕ /addsuperadmin <用户ID> - 添加超级管理员\n"
-                "➖ /delsuperadmin <用户ID> - 删除超级管理员\n"
-                "👤 /addadmin <用户ID> - 添加管理员\n"
-                "🚫 /deladmin <用户ID> - 删除管理员\n"
-                "✅ /authgroup <群组ID> <权限1> [权限2] ... - 授权群组\n"
-                "❌ /deauthgroup <群组ID> - 取消群组授权\n"
-                "🔍 /checkconfig - 检查当前配置\n"
-            )
-            welcome_text += superadmin_commands
-
-        welcome_text += "\n如需帮助，请联系管理员。"
-    
-        await update.message.reply_text(welcome_text)
-
-    @check_command_usage
-    async def _handle_settings(self, update: Update, context):
-        """处理设置命令"""
-        try:
-            # 获取用户可管理的群组
-            manageable_groups = await self.db.get_manageable_groups(update.effective_user.id)
-            
-            if not manageable_groups:
-                await update.message.reply_text("❌ 你没有权限管理任何群组")
-                return
-                
-            # 创建群组选择键盘
-            keyboard = []
-            for group in manageable_groups:
-                try:
-                    group_info = await context.bot.get_chat(group['group_id'])
-                    group_name = group_info.title or f"群组 {group['group_id']}"
-                except Exception:
-                    group_name = f"群组 {group['group_id']}"
-                
-                keyboard.append([
-                    InlineKeyboardButton(
-                        group_name, 
-                        callback_data=f"settings_select_{group['group_id']}"
-                    )
-                ])
-            
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(
-                "请选择要管理的群组：", 
-                reply_markup=reply_markup
-            )
-            
-        except Exception as e:
-            logger.error(f"设置命令处理错误: {e}")
-            await update.message.reply_text("❌ 处理设置命令时出错")
-
-    async def _handle_show_manageable_groups(self, update: Update, context):
-        """处理显示可管理的群组列表"""
-        query = update.callback_query
-        await query.answer()
-
-        try:
-            # 获取用户可管理的群组
-            manageable_groups = await self.db.get_manageable_groups(update.effective_user.id)
-        
-            if not manageable_groups:
-                await query.edit_message_text("❌ 你没有权限管理任何群组")
-                return
-            
-            # 创建群组选择键盘
-            keyboard = []
-            for group in manageable_groups:
-                try:
-                    group_info = await context.bot.get_chat(group['group_id'])
-                    group_name = group_info.title or f"群组 {group['group_id']}"
-                except Exception:
-                    group_name = f"群组 {group['group_id']}"
-            
-                keyboard.append([
-                    InlineKeyboardButton(
-                        group_name, 
-                        callback_data=f"settings_select_{group['group_id']}"
-                    )
-                ])
-        
-            await query.edit_message_text(
-                "请选择要管理的群组：", 
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-        
-        except Exception as e:
-            logger.error(f"显示可管理群组错误: {e}")
-            await query.edit_message_text("❌ 获取群组列表时出错")
 
     async def _handle_settings_callback(self, update: Update, context):
-        """
-        处理设置菜单的回调查询
-    
-        该函数处理用户在设置菜单中的各种操作，包括：
-        - 选择要管理的群组
-        - 管理统计设置
-        - 管理轮播消息
-        - 管理关键词
-    
-        参数:
-            update (Update): Telegram更新对象
-            context (CallbackContext): 回调上下文
-        
-        回调数据格式:
-            settings_<action>_<group_id>
-        
-        可用动作:
-            - select: 选择群组
-            - stats: 统计设置
-            - broadcast: 轮播设置
-            - keywords: 关键词设置
-        
-        权限要求:
-            - 用户必须是群组管理员或超级管理员
-            - 群组必须启用相应功能
-        
-        错误处理:
-            - 无效的回调数据
-            - 权限不足
-            - 群组未启用功能
-            - 数据库操作错误
-        
-        状态管理:
-            - 保存当前设置状态
-            - 在完成或取消时清理状态
-        
-        异常:
-            - ValueError: 无效的回调数据
-            - PermissionError: 权限不足
-            - DatabaseError: 数据库操作失败
-        """
+        """处理设置菜单的回调查询"""
         query = update.callback_query
         await query.answer()
 
@@ -1900,315 +2065,9 @@ class TelegramBot:
             logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 处理设置操作时出错")
 
-    async def _handle_settings_section(self, query, context, group_id: int, section: str):
-        """处理设置分区显示"""
-        try:
-            if section == "stats":
-                # 获取当前群组的统计设置
-                settings = await self.db.get_group_settings(group_id)
-                await self._show_stats_settings(query, group_id, settings)
-            
-            elif section == "broadcast":
-                await self._show_broadcast_settings(query, group_id)
-            
-            elif section == "keywords":
-                await self._show_keyword_settings(query, group_id)
-            
-        except Exception as e:
-            logger.error(f"处理设置分区显示错误: {e}")
-            logger.error(traceback.format_exc())
-            await query.edit_message_text("❌ 显示设置分区时出错")
-
-    async def _show_stats_settings(self, query, group_id: int, settings: dict):
-        """显示统计设置页面"""
-        keyboard = [
-            [
-                InlineKeyboardButton(
-                    f"最小统计字节数: {settings.get('min_bytes', 0)} 字节", 
-                    callback_data=f"stats_edit_min_bytes_{group_id}"  # 直接使用字符串格式
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    f"统计多媒体: {'是' if settings.get('count_media', False) else '否'}", 
-                    callback_data=f"stats_edit_toggle_media_{group_id}"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    f"日排行显示数量: {settings.get('daily_rank_size', 15)}", 
-                    callback_data=f"stats_edit_daily_rank_{group_id}"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    f"月排行显示数量: {settings.get('monthly_rank_size', 15)}", 
-                    callback_data=f"stats_edit_monthly_rank_{group_id}"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "返回设置菜单", 
-                    callback_data=f"settings_select_{group_id}"
-                )
-            ]
-        ]
-
-        await query.edit_message_text(
-            f"群组 {group_id} 的统计设置",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        
-    async def _show_broadcast_settings(self, query, group_id: int):
-        """显示轮播消息设置页面"""
-        broadcasts = await self.db.db.broadcasts.find({
-            'group_id': group_id
-        }).to_list(None)
-    
-        keyboard = []
-        for bc in broadcasts:
-            preview = (bc['content'][:20] + '...') if len(str(bc['content'])) > 20 else str(bc['content'])
-            keyboard.append([
-                InlineKeyboardButton(
-                    f"📢 {bc['content_type']}: {preview}", 
-                    callback_data=f"broadcast_detail_{group_id}_{bc['_id']}"
-                )
-            ])
-    
-        keyboard.append([
-            InlineKeyboardButton(
-                "➕ 添加轮播消息", 
-                callback_data=f"broadcast_add_{group_id}"
-            )
-        ])
-    
-        keyboard.append([
-            InlineKeyboardButton(
-                "返回设置菜单", 
-                callback_data=f"settings_select_{group_id}"
-            )
-        ])
-    
-        await query.edit_message_text(
-            f"群组 {group_id} 的轮播消息设置",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-
-    async def _show_keyword_settings(self, query, group_id: int, page: int = 1):
-        """显示关键词设置页面
-    
-        """
-        try:
-            logger.info(f"显示群组 {group_id} 的关键词设置，页码: {page}")
-        
-            # 获取群组的关键词列表
-            keywords = await self.db.get_keywords(group_id)
-        
-            # 分页处理
-            page_size = 10  # 每页显示的关键词数量
-            total_keywords = len(keywords)
-            total_pages = (total_keywords + page_size - 1) // page_size
-        
-            # 确保页码有效
-            if page < 1:
-                page = 1
-            elif page > total_pages and total_pages > 0:
-                page = total_pages
-            
-            # 切片当前页的关键词
-            start_idx = (page - 1) * page_size
-            end_idx = start_idx + page_size
-            current_page_keywords = keywords[start_idx:end_idx] if keywords else []
-        
-            logger.info(f"关键词总数: {total_keywords}, 总页数: {total_pages}, 当前页: {page}")
-    
-            keyboard = []
-        
-            # 添加关键词按钮
-            for kw in current_page_keywords:
-                keyword_text = kw['pattern']
-                # 限制显示长度
-                if len(keyword_text) > 20:
-                    keyword_text = keyword_text[:17] + '...'
-                
-                # 生成回调数据，格式：keyword_detail_group_id_keyword_id
-                callback_data = f"keyword_detail_{group_id}_{kw['_id']}"
-            
-                keyboard.append([
-                    InlineKeyboardButton(
-                        f"🔑 {keyword_text}", 
-                        callback_data=callback_data
-                    )
-                ])
-            
-            # 添加分页导航
-            if total_pages > 1:
-                nav_row = []
-            
-                if page > 1:
-                    nav_row.append(
-                        InlineKeyboardButton(
-                            "◀️ 上一页", 
-                            callback_data=f"keyword_list_page_{group_id}_{page-1}"
-                        )
-                    )
-                
-                if page < total_pages:
-                    nav_row.append(
-                        InlineKeyboardButton(
-                            "下一页 ▶️", 
-                            callback_data=f"keyword_list_page_{group_id}_{page+1}"
-                        )
-                    )
-                
-                if nav_row:
-                    keyboard.append(nav_row)
-    
-            # 添加功能按钮
-            keyboard.append([
-                InlineKeyboardButton(
-                    "➕ 添加关键词", 
-                    callback_data=f"keyword_add_{group_id}"
-                )
-            ])
-    
-            keyboard.append([
-                InlineKeyboardButton(
-                    "返回设置菜单", 
-                    callback_data=f"settings_select_{group_id}"
-                )
-            ])
-        
-            # 组装页面标题
-            title = f"群组 {group_id} 的关键词设置"
-            if total_pages > 1:
-                title += f" (第 {page}/{total_pages} 页)"
-    
-            await query.edit_message_text(
-                title,
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            logger.info(f"已显示关键词设置页面: 群组ID={group_id}, 页码={page}")
-        
-        except Exception as e:
-            logger.error(f"显示关键词设置出错: {e}")
-            logger.error(traceback.format_exc())
-            await query.edit_message_text("❌ 加载关键词设置时出错，请重试")
-
-    @check_command_usage
-    async def _handle_rank_command(self, update: Update, context):
-        """处理统计命令（tongji/tongji30）"""
-        if not update.effective_chat or not update.effective_user or not update.message:
-            return
-            
-        try:
-            command = update.message.text.split('@')[0][1:]  # 移除 / 和机器人用户名
-            group_id = update.effective_chat.id
-            
-            # 检查权限
-            if not await self.has_permission(group_id, GroupPermission.STATS):
-                await update.message.reply_text("❌ 此群组未启用统计功能")
-                return
-                
-            # 获取页码
-            page = 1
-            if context.args:
-                try:
-                    page = int(context.args[0])
-                    if page < 1:
-                        raise ValueError
-                except ValueError:
-                    await update.message.reply_text("❌ 无效的页码")
-                    return
-
-            # 获取统计数据
-            if command == "tongji":
-                stats, total_pages = await self.stats_manager.get_daily_stats(group_id, page)
-                title = "📊 今日发言排行"
-            else:  # tongji30
-                stats, total_pages = await self.stats_manager.get_monthly_stats(group_id, page)
-                title = "📊 近30天发言排行"
-                
-            if not stats:
-                await update.message.reply_text("📊 暂无统计数据")
-                return
-                
-            # 生成排行榜文本
-            text = f"{title}\n\n"
-            settings = await self.db.get_group_settings(group_id)
-            min_bytes = settings.get('min_bytes', 0)
-            
-            for i, stat in enumerate(stats, start=(page-1)*15+1):
-                try:
-                    user = await context.bot.get_chat_member(group_id, stat['_id'])
-                    name = user.user.full_name or user.user.username or f"用户{stat['_id']}"
-                except Exception:
-                    name = f"用户{stat['_id']}"
-                
-                text += f"{i}. {name}\n"
-                text += f"   消息数: {stat['total_messages']}\n"
-                text += f"   总字节: {format_file_size(stat['total_size'])}\n\n"
-            
-            if min_bytes > 0:
-                text += f"\n注：仅统计大于 {format_file_size(min_bytes)} 的消息"
-            
-            # 添加分页信息
-            text += f"\n\n第 {page}/{total_pages} 页"
-            if total_pages > 1:
-                text += f"\n使用 /{command} <页码> 查看其他页"
-            
-            keyboard = self._create_navigation_keyboard(
-                page, 
-                total_pages, 
-                f"{'today' if command == 'tongji' else 'monthly'}_{group_id}"
-            )
-            
-            await update.message.reply_text(
-                text,
-                reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None
-            )
-            
-        except Exception as e:
-            logger.error(f"处理排行命令错误: {e}")
-            logger.error(traceback.format_exc())
-            await update.message.reply_text("❌ 获取排行榜时出错")
-
     @handle_callback_errors
     async def _handle_broadcast_callback(self, update: Update, context):
-        """
-        处理轮播消息的回调查询
-    
-        该函数处理轮播消息的添加、编辑和删除操作。
-    
-        参数:
-            update (Update): Telegram更新对象
-            context (CallbackContext): 回调上下文
-        
-        回调数据格式:
-            broadcast_<action>_<group_id>[_<broadcast_id>]
-        
-        可用动作:
-            - add: 添加新轮播消息
-            - edit: 编辑现有轮播消息
-            - delete: 删除轮播消息
-            - type: 选择消息类型
-        
-        支持的消息类型:
-            - text: 文本消息
-            - photo: 图片
-            - video: 视频
-            - document: 文件
-        
-        权限要求:
-            - 用户必须是群组管理员
-            - 群组必须启用轮播功能
-        
-        配置限制:
-            - 最大轮播消息数量
-            - 最小轮播间隔
-            - 消息类型限制
-        """
-        
+        """处理轮播消息的回调查询"""
         query = update.callback_query
         await query.answer()
 
@@ -2222,68 +2081,102 @@ class TelegramBot:
                 return
 
             action = parts[1]
-            group_id = int(parts[-1])
+            
+            # 获取群组ID，通常在回调数据的最后一部分
+            try:
+                group_id = int(parts[-1])
+            except ValueError:
+                await query.edit_message_text("❌ 无效的群组ID")
+                return
 
             # 验证权限
             if not await self.db.can_manage_group(update.effective_user.id, group_id):
                 await query.edit_message_text("❌ 无权限管理此群组")
                 return
 
-            if not await self.has_permission(group_id, GroupPermission.BROADCAST):
-                await query.edit_message_text("❌ 此群组未启用轮播功能")
-                return
-
             if action == "add":
-                keyboard = [
-                    [
-                        InlineKeyboardButton("文本", callback_data=f"broadcast_type_text_{group_id}"),
-                        InlineKeyboardButton("图片", callback_data=f"broadcast_type_photo_{group_id}")
-                    ],
-                    [
-                        InlineKeyboardButton("视频", callback_data=f"broadcast_type_video_{group_id}"),
-                        InlineKeyboardButton("文件", callback_data=f"broadcast_type_document_{group_id}")
-                    ],
-                    [
-                        InlineKeyboardButton("取消", callback_data=f"settings_broadcast_{group_id}")
-                    ]
-                ]
-
-                await query.edit_message_text(
-                    "请选择轮播消息类型：",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-
-            elif action == "type":
-                content_type = parts[2]
+                # 开始添加轮播消息流程
                 await self.settings_manager.start_setting(
                     update.effective_user.id,
                     'broadcast',
                     group_id
                 )
-                await self.settings_manager.update_setting_state(
-                    update.effective_user.id,
-                    'broadcast',
-                    {'content_type': content_type}
+                
+                await query.edit_message_text(
+                    "请发送要轮播的内容：\n"
+                    "支持文本、图片、视频或文件\n\n"
+                    "发送 /cancel 取消"
                 )
 
-                type_prompts = {
-                    'text': '文本内容',
-                    'photo': '图片',
-                    'video': '视频',
-                    'document': '文件'
-                }
-
+            elif action == "detail":
+                if len(parts) < 4:
+                    await query.edit_message_text("❌ 无效的轮播消息ID")
+                    return
+                
+                broadcast_id = ObjectId(parts[2])
+                broadcast = await self.db.db.broadcasts.find_one({
+                    '_id': broadcast_id,
+                    'group_id': group_id
+                })
+                
+                if not broadcast:
+                    await query.edit_message_text("❌ 未找到该轮播消息")
+                    return
+                
+                # 显示详情
+                content_preview = str(broadcast['content'])
+                if len(content_preview) > 50:
+                    content_preview = content_preview[:47] + "..."
+                
+                start_time = broadcast['start_time'].strftime('%Y-%m-%d %H:%M')
+                end_time = broadcast['end_time'].strftime('%Y-%m-%d %H:%M')
+                interval = Utils.format_duration(broadcast['interval'])
+                
+                text = (
+                    f"📢 轮播消息详情：\n\n"
+                    f"🔹 类型：{broadcast['content_type']}\n"
+                    f"🔹 内容：{content_preview}\n"
+                    f"🔹 开始时间：{start_time}\n"
+                    f"🔹 结束时间：{end_time}\n"
+                    f"🔹 间隔：{interval}"
+                )
+                
+                keyboard = [
+                    [
+                        InlineKeyboardButton(
+                            "❌ 删除此轮播消息", 
+                            callback_data=f"broadcast_delete_{broadcast_id}_{group_id}"
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "🔙 返回列表", 
+                            callback_data=f"settings_broadcast_{group_id}"
+                        )
+                    ]
+                ]
+                
                 await query.edit_message_text(
-                    f"请发送要轮播的{type_prompts.get(content_type, '内容')}：\n\n"
-                    f"发送 /cancel 取消"
+                    text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
                 )
 
             elif action == "delete":
+                if len(parts) < 4:
+                    await query.edit_message_text("❌ 无效的轮播消息ID")
+                    return
+                
                 broadcast_id = ObjectId(parts[2])
+                
+                # 执行删除
                 await self.db.db.broadcasts.delete_one({
                     '_id': broadcast_id,
                     'group_id': group_id
                 })
+                
+                # 显示删除成功消息并返回列表
+                await query.edit_message_text("✅ 已删除轮播消息")
+                await asyncio.sleep(1)
                 await self._show_broadcast_settings(query, group_id)
 
         except Exception as e:
@@ -2297,44 +2190,20 @@ class TelegramBot:
 
         try:
             data = query.data
-            # 记录收到的数据，帮助调试
-            logger.info(f"收到统计设置回调数据: {data}")
-        
-            # 检查数据格式
-            if "_" in data:
-                parts = data.split('_')
-                # 对于类似stats_edit_min_bytes_123456的格式
-                if len(parts) >= 4 and parts[0] == "stats" and parts[1] == "edit":
-                    setting_type = parts[2]
-                
-                    # 尝试从最后一部分获取群组ID
-                    try:
-                        group_id = int(parts[-1])
-                    except ValueError:
-                        # 如果最后一部分不是数字，可能是类似min_bytes的格式
-                        logger.error(f"无法解析群组ID: {parts}")
-                        await query.edit_message_text("❌ 回调数据格式错误")
-                        return
-                else:
-                    logger.error(f"回调数据部分不足或格式错误: {parts}")
-                    await query.edit_message_text("❌ 无效的操作")
-                    return
-            else:
-                parts = data.split('|')
-                # 对于类似stats_edit|min_bytes|123456的格式
-                if len(parts) >= 3 and parts[0] == "stats_edit":
-                    setting_type = parts[1]
-                
-                    try:
-                        group_id = int(parts[2])
-                    except ValueError:
-                        logger.error(f"无法解析群组ID: {parts}")
-                        await query.edit_message_text("❌ 回调数据格式错误")
-                        return
-                else:
-                    logger.error(f"回调数据部分不足或格式错误: {parts}")
-                    await query.edit_message_text("❌ 无效的操作")
-                    return
+            parts = data.split('_')
+            
+            # 确保有足够的参数
+            if len(parts) < 4:
+                await query.edit_message_text("❌ 无效的操作")
+                return
+            
+            setting_type = parts[2]
+            
+            try:
+                group_id = int(parts[-1])
+            except ValueError:
+                await query.edit_message_text("❌ 无效的群组ID")
+                return
 
             # 验证权限
             if not await self.db.can_manage_group(update.effective_user.id, group_id):
@@ -2404,261 +2273,163 @@ class TelegramBot:
         except Exception as e:
             logger.error(f"处理统计设置编辑回调错误: {e}")
             logger.error(traceback.format_exc())
-        
+            
             # 尝试返回统计设置页面
             try:
                 await query.edit_message_text("❌ 处理设置时出错，请重试")
             except Exception:
                 pass
-
-    async def _process_stats_setting(self, update: Update, context, stats_state, setting_type):
-        """处理统计设置编辑"""
-        try:
-            logger.info(f"处理统计设置: {setting_type}, 状态: {stats_state}")
         
-            if not stats_state:
-                await update.message.reply_text("❌ 设置会话已过期，请重新开始")
-                return
-            
-            group_id = stats_state.get('group_id')
-        
-            # 获取用户输入的值
-            try:
-                value = int(update.message.text)
-                if value < 0 and setting_type != 'stats_min_bytes':  # min_bytes可以为0
-                    raise ValueError("值不能为负")
-            except ValueError:
-                await update.message.reply_text("❌ 请输入一个有效的数字")
-                return
-        
-            # 根据设置类型更新相应的值
-            settings = await self.db.get_group_settings(group_id)
-        
-            if setting_type == 'stats_min_bytes':
-                settings['min_bytes'] = value
-                tips = f"最小统计字节数已设置为 {value} 字节"
-            elif setting_type == 'stats_daily_rank':
-                if value < 1 or value > 50:
-                    await update.message.reply_text("❌ 显示数量必须在1-50之间")
-                    return
-                settings['daily_rank_size'] = value
-                tips = f"日排行显示数量已设置为 {value}"
-            elif setting_type == 'stats_monthly_rank':
-                if value < 1 or value > 50:
-                    await update.message.reply_text("❌ 显示数量必须在1-50之间")
-                    return
-                settings['monthly_rank_size'] = value
-                tips = f"月排行显示数量已设置为 {value}"
-            else:
-                await update.message.reply_text("❌ 未知的设置类型")
-                return
-            
-            # 更新设置到数据库
-            await self.db.update_group_settings(group_id, settings)
-        
-            # 显示更新后的统计设置页面
-            keyboard = [
-                [
-                    InlineKeyboardButton(
-                        f"最小统计字节数: {settings.get('min_bytes', 0)} 字节", 
-                        callback_data=f"stats_edit|min_bytes|{group_id}"
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        f"统计多媒体: {'是' if settings.get('count_media', False) else '否'}", 
-                        callback_data=f"stats_edit|toggle_media|{group_id}"
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        f"日排行显示数量: {settings.get('daily_rank_size', 15)}", 
-                        callback_data=f"stats_edit|daily_rank|{group_id}"
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        f"月排行显示数量: {settings.get('monthly_rank_size', 15)}", 
-                        callback_data=f"stats_edit|monthly_rank|{group_id}"
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        "返回设置菜单", 
-                        callback_data=f"settings_select_{group_id}"
-                    )
-                ]
-            ]
-        
-            await update.message.reply_text(
-                f"✅ {tips}",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-        
-            # 清除设置状态
-            await self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
-        
-        except Exception as e:
-            logger.error(f"处理统计设置错误: {e}")
-            logger.error(traceback.format_exc())
-            await update.message.reply_text("❌ 更新设置时出错")
-            try:
-                await self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
-            except Exception:
-                pass
-
-    def _create_navigation_keyboard(
-            self,
-            current_page: int,
-            total_pages: int,
-            base_callback: str
-        ) -> List[List[InlineKeyboardButton]]:
-            """创建分页导航键盘"""
-            keyboard = []
-            nav_row = []
-        
-            if current_page > 1:
-                nav_row.append(
-                    InlineKeyboardButton(
-                        "◀️ 上一页",
-                        callback_data=f"{base_callback}_{current_page-1}"
-                    )
-                )
-            
-            if current_page < total_pages:
-                nav_row.append(
-                    InlineKeyboardButton(
-                        "下一页 ▶️",
-                        callback_data=f"{base_callback}_{current_page+1}"
-                    )
-                )
-            
-            if nav_row:
-                keyboard.append(nav_row)
-            
-            return keyboard
-
-    async def _handle_message(self, update: Update, context):
-        """处理消息"""
-        # 安全检查：确保消息和用户有效
-        if not update.effective_message or not update.effective_user:
+    @check_command_usage
+    async def _handle_start(self, update: Update, context):
+        """处理 start 命令"""
+        if not update.effective_user or not update.message:
             return
-    
-        # 获取必要的信息
-        chat_id = update.effective_chat.id
+
         user_id = update.effective_user.id
-        message = update.message
+        is_superadmin = await self.is_superadmin(user_id)
+        is_admin = await self.is_admin(user_id)
 
-        try:
-            # 检查是否正在进行关键词添加流程
-            setting_state = await self.settings_manager.get_setting_state(
-                update.effective_user.id, 
-                'keyword'
+        welcome_text = (
+            f"👋 你好 {update.effective_user.first_name}！\n\n"
+            "我是啤酒群酒保，主要功能包括：\n"
+            "• 关键词自动回复\n"
+            "• 消息统计\n"
+            "• 轮播消息\n\n"
+            "基础命令：\n"
+            "🔧 /settings - 配置机器人\n"
+            "📊 /tongji - 查看今日统计\n"
+            "📈 /tongji30 - 查看30日统计\n"
+        )
+
+        if is_admin:
+            admin_commands = (
+                "\n管理员命令：\n"
+                "👥 /admingroups - 查看可管理的群组\n"
+                "⚙️ /settings - 群组设置管理\n"
             )
-            if setting_state and setting_state['group_id'] == chat_id:
-                await self._process_keyword_adding(update, context, setting_state)
+            welcome_text += admin_commands
+
+        if is_superadmin:
+            superadmin_commands = (
+                "\n超级管理员命令：\n"
+                "➕ /addsuperadmin <用户ID> - 添加超级管理员\n"
+                "➖ /delsuperadmin <用户ID> - 删除超级管理员\n"
+                "👤 /addadmin <用户ID> - 添加管理员\n"
+                "🚫 /deladmin <用户ID> - 删除管理员\n"
+                "✅ /authgroup <群组ID>  ... - 授权群组\n"
+                "❌ /deauthgroup <群组ID> - 取消群组授权\n"
+                "🔍 /checkconfig - 检查当前配置\n"
+            )
+            welcome_text += superadmin_commands
+
+        welcome_text += "\n如需帮助，请联系管理员。"
+    
+        await update.message.reply_text(welcome_text)
+
+    @check_command_usage
+    async def _handle_settings(self, update: Update, context):
+        """处理设置命令"""
+        try:
+            # 获取用户可管理的群组
+            manageable_groups = await self.db.get_manageable_groups(update.effective_user.id)
+            
+            if not manageable_groups:
+                await update.message.reply_text("❌ 你没有权限管理任何群组")
                 return
-            
-            # 检查是否正在进行轮播消息添加流程
-            broadcast_state = await self.settings_manager.get_setting_state(user_id, 'broadcast')
-            if broadcast_state and broadcast_state['group_id'] == chat_id:
-                await self._process_broadcast_adding(update, context, broadcast_state)
-                return
-            
-            # 检查是否正在进行统计设置编辑
-            for setting_type in ['stats_min_bytes', 'stats_daily_rank', 'stats_monthly_rank']:
-                stats_state = await self.settings_manager.get_setting_state(user_id, setting_type)
-                if stats_state and stats_state['group_id'] == chat_id:
-                    await self._process_stats_setting(update, context, stats_state, setting_type)
-                    return
-                    
-            # 检查消息安全性
-            if not await self.check_message_security(update):
-                return
-        
-            # 检查用户权限
-            if not await self.check_user_permissions(update):
-                return
-
-            # 获取用户角色
-            user = await self.db.get_user(user_id)
-            user_role = user['role'] if user else 'user'
-
-            # 检查是否有正在进行的设置操作
-            setting_states = {
-                'keyword': await self.settings_manager.get_setting_state(user_id, 'keyword'),
-                'broadcast': await self.settings_manager.get_setting_state(user_id, 'broadcast'),
-                'stats_min_bytes': await self.settings_manager.get_setting_state(user_id, 'stats_min_bytes'),
-                'stats_daily_rank': await self.settings_manager.get_setting_state(user_id, 'stats_daily_rank'),
-                'stats_monthly_rank': await self.settings_manager.get_setting_state(user_id, 'stats_monthly_rank')
-            }
-
-            # 获取用户的活动设置状态
-            active_states = {k: v for k, v in setting_states.items() if v and v['group_id'] == chat_id}
-
-            # 处理取消操作
-            if message.text and message.text.lower() == '/cancel':
-                for setting_type, state in active_states.items():
-                    await self.settings_manager.clear_setting_state(user_id, setting_type)
-                    await message.reply_text(f"✅ 已取消 {setting_type} 的设置操作")
-                    return
-
-            # 处理设置状态下的消息
-            for setting_type, state in active_states.items():
-                logger.info(f"检测到设置状态：{setting_type}, 状态：{state}")
-            
-                if setting_type == 'keyword':
-                    await self._process_keyword_adding(update, context, state)
-                    return
-            
-                elif setting_type == 'broadcast':
-                    await self._process_broadcast_adding(update, context, state)
-                    return
-            
-                elif setting_type in ['stats_min_bytes', 'stats_daily_rank', 'stats_monthly_rank']:
-                    await self._process_stats_setting(update, context, state, setting_type)
-                    return
-
-            # 检查是否免除自动删除
-            command = message.text.split()[0] if message.text else None
-            if not is_auto_delete_exempt(user_role, command):
-                # 获取消息元数据
-                metadata = get_message_metadata(message)
-                # 计算删除超时时间
-                timeout = validate_delete_timeout(
-                    message_type=metadata['type']
-                )
-        
-                # 调度消息删除
-                await self.message_deletion_manager.schedule_message_deletion(
-                    message, 
-                    timeout
-                )
                 
-            # 处理关键词匹配
-            if await self.has_permission(chat_id, GroupPermission.KEYWORDS):
-                if message.text:
-                    # 尝试匹配关键词
-                    response = await self.keyword_manager.match_keyword(
-                        chat_id,
-                        message.text,
-                        message
+            # 创建群组选择键盘
+            keyboard = []
+            for group in manageable_groups:
+                try:
+                    group_info = await context.bot.get_chat(group['group_id'])
+                    group_name = group_info.title or f"群组 {group['group_id']}"
+                except Exception:
+                    group_name = f"群组 {group['group_id']}"
+                
+                keyboard.append([
+                    InlineKeyboardButton(
+                        group_name, 
+                        callback_data=f"settings_select_{group['group_id']}"
                     )
-                    if response:
-                        await self.handle_keyword_response(
-                            chat_id, 
-                            response, 
-                            context, 
-                            message
-                        )
-        
-            # 处理消息统计
-            if await self.has_permission(chat_id, GroupPermission.STATS):
-                await self.stats_manager.add_message_stat(chat_id, user_id, message)
+                ])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "请选择要管理的群组：", 
+                reply_markup=reply_markup
+            )
             
         except Exception as e:
-            logger.error(f"处理消息错误: {e}")
+            logger.error(f"设置命令处理错误: {e}")
+            await update.message.reply_text("❌ 处理设置命令时出错")
+
+    @check_command_usage
+    async def _handle_rank_command(self, update: Update, context):
+        """处理统计命令（tongji/tongji30）"""
+        if not update.effective_chat or not update.effective_user or not update.message:
+            return
+            
+        try:
+            command = update.message.text.split('@')[0][1:]  # 移除 / 和机器人用户名
+            group_id = update.effective_chat.id
+            
+            # 获取页码
+            page = 1
+            if context.args:
+                try:
+                    page = int(context.args[0])
+                    if page < 1:
+                        raise ValueError
+                except ValueError:
+                    await update.message.reply_text("❌ 无效的页码")
+                    return
+
+            # 获取统计数据
+            if command == "tongji":
+                stats, total_pages = await self.stats_manager.get_daily_stats(group_id, page)
+                title = "📊 今日发言排行"
+            else:  # tongji30
+                stats, total_pages = await self.stats_manager.get_monthly_stats(group_id, page)
+                title = "📊 近30天发言排行"
+                
+            if not stats:
+                await update.message.reply_text("📊 暂无统计数据")
+                return
+                
+            # 生成排行榜文本
+            text = f"{title}\n\n"
+            
+            for i, stat in enumerate(stats, start=(page-1)*15+1):
+                try:
+                    user = await context.bot.get_chat_member(group_id, stat['_id'])
+                    name = user.user.full_name or user.user.username or f"用户{stat['_id']}"
+                except Exception:
+                    name = f"用户{stat['_id']}"
+                
+                text += f"{i}. {name}\n"
+                text += f"   消息数: {stat['total_messages']}\n\n"
+            
+            # 添加分页信息
+            text += f"\n\n第 {page}/{total_pages} 页"
+            if total_pages > 1:
+                text += f"\n使用 /{command} <页码> 查看其他页"
+            
+            keyboard = self._create_navigation_keyboard(
+                page, 
+                total_pages, 
+                f"{'today' if command == 'tongji' else 'monthly'}_{group_id}"
+            )
+            
+            await update.message.reply_text(
+                text,
+                reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None
+            )
+            
+        except Exception as e:
+            logger.error(f"处理排行命令错误: {e}")
             logger.error(traceback.format_exc())
+            await update.message.reply_text("❌ 获取排行榜时出错")
 
     @check_command_usage
     async def _handle_admin_groups(self, update: Update, context):
@@ -2737,6 +2508,7 @@ class TelegramBot:
             logger.error(f"添加管理员错误: {e}")
             await update.message.reply_text("❌ 添加管理员时出错")
 
+    @check_command_usage
     async def _handle_del_admin(self, update: Update, context):
         """处理删除管理员命令"""
         if not update.effective_user or not update.message:
@@ -2891,7 +2663,6 @@ class TelegramBot:
             logger.error(f"检查配置出错: {e}")
             await update.message.reply_text("❌ 获取配置信息时出错")
 
-    @check_command_usage
     async def _handle_auth_group(self, update: Update, context):
         """处理授权群组命令"""
         if not update.effective_user or not update.message:
@@ -2922,7 +2693,7 @@ class TelegramBot:
                 return
             
             # 设置全部权限
-            all_permissions = ['keywords', 'stats', 'broadcast']
+            all_permissions = [perm.value for perm in GroupPermission]
         
             # 更新群组权限
             await self.db.add_group({
@@ -2979,154 +2750,306 @@ class TelegramBot:
             logger.error(f"解除群组授权错误: {e}")
             await update.message.reply_text("❌ 解除群组授权时出错")
 
-    @handle_callback_errors
-    async def _handle_keyword_response_type_callback(self, update: Update, context):
-        """处理关键词响应类型的回调"""
+  async def _handle_show_manageable_groups(self, update: Update, context):
+        """处理显示可管理的群组列表"""
         query = update.callback_query
         await query.answer()
-    
-        try:
-            data = query.data
-            parts = data.split('_')
-            response_type = parts[2]  # 获取响应类型
-            group_id = int(parts[3])  # 获取群组ID
-        
-            # 获取当前设置状态
-            setting_state = self.settings_manager.get_setting_state(
-                update.effective_user.id,
-                'keyword'
-            )
-        
-            if not setting_state:
-                await query.edit_message_text("❌ 设置会话已过期，请重新开始")
-                return
-            
-            # 更新设置状态
-            setting_state['data']['response_type'] = response_type
-        
-            # 根据响应类型提示用户
-            if response_type == 'text':
-                prompt = "请发送关键词的文本回复内容："
-            elif response_type == 'photo':
-                prompt = "请发送关键词要回复的图片："
-            elif response_type == 'video':
-                prompt = "请发送关键词要回复的视频："
-            elif response_type == 'document':
-                prompt = "请发送关键词要回复的文件："
-            else:
-                await query.edit_message_text("❌ 不支持的响应类型")
-                return
-            
-            await query.edit_message_text(
-                f"{prompt}\n"
-                "发送 /cancel 取消"
-            )
-        
-            # 更新设置状态到下一步
-            self.settings_manager.update_setting_state(
-                update.effective_user.id,
-                'keyword',
-                {'response_type': response_type}
-            )
-        
-        except Exception as e:
-            logger.error(f"处理关键词响应类型回调错误: {e}")
-            logger.error(traceback.format_exc())
-            await query.edit_message_text("❌ 处理响应类型选择时出错")
 
-    async def _handle_broadcast_message_type(self, update: Update, context, content_type: str):
-        """处理广播消息类型选择"""
         try:
-            query = update.callback_query
-            if content_type == 'text':
-                prompt = "请发送轮播消息的文本内容："
-            elif content_type == 'photo':
-                prompt = "请发送要轮播的图片："
-            elif content_type == 'video':
-                prompt = "请发送要轮播的视频："
-            elif content_type == 'document':
-                prompt = "请发送要轮播的文件："
-            else:
-                await query.edit_message_text("❌ 不支持的消息类型")
+            # 获取用户可管理的群组
+            manageable_groups = await self.db.get_manageable_groups(update.effective_user.id)
+        
+            if not manageable_groups:
+                await query.edit_message_text("❌ 你没有权限管理任何群组")
                 return
             
-            await query.edit_message_text(
-                f"{prompt}\n"
-                "发送 /cancel 取消"
-            )
+            # 创建群组选择键盘
+            keyboard = []
+            for group in manageable_groups:
+                try:
+                    group_info = await context.bot.get_chat(group['group_id'])
+                    group_name = group_info.title or f"群组 {group['group_id']}"
+                except Exception:
+                    group_name = f"群组 {group['group_id']}"
             
-            # 更新设置状态
-            await self.settings_manager.update_setting_state(
-                update.effective_user.id,
-                'broadcast',
-                {'content_type': content_type}
+                keyboard.append([
+                    InlineKeyboardButton(
+                        group_name, 
+                        callback_data=f"settings_select_{group['group_id']}"
+                    )
+                ])
+        
+            await query.edit_message_text(
+                "请选择要管理的群组：", 
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
+        
+        except Exception as e:
+            logger.error(f"显示可管理群组错误: {e}")
+            await query.edit_message_text("❌ 获取群组列表时出错")
+
+    async def _handle_settings_section(self, query, context, group_id: int, section: str):
+        """处理设置分区显示"""
+        try:
+            if section == "stats":
+                # 获取当前群组的统计设置
+                settings = await self.db.get_group_settings(group_id)
+                await self._show_stats_settings(query, group_id, settings)
+            
+            elif section == "broadcast":
+                await self._show_broadcast_settings(query, group_id)
+            
+            elif section == "keywords":
+                await self._show_keyword_settings(query, group_id)
             
         except Exception as e:
-            logger.error(f"处理广播消息类型选择错误: {e}")
+            logger.error(f"处理设置分区显示错误: {e}")
             logger.error(traceback.format_exc())
-            await query.edit_message_text("❌ 处理消息类型选择时出错")
+            await query.edit_message_text("❌ 显示设置分区时出错")
+
+    async def _show_stats_settings(self, query, group_id: int, settings: dict):
+        """显示统计设置页面"""
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    f"最小统计字节数: {settings.get('min_bytes', 0)} 字节", 
+                    callback_data=f"stats_edit_min_bytes_{group_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"统计多媒体: {'是' if settings.get('count_media', False) else '否'}", 
+                    callback_data=f"stats_edit_toggle_media_{group_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"日排行显示数量: {settings.get('daily_rank_size', 15)}", 
+                    callback_data=f"stats_edit_daily_rank_{group_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    f"月排行显示数量: {settings.get('monthly_rank_size', 15)}", 
+                    callback_data=f"stats_edit_monthly_rank_{group_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "返回设置菜单", 
+                    callback_data=f"settings_select_{group_id}"
+                )
+            ]
+        ]
+
+        await query.edit_message_text(
+            f"群组 {group_id} 的统计设置",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
         
-    async def handle_keyword_response(
-            self, 
-            chat_id: int, 
-            response: str, 
-            context, 
-            original_message: Optional[Message] = None
-        ) -> Optional[Message]:
-            """处理关键词响应，并可能进行自动删除
-        
-            :param chat_id: 聊天ID
-            :param response: 响应内容
-            :param context: 机器人上下文
-            :param original_message: 原始消息
-            :return: 发送的消息
-            """
-            sent_message = None
-        
-            if response.startswith('__media__'):
-                # 处理媒体响应
-                _, media_type, file_id = response.split('__')
+    async def _show_broadcast_settings(self, query, group_id: int):
+        """显示轮播消息设置页面"""
+        broadcasts = await self.db.db.broadcasts.find({
+            'group_id': group_id
+        }).to_list(None)
+    
+        keyboard = []
+        for bc in broadcasts:
+            preview = (bc['content'][:20] + '...') if len(str(bc['content'])) > 20 else str(bc['content'])
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"📢 {bc['content_type']}: {preview}", 
+                    callback_data=f"broadcast_detail_{bc['_id']}_{group_id}"
+                )
+            ])
+    
+        keyboard.append([
+            InlineKeyboardButton(
+                "➕ 添加轮播消息", 
+                callback_data=f"broadcast_add_{group_id}"
+            )
+        ])
+    
+        keyboard.append([
+            InlineKeyboardButton(
+                "返回设置菜单", 
+                callback_data=f"settings_select_{group_id}"
+            )
+        ])
+    
+        await query.edit_message_text(
+            f"群组 {group_id} 的轮播消息设置",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    async def _show_keyword_settings(self, query, group_id: int, page: int = 1):
+        """显示关键词设置页面"""
+        keywords = await self.db.get_keywords(group_id)
+    
+        # 分页逻辑，每页显示10个关键词
+        total_pages = (len(keywords) + 9) // 10
+        if page < 1:
+            page = 1
+        if page > total_pages:
+            page = total_pages
+    
+        start_idx = (page - 1) * 10
+        end_idx = min(start_idx + 10, len(keywords))
+        page_keywords = keywords[start_idx:end_idx] if keywords else []
+    
+        keyboard = []
+        for kw in page_keywords:
+            keyword_text = kw['pattern'][:20] + '...' if len(kw['pattern']) > 20 else kw['pattern']
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"🔑 {keyword_text}", 
+                    callback_data=f"keyword_detail_{kw['_id']}_{group_id}"
+                )
+            ])
+    
+        # 添加分页导航按钮
+        if total_pages > 1:
+            nav_buttons = []
+            if page > 1:
+                nav_buttons.append(
+                    InlineKeyboardButton(
+                        "◀️ 上一页", 
+                        callback_data=f"keyword_list_page_{page-1}_{group_id}"
+                    )
+                )
+            if page < total_pages:
+                nav_buttons.append(
+                    InlineKeyboardButton(
+                        "下一页 ▶️", 
+                        callback_data=f"keyword_list_page_{page+1}_{group_id}"
+                    )
+                )
+            if nav_buttons:
+                keyboard.append(nav_buttons)
+    
+        # 添加新增关键词和返回按钮
+        keyboard.append([
+            InlineKeyboardButton(
+                "➕ 添加关键词", 
+                callback_data=f"keyword_add_{group_id}"
+            )
+        ])
+    
+        keyboard.append([
+            InlineKeyboardButton(
+                "返回设置菜单", 
+                callback_data=f"settings_select_{group_id}"
+            )
+        ])
+    
+        # 构建消息文本
+        text = f"群组 {group_id} 的关键词设置"
+        if total_pages > 1:
+            text += f"\n第 {page}/{total_pages} 页"
+    
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    async def _process_stats_setting(self, update: Update, context, stats_state, setting_type):
+        """处理统计设置编辑"""
+        try:
+            if not stats_state:
+                await update.message.reply_text("❌ 设置会话已过期，请重新开始")
+                return
             
-                # 根据媒体类型发送消息
-                media_methods = {
-                    'photo': context.bot.send_photo,
-                    'video': context.bot.send_video,
-                    'document': context.bot.send_document
-                }
-            
-                if media_type in media_methods:
-                    sent_message = await media_methods[media_type](chat_id, file_id)
+            group_id = stats_state.get('group_id')
+        
+            # 获取用户输入的值
+            try:
+                value = int(update.message.text)
+                if value < 0 and setting_type != 'stats_min_bytes':  # min_bytes可以为0
+                    raise ValueError("值不能为负")
+            except ValueError:
+                await update.message.reply_text("❌ 请输入一个有效的数字")
+                return
+        
+            # 根据设置类型更新相应的值
+            settings = await self.db.get_group_settings(group_id)
+        
+            if setting_type == 'stats_min_bytes':
+                settings['min_bytes'] = value
+                tips = f"最小统计字节数已设置为 {value} 字节"
+            elif setting_type == 'stats_daily_rank':
+                if value < 1 or value > 50:
+                    await update.message.reply_text("❌ 显示数量必须在1-50之间")
+                    return
+                settings['daily_rank_size'] = value
+                tips = f"日排行显示数量已设置为 {value}"
+            elif setting_type == 'stats_monthly_rank':
+                if value < 1 or value > 50:
+                    await update.message.reply_text("❌ 显示数量必须在1-50之间")
+                    return
+                settings['monthly_rank_size'] = value
+                tips = f"月排行显示数量已设置为 {value}"
             else:
-                # 处理文本响应
-                sent_message = await context.bot.send_message(chat_id, response)
-        
-            # 如果成功发送消息，进行自动删除
-            if sent_message:
-                # 获取原始消息的元数据（如果有）
-                metadata = get_message_metadata(original_message) if original_message else {}
+                await update.message.reply_text("❌ 未知的设置类型")
+                return
             
-                # 计算删除超时时间
-                timeout = validate_delete_timeout(
-                    message_type=metadata.get('type')
-                )
-            
-                # 调度消息删除
-                await self.message_deletion_manager.schedule_message_deletion(
-                    sent_message, 
-                    timeout
-                )
+            # 更新设置到数据库
+            await self.db.update_group_settings(group_id, settings)
         
-            return sent_message
+            # 显示更新后的统计设置页面
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        f"最小统计字节数: {settings.get('min_bytes', 0)} 字节", 
+                        callback_data=f"stats_edit_min_bytes_{group_id}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        f"统计多媒体: {'是' if settings.get('count_media', False) else '否'}", 
+                        callback_data=f"stats_edit_toggle_media_{group_id}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        f"日排行显示数量: {settings.get('daily_rank_size', 15)}", 
+                        callback_data=f"stats_edit_daily_rank_{group_id}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        f"月排行显示数量: {settings.get('monthly_rank_size', 15)}", 
+                        callback_data=f"stats_edit_monthly_rank_{group_id}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "返回设置菜单", 
+                        callback_data=f"settings_select_{group_id}"
+                    )
+                ]
+            ]
+        
+            await update.message.reply_text(
+                f"✅ {tips}",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        
+            # 清除设置状态
+            await self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
+        
+        except Exception as e:
+            logger.error(f"处理统计设置错误: {e}")
+            logger.error(traceback.format_exc())
+            await update.message.reply_text("❌ 更新设置时出错")
+            try:
+                await self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
+            except Exception:
+                pass"""
 
     async def _process_keyword_adding(self, update: Update, context, setting_state):
         """处理关键词添加流程"""
         try:
-            # 记录详细日志
-            logger.info(f"处理关键词添加: {setting_state}")
-        
             if not setting_state:
-                logger.error("设置状态为空")
                 await update.message.reply_text("❌ 设置会话已过期，请重新开始")
                 return
             
@@ -3135,12 +3058,9 @@ class TelegramBot:
             data = setting_state.get('data', {})
             match_type = data.get('match_type')
         
-            logger.info(f"步骤: {step}, 群组: {group_id}, 匹配类型: {match_type}")
-        
             # 接收关键词
             if step == 1:
                 pattern = update.message.text.strip()
-                logger.info(f"收到关键词: '{pattern}'")
             
                 # 更新状态
                 new_data = {'pattern': pattern, 'type': match_type}
@@ -3152,7 +3072,6 @@ class TelegramBot:
                     if state_key in self.settings_manager._states:
                         self.settings_manager._states[state_key]['step'] = 2
                         self.settings_manager._states[state_key]['timestamp'] = datetime.now()
-                        logger.info(f"手动更新步骤到2: {self.settings_manager._states[state_key]}")
             
                 # 提示用户输入回复内容
                 await update.message.reply_text(
@@ -3162,8 +3081,6 @@ class TelegramBot:
                 )
             
             elif step == 2:  # 添加回复内容
-                logger.info("处理回复内容")
-            
                 # 检测回复类型和内容
                 response_type = None
                 response_content = None
@@ -3181,8 +3098,6 @@ class TelegramBot:
                     response_type = 'document'
                     response_content = update.message.document.file_id
             
-                logger.info(f"回复类型: {response_type}")
-            
                 if not response_type or response_content is None:
                     await update.message.reply_text("❌ 请发送有效的回复内容（文本/图片/视频/文件）")
                     return
@@ -3192,7 +3107,6 @@ class TelegramBot:
                 pattern_type = data.get('type')
             
                 if not pattern or not pattern_type:
-                    logger.error(f"缺少关键词设置数据: {data}")
                     await update.message.reply_text("❌ 添加关键词出错，请重新开始")
                     await self.settings_manager.clear_setting_state(
                         update.effective_user.id, 
@@ -3230,8 +3144,6 @@ class TelegramBot:
                         'response_type': response_type
                     })
                 
-                    logger.info(f"已添加关键词: {pattern}, 类型: {pattern_type}, 响应类型: {response_type}")
-                
                     # 询问是否继续添加
                     keyboard = [
                         [
@@ -3261,7 +3173,6 @@ class TelegramBot:
                 
                 except Exception as e:
                     logger.error(f"添加关键词失败: {e}")
-                    logger.error(traceback.format_exc())
                     await update.message.reply_text("❌ 保存关键词时出错，请重试")
                     await self.settings_manager.clear_setting_state(
                         update.effective_user.id, 
@@ -3269,7 +3180,6 @@ class TelegramBot:
                     )
                 
             else:
-                logger.warning(f"未知的设置步骤: {step}")
                 await update.message.reply_text("❌ 设置过程出错，请重新开始")
                 await self.settings_manager.clear_setting_state(
                     update.effective_user.id, 
@@ -3286,13 +3196,17 @@ class TelegramBot:
                     'keyword'
                 )
             except Exception:
-                pass
+                passid):
+            await update.message.reply_text("❌ 只有管理员可以使用此命令")
+            return
+            
+        try:
+            # 获取可管理的群组
+            groups = await self.db.get_manageable_groups(update.effective_user.    
 
     async def _process_broadcast_adding(self, update: Update, context, setting_state):
-        """处理轮播消息添加流程修复"""
+        """处理轮播消息添加流程"""
         try:
-            logger.info(f"处理轮播消息添加，状态: {setting_state}")
-        
             if not setting_state:
                 await update.message.reply_text("❌ 设置会话已过期，请重新开始")
                 return
@@ -3300,24 +3214,27 @@ class TelegramBot:
             step = setting_state.get('step', 1)
             group_id = setting_state.get('group_id')
             data = setting_state.get('data', {})
-            content_type = data.get('content_type')
-        
-            logger.info(f"步骤: {step}, 群组: {group_id}, 内容类型: {content_type}")
-
+            
             if step == 1:  # 获取消息内容
-                # 获取消息内容
+                # 自动检测消息类型
+                content_type = None
                 content = None
-                if content_type == 'text':
+                
+                if update.message.text:
+                    content_type = 'text'
                     content = update.message.text
-                elif content_type == 'photo':
-                    content = update.message.photo[-1].file_id if update.message.photo else None
-                elif content_type == 'video':
-                    content = update.message.video.file_id if update.message.video else None
-                elif content_type == 'document':
-                    content = update.message.document.file_id if update.message.document else None
-
-                if not content:
-                    await update.message.reply_text(f"❌ 请发送正确的{content_type}内容")
+                elif update.message.photo:
+                    content_type = 'photo'
+                    content = update.message.photo[-1].file_id
+                elif update.message.video:
+                    content_type = 'video'
+                    content = update.message.video.file_id
+                elif update.message.document:
+                    content_type = 'document'
+                    content = update.message.document.file_id
+                
+                if not content_type or not content:
+                    await update.message.reply_text("❌ 请发送有效的内容（文本/图片/视频/文件）")
                     return
 
                 # 检查内容限制
@@ -3330,7 +3247,7 @@ class TelegramBot:
                 await self.settings_manager.update_setting_state(
                     update.effective_user.id,
                     'broadcast',
-                    {'content': content}
+                    {'content_type': content_type, 'content': content}
                 )
             
                 # 手动更新步骤到2
@@ -3339,12 +3256,11 @@ class TelegramBot:
                     if state_key in self.settings_manager._states:
                         self.settings_manager._states[state_key]['step'] = 2
                         self.settings_manager._states[state_key]['timestamp'] = datetime.now()
-                        logger.info(f"手动更新轮播设置步骤到2: {self.settings_manager._states[state_key]}")
 
                 await update.message.reply_text(
                     "✅ 内容已设置\n\n"
                     "请设置轮播时间参数：\n"
-                    "格式：开始时间 结束时间 间隔(秒)\n"
+                    "格式：开始时间 结束时间 间隔秒数\n"
                     "例如：2024-02-22 08:00 2024-03-22 20:00 3600\n\n"
                     "发送 /cancel 取消"
                 )
@@ -3355,9 +3271,9 @@ class TelegramBot:
                     if len(parts) != 5:
                         raise ValueError("参数数量不正确")
 
-                    start_time = validate_time_format(f"{parts[0]} {parts[1]}")
-                    end_time = validate_time_format(f"{parts[2]} {parts[3]}")
-                    interval = validate_interval(parts[4])
+                    start_time = Utils.validate_time_format(f"{parts[0]} {parts[1]}")
+                    end_time = Utils.validate_time_format(f"{parts[2]} {parts[3]}")
+                    interval = Utils.validate_interval(parts[4])
 
                     if not all([start_time, end_time, interval]):
                         raise ValueError("时间格式无效")
@@ -3366,8 +3282,8 @@ class TelegramBot:
                         raise ValueError("结束时间必须晚于开始时间")
 
                     from config import BROADCAST_SETTINGS
-                    if interval < BROADCAST_SETTINGS.get('min_interval', 300):
-                        raise ValueError(f"间隔时间不能小于{format_duration(BROADCAST_SETTINGS.get('min_interval', 300))}")
+                    if interval < BROADCAST_SETTINGS.get('min_interval', 60):
+                        raise ValueError(f"间隔时间不能小于{BROADCAST_SETTINGS.get('min_interval', 60)}秒")
 
                     # 检查轮播消息数量限制
                     broadcasts = await self.db.db.broadcasts.count_documents({'group_id': group_id})
@@ -3402,7 +3318,34 @@ class TelegramBot:
             try:
                 await self.settings_manager.clear_setting_state(update.effective_user.id, 'broadcast')
             except Exception:
-                pass
+                pass    
+
+  # 消息处理相关
+def _create_navigation_keyboard(self,current_page: int,total_pages: int, base_callback: str) -> List[List[InlineKeyboardButton]]:
+            """创建分页导航键盘"""
+            keyboard = []
+            nav_row = []
+        
+            if current_page > 1:
+                nav_row.append(
+                    InlineKeyboardButton(
+                        "◀️ 上一页",
+                        callback_data=f"{base_callback}_{current_page-1}"
+                    )
+                )
+            
+            if current_page < total_pages:
+                nav_row.append(
+                    InlineKeyboardButton(
+                        "下一页 ▶️",
+                        callback_data=f"{base_callback}_{current_page+1}"
+                    )
+                )
+            
+            if nav_row:
+                keyboard.append(nav_row)
+            
+            return keyboard
 
     async def check_message_security(self, update: Update) -> bool:
         """检查消息安全性"""
@@ -3441,16 +3384,164 @@ class TelegramBot:
         
         return True
 
-def async_main():
-    """异步主入口点"""
+    async def handle_keyword_response(
+            self, 
+            chat_id: int, 
+            response: str, 
+            context, 
+            original_message: Optional[Message] = None
+        ) -> Optional[Message]:
+            """处理关键词响应，并可能进行自动删除
+        
+            :param chat_id: 聊天ID
+            :param response: 响应内容
+            :param context: 机器人上下文
+            :param original_message: 原始消息
+            :return: 发送的消息
+            """
+            sent_message = None
+        
+            if response.startswith('__media__'):
+                # 处理媒体响应
+                _, media_type, file_id = response.split('__')
+            
+                # 根据媒体类型发送消息
+                media_methods = {
+                    'photo': context.bot.send_photo,
+                    'video': context.bot.send_video,
+                    'document': context.bot.send_document
+                }
+            
+                if media_type in media_methods:
+                    sent_message = await media_methods[media_type](chat_id, file_id)
+            else:
+                # 处理文本响应
+                sent_message = await context.bot.send_message(chat_id, response)
+        
+            # 如果成功发送消息，进行自动删除
+            if sent_message:
+                # 获取原始消息的元数据（如果有）
+                metadata = Utils.get_message_metadata(original_message) if original_message else {}
+            
+                # 计算删除超时时间
+                timeout = Utils.validate_delete_timeout(
+                    message_type=metadata.get('type')
+                )
+            
+                # 调度消息删除
+                await self.message_deletion_manager.schedule_message_deletion(
+                    sent_message, 
+                    timeout
+                )
+        
+            return sent_message
+
+    async def _handle_message(self, update: Update, context):
+        """处理消息"""
+        # 安全检查：确保消息和用户有效
+        if not update.effective_message or not update.effective_user:
+            return
+    
+        # 获取必要的信息
+        chat_id = update.effective_chat.id
+        user_id = update.effective_user.id
+        message = update.message
+
+        try:
+            # 检查是否正在进行关键词添加流程
+            setting_state = await self.settings_manager.get_setting_state(
+                update.effective_user.id, 
+                'keyword'
+            )
+            if setting_state and setting_state['group_id'] == chat_id:
+                await self._process_keyword_adding(update, context, setting_state)
+                return
+            
+            # 检查是否正在进行轮播消息添加流程
+            broadcast_state = await self.settings_manager.get_setting_state(user_id, 'broadcast')
+            if broadcast_state and broadcast_state['group_id'] == chat_id:
+                await self._process_broadcast_adding(update, context, broadcast_state)
+                return
+            
+            # 检查是否正在进行统计设置编辑
+            for setting_type in ['stats_min_bytes', 'stats_daily_rank', 'stats_monthly_rank']:
+                stats_state = await self.settings_manager.get_setting_state(user_id, setting_type)
+                if stats_state and stats_state['group_id'] == chat_id:
+                    await self._process_stats_setting(update, context, stats_state, setting_type)
+                    return
+                    
+            # 检查消息安全性
+            if not await self.check_message_security(update):
+                return
+        
+            # 检查用户权限
+            if not await self.check_user_permissions(update):
+                return
+
+            # 获取用户角色
+            user = await self.db.get_user(user_id)
+            user_role = user['role'] if user else 'user'
+
+            # 处理取消操作
+            if message.text and message.text.lower() == '/cancel':
+                # 获取用户的活动设置状态
+                active_settings = await self.settings_manager.get_active_settings(user_id)
+                if active_settings:
+                    for setting_type in active_settings:
+                        await self.settings_manager.clear_setting_state(user_id, setting_type)
+                    await message.reply_text(f"✅ 已取消设置操作")
+                    return
+                else:
+                    await message.reply_text("❓ 当前没有进行中的设置操作")
+                    return
+
+            # 检查是否免除自动删除
+            command = message.text.split()[0] if message.text else None
+            if not Utils.is_auto_delete_exempt(user_role, command):
+                # 获取消息元数据
+                metadata = Utils.get_message_metadata(message)
+                # 计算删除超时时间
+                timeout = Utils.validate_delete_timeout(
+                    message_type=metadata['type']
+                )
+        
+                # 调度消息删除
+                await self.message_deletion_manager.schedule_message_deletion(
+                    message, 
+                    timeout
+                )
+                
+            # 处理关键词匹配
+            if message.text:
+                # 尝试匹配关键词
+                response = await self.keyword_manager.match_keyword(
+                    chat_id,
+                    message.text,
+                    message
+                )
+                if response:
+                    await self.handle_keyword_response(
+                        chat_id, 
+                        response, 
+                        context, 
+                        message
+                    )
+        
+            # 处理消息统计
+            await self.stats_manager.add_message_stat(chat_id, user_id, message)
+            
+        except Exception as e:
+            logger.error(f"处理消息错误: {e}")
+            logger.error(traceback.format_exc())
+
+# 入口点
+if __name__ == '__main__':
     try:
-        asyncio.run(TelegramBot.main(TelegramBot))
+        asyncio.run(TelegramBot.main())
     except KeyboardInterrupt:
         logger.info("机器人被用户停止")
     except Exception as e:
         logger.error(f"机器人停止，错误原因: {e}")
         logger.error(traceback.format_exc())
-        raise
+        raise    
 
-if __name__ == '__main__':
-    async_main()
