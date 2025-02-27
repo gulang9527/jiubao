@@ -3204,7 +3204,7 @@ class TelegramBot:
             
         try:
             # 获取可管理的群组
-            groups = await self.db.get_manageable_groups(update.effective_user.    
+            groups = await self.db.get_manageable_groups(update.effective_user.)    
 
     async def _process_broadcast_adding(self, update: Update, context, setting_state):
         """处理轮播消息添加流程"""
