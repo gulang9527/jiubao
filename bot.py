@@ -3384,21 +3384,15 @@ def _create_navigation_keyboard(self,current_page: int,total_pages: int, base_ca
         
         return True
 
-    async def handle_keyword_response(
-            self, 
-            chat_id: int, 
-            response: str, 
-            context, 
-            original_message: Optional[Message] = None
-        ) -> Optional[Message]:
-            """处理关键词响应,并可能进行自动删除
+    async def handle_keyword_response(self, chat_id: int, response: str, context, original_message: Optional[Message] = None) -> Optional[Message]:
+            """处理关键词响应,并可能进行自动删除"""
         
             :param chat_id: 聊天ID
             :param response: 响应内容
             :param context: 机器人上下文
             :param original_message: 原始消息
             :return: 发送的消息
-            """
+            
             sent_message = None
         
             if response.startswith('__media__'):
