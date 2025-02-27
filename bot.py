@@ -3318,8 +3318,8 @@ class TelegramBot:
             except Exception:
                 pass    
 
-  # 消息处理相关
-def _create_navigation_keyboard(self,current_page: int,total_pages: int, base_callback: str) -> List[List[InlineKeyboardButton]]:
+    # 消息处理相关
+    def _create_navigation_keyboard(self,current_page: int,total_pages: int, base_callback: str) -> List[List[InlineKeyboardButton]]:
             """创建分页导航键盘"""
             keyboard = []
             nav_row = []
