@@ -1802,8 +1802,8 @@ class TelegramBot:
                     [
                         InlineKeyboardButton(
                             "❌ 删除此关键词", 
-                            callback_data=f"keyword_delete_confirm_{keyword_id}_{group_id}"
-                        )
+                                callback_data=f"keyword_delete_{keyword_id}_{group_id}"
+                            )
                     ],
                     [
                         InlineKeyboardButton(
