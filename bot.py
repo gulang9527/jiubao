@@ -3201,10 +3201,6 @@ class TelegramBot:
                 pass
             await update.message.reply_text("❌ 只有管理员可以使用此命令")
             return
-            
-        try:
-            # 获取可管理的群组
-            groups = await self.db.get_manageable_groups(update.effective_user.id)
 
     async def _process_broadcast_adding(self, update: Update, context, setting_state):
         """处理轮播消息添加流程"""
