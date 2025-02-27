@@ -3405,8 +3405,8 @@ class TelegramBot:
                 'document': context.bot.send_document
                     }
             
-                if media_type in media_methods:
-                    sent_message = await media_methods[media_type](chat_id, file_id)
+            if media_type in media_methods:
+                sent_message = await media_methods[media_type](chat_id, file_id)
             else:
                 # 处理文本响应
                 sent_message = await context.bot.send_message(chat_id, response)
