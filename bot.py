@@ -3196,7 +3196,7 @@ class TelegramBot:
                     'keyword'
                 )
             except Exception:
-                passid):
+                passid:
             await update.message.reply_text("❌ 只有管理员可以使用此命令")
             return
             
