@@ -3383,26 +3383,27 @@ class TelegramBot:
         return True
 
     async def handle_keyword_response(self, chat_id: int, response: str, context, original_message: Optional[Message] = None) -> Optional[Message]:
-            """处理关键词响应,并可能进行自动删除"""
+        """处理关键词响应,并可能进行自动删除
+    
+        :param chat_id: 聊天ID
+        :param response: 响应内容
+        :param context: 机器人上下文
+        :param original_message: 原始消息
+        :return: 发送的消息
+        """
+    
+        sent_message = None
+
+        if response.startswith('__media__'):
+            # 处理媒体响应
+            _, media_type, file_id = response.split('__')
         
-            :param chat_id: 聊天ID
-            :param response: 响应内容
-            :param context: 机器人上下文
-            :param original_message: 原始消息
-            :return: 发送的消息
-            
-            sent_message = None
-        
-            if response.startswith('__media__'):
-                # 处理媒体响应
-                _, media_type, file_id = response.split('__')
-            
-                # 根据媒体类型发送消息
-                media_methods = {
-                    'photo': context.bot.send_photo,
-                    'video': context.bot.send_video,
-                    'document': context.bot.send_document
-                }
+            # 根据媒体类型发送消息
+            media_methods = {
+                'photo': context.bot.send_photo,
+                'video': context.bot.send_video,
+                'document': context.bot.send_document
+                    }
             
                 if media_type in media_methods:
                     sent_message = await media_methods[media_type](chat_id, file_id)
