@@ -3441,7 +3441,7 @@ def _create_navigation_keyboard(self,current_page: int,total_pages: int, base_ca
         # 安全检查：确保消息和用户有效
         if not update.effective_message or not update.effective_user:
             return
-
+    
         # 获取必要的信息
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
@@ -3456,24 +3456,24 @@ def _create_navigation_keyboard(self,current_page: int,total_pages: int, base_ca
             if setting_state and setting_state['group_id'] == chat_id:
                 await self._process_keyword_adding(update, context, setting_state)
                 return
-        
+            
             # 检查是否正在进行轮播消息添加流程
             broadcast_state = await self.settings_manager.get_setting_state(user_id, 'broadcast')
             if broadcast_state and broadcast_state['group_id'] == chat_id:
                 await self._process_broadcast_adding(update, context, broadcast_state)
                 return
-        
+            
             # 检查是否正在进行统计设置编辑
             for setting_type in ['stats_min_bytes', 'stats_daily_rank', 'stats_monthly_rank']:
                 stats_state = await self.settings_manager.get_setting_state(user_id, setting_type)
                 if stats_state and stats_state['group_id'] == chat_id:
                     await self._process_stats_setting(update, context, stats_state, setting_type)
                     return
-                
+                    
             # 检查消息安全性
             if not await self.check_message_security(update):
                 return
-    
+        
             # 检查用户权限
             if not await self.check_user_permissions(update):
                 return
@@ -3504,32 +3504,34 @@ def _create_navigation_keyboard(self,current_page: int,total_pages: int, base_ca
                 timeout = Utils.validate_delete_timeout(
                     message_type=metadata['type']
                 )
-    
+        
                 # 调度消息删除
                 await self.message_deletion_manager.schedule_message_deletion(
                     message, 
                     timeout
                 )
-            
+                
             # 处理关键词匹配
-            if message.text:
-                # 尝试匹配关键词
-                response = await self.keyword_manager.match_keyword(
-                    chat_id,
-                    message.text,
-                    message
-                )
-                if response:
-                    await self.handle_keyword_response(
-                        chat_id, 
-                        response, 
-                        context, 
+            if await self.has_permission(chat_id, GroupPermission.KEYWORDS):
+                if message.text:
+                    # 尝试匹配关键词
+                    response = await self.keyword_manager.match_keyword(
+                        chat_id,
+                        message.text,
                         message
                     )
-    
-            # 处理消息统计
-            await self.stats_manager.add_message_stat(chat_id, user_id, message)
+                    if response:
+                        await self.handle_keyword_response(
+                            chat_id, 
+                            response, 
+                            context, 
+                            message
+                        )
         
+            # 处理消息统计
+            if await self.has_permission(chat_id, GroupPermission.STATS):
+                await self.stats_manager.add_message_stat(chat_id, user_id, message)
+            
         except Exception as e:
             logger.error(f"处理消息错误: {e}")
             logger.error(traceback.format_exc())
