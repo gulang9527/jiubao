@@ -719,7 +719,7 @@ class StatsManager:
             Tuple[List[Dict], int]: 统计数据列表和总页数
         
         today = datetime.now().strftime('%Y-%m-%d')
-        # 每页15条，最多显示前100名
+        # 每页15条,最多显示前100名
         limit = 15
         max_users = 100
         
@@ -749,17 +749,17 @@ class StatsManager:
         return stats, total_pages
 
     async def get_monthly_stats(self, group_id: int, page: int = 1) -> Tuple[List[Dict], int]:
-        """获取近30日统计，仅统计消息数量"""
+        """获取近30日统计,仅统计消息数量"""
         
         Args:
             group_id: 群组ID
-            page: 页码，从1开始
+            page: 页码,从1开始
             
         Returns:
             Tuple[List[Dict], int]: 统计数据列表和总页数
         
         thirty_days_ago = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
-        # 每页15条，最多显示前100名
+        # 每页15条,最多显示前100名
         limit = 15
         max_users = 100
         
