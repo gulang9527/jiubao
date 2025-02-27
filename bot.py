@@ -713,7 +713,7 @@ class StatsManager:
         
         Args:
             group_id: 群组ID
-            page: 页码，从1开始
+            page: 页码,从1开始
             
         Returns:
             Tuple[List[Dict], int]: 统计数据列表和总页数
