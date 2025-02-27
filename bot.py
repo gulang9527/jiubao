@@ -709,7 +709,7 @@ class StatsManager:
         await self.db.add_message_stat(stat_data)
 
     async def get_daily_stats(self, group_id: int, page: int = 1) -> Tuple[List[Dict], int]:
-        """获取每日统计，仅统计消息数量
+        """获取每日统计，仅统计消息数量"""
         
         Args:
             group_id: 群组ID
@@ -717,7 +717,7 @@ class StatsManager:
             
         Returns:
             Tuple[List[Dict], int]: 统计数据列表和总页数
-        """
+        
         today = datetime.now().strftime('%Y-%m-%d')
         # 每页15条，最多显示前100名
         limit = 15
@@ -749,7 +749,7 @@ class StatsManager:
         return stats, total_pages
 
     async def get_monthly_stats(self, group_id: int, page: int = 1) -> Tuple[List[Dict], int]:
-        """获取近30日统计，仅统计消息数量
+        """获取近30日统计，仅统计消息数量"""
         
         Args:
             group_id: 群组ID
@@ -757,7 +757,7 @@ class StatsManager:
             
         Returns:
             Tuple[List[Dict], int]: 统计数据列表和总页数
-        """
+        
         thirty_days_ago = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
         # 每页15条，最多显示前100名
         limit = 15
@@ -3044,7 +3044,7 @@ class TelegramBot:
             try:
                 await self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
             except Exception:
-                pass"""
+                pass
 
     async def _process_keyword_adding(self, update: Update, context, setting_state):
         """处理关键词添加流程"""
