@@ -1088,28 +1088,38 @@ class TelegramBot:
                             group = await self.db.get_group(broadcast['group_id'])
                             if not group or not group['feature_switches'].get('broadcast', True):
                                 continue
+                            
+                            # 发送文本内容
                             if broadcast.get('text'):
                                 await self.application.bot.send_message(broadcast['group_id'], broadcast['text'])
+                            
+                            # 发送媒体内容（带备注）
                             if broadcast.get('media'):
                                 media_type = broadcast.get('media_type', 'photo')
+                                caption = broadcast.get('text', '')  # 使用text作为媒体的备注
+                            
                                 media_methods = {
-                                    'photo': self.application.bot.send_photo,
-                                    'video': self.application.bot.send_video,
-                                    'document': self.application.bot.send_document
+                                    'photo': lambda chat_id, media, caption: self.application.bot.send_photo(chat_id, media, caption=caption),
+                                    'video': lambda chat_id, media, caption: self.application.bot.send_video(chat_id, media, caption=caption),
+                                    'document': lambda chat_id, media, caption: self.application.bot.send_document(chat_id, media, caption=caption)
                                 }
+                            
                                 if media_type in media_methods:
-                                    await media_methods[media_type](broadcast['group_id'], broadcast['media'])
+                                    await media_methods[media_type](broadcast['group_id'], broadcast['media'], caption)
+                            
+                            # 更新发送时间
                             await self.broadcast_manager.update_last_broadcast(broadcast['_id'])
-                            await self.message_deletion_manager.schedule_message_deletion(
-                                await self.application.bot.send_message(broadcast['group_id'], f"轮播: {broadcast['name']}"),
-                                AUTO_DELETE_SETTINGS['timeouts']['broadcast']
-                            )
+                        
+                            # 不再发送"轮播: {broadcast['name']}"的消息
                         except Exception as e:
                             logger.error(f"发送轮播消息 {broadcast.get('name', '未知')} 时出错: {e}")
-                    await asyncio.sleep(BROADCAST_SETTINGS['check_interval'])
+                        
+                        await asyncio.sleep(BROADCAST_SETTINGS['check_interval'])
+                    
                 except Exception as e:
                     logger.error(f"轮播任务出错: {e}")
                     await asyncio.sleep(60)
+                
         asyncio.create_task(broadcast_routine())
 
     async def _start_cleanup_task(self):
@@ -1353,18 +1363,45 @@ class TelegramBot:
             if action == "select":
                 keyboard = []
                 group = await self.db.get_group(group_id)
-                switches = group.get('feature_switches', {})
+            
+                # 功能按钮
                 if 'stats' in group.get('permissions', []):
                     keyboard.append([InlineKeyboardButton("📊 统计设置", callback_data=f"settings_stats_{group_id}")])
-                    keyboard.append([InlineKeyboardButton(f"统计功能: {'开' if switches.get('stats', True) else '关'}", callback_data=f"feature_switch_stats_{group_id}")])
                 if 'broadcast' in group.get('permissions', []):
                     keyboard.append([InlineKeyboardButton("📢 轮播消息", callback_data=f"settings_broadcast_{group_id}")])
-                    keyboard.append([InlineKeyboardButton(f"轮播功能: {'开' if switches.get('broadcast', True) else '关'}", callback_data=f"feature_switch_broadcast_{group_id}")])
                 if 'keywords' in group.get('permissions', []):
                     keyboard.append([InlineKeyboardButton("🔑 关键词设置", callback_data=f"settings_keywords_{group_id}")])
-                    keyboard.append([InlineKeyboardButton(f"关键词功能: {'开' if switches.get('keywords', True) else '关'}", callback_data=f"feature_switch_keywords_{group_id}")])
+                
+                # 功能开关设置
+                keyboard.append([InlineKeyboardButton("⚙️ 功能开关设置", callback_data=f"settings_switches_{group_id}")])
+            
+                # 返回按钮
                 keyboard.append([InlineKeyboardButton("🔙 返回群组列表", callback_data="show_manageable_groups")])
+            
                 await query.edit_message_text(f"群组 {group_id} 的设置菜单\n请选择要管理的功能：", reply_markup=InlineKeyboardMarkup(keyboard))
+
+            elif action == "switches":
+                # 功能开关设置页面
+                group = await self.db.get_group(group_id)
+                switches = group.get('feature_switches', {})
+            
+                keyboard = []
+                if 'stats' in group.get('permissions', []):
+                    status = "✅ 开" if switches.get('stats', True) else "❌ 关"
+                    keyboard.append([InlineKeyboardButton(f"统计功能: {status}", callback_data=f"feature_switch_stats_{group_id}")])
+                
+                if 'broadcast' in group.get('permissions', []):
+                    status = "✅ 开" if switches.get('broadcast', True) else "❌ 关"
+                    keyboard.append([InlineKeyboardButton(f"轮播功能: {status}", callback_data=f"feature_switch_broadcast_{group_id}")])
+                
+                if 'keywords' in group.get('permissions', []):
+                    status = "✅ 开" if switches.get('keywords', True) else "❌ 关"
+                    keyboard.append([InlineKeyboardButton(f"关键词功能: {status}", callback_data=f"feature_switch_keywords_{group_id}")])
+                
+                # 返回按钮
+                keyboard.append([InlineKeyboardButton("🔙 返回设置菜单", callback_data=f"settings_select_{group_id}")])
+            
+                await query.edit_message_text(f"群组 {group_id} 的功能开关设置\n点击功能可切换开关状态：", reply_markup=InlineKeyboardMarkup(keyboard))
 
             elif action in ["stats", "broadcast", "keywords"]:
                 await self._handle_settings_section(query, context, group_id, action)
@@ -1442,56 +1479,88 @@ class TelegramBot:
             if len(parts) < 4:
                 await query.edit_message_text("❌ 无效的操作")
                 return
+            
             setting_type = parts[2]
             group_id = int(parts[-1])
+        
             if not await self.db.can_manage_group(update.effective_user.id, group_id):
                 await query.edit_message_text("❌ 无权限管理此群组")
                 return
+            
             if not await self.has_permission(group_id, GroupPermission.STATS):
                 await query.edit_message_text("❌ 此群组未启用统计功能")
                 return
+            
             settings = await self.db.get_group_settings(group_id)
 
             if setting_type == "min_bytes":
                 await query.edit_message_text("请输入最小统计字节数：\n• 低于此值的消息将不计入统计\n• 输入 0 表示统计所有消息\n\n发送 /cancel 取消")
                 await self.settings_manager.start_setting(update.effective_user.id, 'stats_min_bytes', group_id)
+            
             elif setting_type == "toggle_media":
                 settings['count_media'] = not settings.get('count_media', False)
                 await self.db.update_group_settings(group_id, settings)
                 await self._show_stats_settings(query, group_id, settings)
+            
             elif setting_type == "daily_rank":
                 await query.edit_message_text("请输入日排行显示的用户数量：\n• 建议在 5-20 之间\n\n发送 /cancel 取消")
                 await self.settings_manager.start_setting(update.effective_user.id, 'stats_daily_rank', group_id)
+            
             elif setting_type == "monthly_rank":
                 await query.edit_message_text("请输入月排行显示的用户数量：\n• 建议在 5-20 之间\n\n发送 /cancel 取消")
                 await self.settings_manager.start_setting(update.effective_user.id, 'stats_monthly_rank', group_id)
+            
             else:
-                await query.edit_message_text(f"❌ 未知的设置类型: {setting_type}")
+                logger.error(f"未知的统计设置类型: {setting_type}")
+                await query.edit_message_text(f"❌ 未知的设置类型: {setting_type}，请返回重试")
+            
         except Exception as e:
             logger.error(f"处理统计设置编辑回调错误: {e}")
+            logger.error(traceback.format_exc())  # 添加详细错误堆栈
             await query.edit_message_text("❌ 处理设置时出错，请重试")
 
     @handle_callback_errors
     async def _handle_feature_switch_callback(self, update: Update, context):
+        #功能开关回调处理方法
         query = update.callback_query
         await query.answer()
         try:
             parts = query.data.split('_')
             if len(parts) < 4:
                 await query.edit_message_text("❌ 无效的操作")
-                return
+                return           
             feature = parts[2]
-            group_id = int(parts[3])
+            group_id = int(parts[3])      
             if not await self.db.can_manage_group(update.effective_user.id, group_id):
                 await query.edit_message_text("❌ 无权限管理此群组")
-                return
+                return        
             group = await self.db.get_group(group_id)
             switches = group.get('feature_switches', {})
-            switches[feature] = not switches.get(feature, True)
-            await self.db.add_group({**group, 'feature_switches': switches})
-            await self._handle_settings_callback(update, context)
+            switches[feature] = not switches.get(feature, True)  
+            await self.db.add_group({**group, 'feature_switches': switches})  
+            # 检查我们是从哪个页面切换过来的，以便返回到正确的页面
+            # 如果我们在统一的开关页面，就保持在那里
+            if "settings_switches" in query.message.reply_markup.inline_keyboard[-1][0].callback_data:
+                # 更新功能开关页面
+                keyboard = []
+                if 'stats' in group.get('permissions', []):
+                    status = "✅ 开" if switches.get('stats', True) else "❌ 关"
+                    keyboard.append([InlineKeyboardButton(f"统计功能: {status}", callback_data=f"feature_switch_stats_{group_id}")])        
+                if 'broadcast' in group.get('permissions', []):
+                    status = "✅ 开" if switches.get('broadcast', True) else "❌ 关"
+                    keyboard.append([InlineKeyboardButton(f"轮播功能: {status}", callback_data=f"feature_switch_broadcast_{group_id}")])        
+                if 'keywords' in group.get('permissions', []):
+                    status = "✅ 开" if switches.get('keywords', True) else "❌ 关"
+                    keyboard.append([InlineKeyboardButton(f"关键词功能: {status}", callback_data=f"feature_switch_keywords_{group_id}")])      
+                # 返回按钮
+                keyboard.append([InlineKeyboardButton("🔙 返回设置菜单", callback_data=f"settings_select_{group_id}")])   
+                await query.edit_message_text(f"群组 {group_id} 的功能开关设置\n点击功能可切换开关状态：", reply_markup=InlineKeyboardMarkup(keyboard))
+            else:
+                # 返回到主设置页面
+                await self._handle_settings_callback(update, context)     
         except Exception as e:
             logger.error(f"处理功能开关回调错误: {e}")
+            logger.error(traceback.format_exc())
             await query.edit_message_text("❌ 处理功能开关时出错，请重试")
 
     @check_command_usage
@@ -1873,43 +1942,49 @@ class TelegramBot:
         try:
             if not stats_state:
                 await update.message.reply_text("❌ 设置会话已过期，请重新开始")
-                return
-            group_id = stats_state.get('group_id')
-            value = int(update.message.text)
+                return     
+            group_id = stats_state.get('group_id')    
+            try:
+                value = int(update.message.text)
+            except ValueError:
+                await update.message.reply_text("❌ 请输入有效的数字")
+                return        
             if value < 0 and setting_type != 'stats_min_bytes':
                 await update.message.reply_text("❌ 值不能为负")
-                return
-            settings = await self.db.get_group_settings(group_id)
+                return       
+            settings = await self.db.get_group_settings(group_id)    
             if setting_type == 'stats_min_bytes':
                 settings['min_bytes'] = value
-                tips = f"最小统计字节数已设置为 {value} 字节"
+                tips = f"最小统计字节数已设置为 {value} 字节"       
             elif setting_type == 'stats_daily_rank':
-                if not 5 <= value <= 20:
-                    await update.message.reply_text("❌ 显示数量必须在5-20之间")
+                if not 5 <= value <= 100:  # 扩大范围
+                    await update.message.reply_text("❌ 显示数量必须在5-100之间")
                     return
                 settings['daily_rank_size'] = value
-                tips = f"日排行显示数量已设置为 {value}"
+                tips = f"日排行显示数量已设置为 {value}"        
             elif setting_type == 'stats_monthly_rank':
-                if not 5 <= value <= 20:
-                    await update.message.reply_text("❌ 显示数量必须在5-20之间")
+                if not 5 <= value <= 100:  # 扩大范围
+                    await update.message.reply_text("❌ 显示数量必须在5-100之间")
                     return
                 settings['monthly_rank_size'] = value
-                tips = f"月排行显示数量已设置为 {value}"
+                tips = f"月排行显示数量已设置为 {value}"       
             else:
                 await update.message.reply_text("❌ 未知的设置类型")
-                return
-            await self.db.update_group_settings(group_id, settings)
+                return      
+            await self.db.update_group_settings(group_id, settings)   
+            # 创建一个带设置的键盘
             keyboard = [
                 [InlineKeyboardButton(f"最小统计字节数: {settings.get('min_bytes', 0)} 字节", callback_data=f"stats_edit_min_bytes_{group_id}")],
                 [InlineKeyboardButton(f"统计多媒体: {'是' if settings.get('count_media', False) else '否'}", callback_data=f"stats_edit_toggle_media_{group_id}")],
                 [InlineKeyboardButton(f"日排行显示数量: {settings.get('daily_rank_size', 15)}", callback_data=f"stats_edit_daily_rank_{group_id}")],
                 [InlineKeyboardButton(f"月排行显示数量: {settings.get('monthly_rank_size', 15)}", callback_data=f"stats_edit_monthly_rank_{group_id}")],
                 [InlineKeyboardButton("返回设置菜单", callback_data=f"settings_select_{group_id}")]
-            ]
+            ]   
             await update.message.reply_text(f"✅ {tips}", reply_markup=InlineKeyboardMarkup(keyboard))
-            await self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
+            await self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)   
         except Exception as e:
             logger.error(f"处理统计设置错误: {e}")
+            logger.error(traceback.format_exc())  # 添加详细错误堆栈
             await update.message.reply_text("❌ 更新设置时出错")
             await self.settings_manager.clear_setting_state(update.effective_user.id, setting_type)
 
