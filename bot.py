@@ -673,19 +673,23 @@ class BroadcastManager:
                 {'last_broadcast': {'$exists': False}},
                 {'last_broadcast': {'$exists': True}}
             ]
-        }).to_list(None)
-        return [b for b in broadcasts if 'last_broadcast' not in b or (now - b['last_broadcast']).total_seconds() >= b['interval']]
-
-    async def update_last_broadcast(self, broadcast_id: ObjectId) -> bool:
-        try:
-            result = await self.db.db.broadcasts.update_one(
-                {'_id': broadcast_id},
-                {'$set': {'last_broadcast': datetime.now(beijing_tz)}}
-            )
-            return result.modified_count > 0
-        except Exception as e:
-            logger.error(f"更新广播发送时间错误: {e}")
-            return False
+        }).to_list(None)    
+        # 筛选需要发送的轮播消息
+        pending_broadcasts = []
+        for b in broadcasts:
+            if 'last_broadcast' not in b:
+                pending_broadcasts.append(b)
+            else:
+                # 确保last_broadcast是带时区的datetime对象
+                last_broadcast = b['last_broadcast']
+                if last_broadcast.tzinfo is None:
+                    # 如果没有时区信息，添加北京时区
+                    last_broadcast = beijing_tz.localize(last_broadcast)      
+                # 计算时间差并检查是否已到发送间隔
+                time_diff = (now - last_broadcast).total_seconds()
+                if time_diff >= b['interval']:
+                    pending_broadcasts.append(b)        
+        return pending_broadcasts
 
 # 关键词管理模块
 class KeywordManager:
@@ -1089,38 +1093,34 @@ class TelegramBot:
                             group = await self.db.get_group(broadcast['group_id'])
                             if not group or not group['feature_switches'].get('broadcast', True):
                                 continue
-                            
                             # 发送文本内容
                             if broadcast.get('text'):
-                                await self.application.bot.send_message(broadcast['group_id'], broadcast['text'])
-                            
+                                await self.application.bot.send_message(broadcast['group_id'], broadcast['text'])                 
                             # 发送媒体内容（带备注）
                             if broadcast.get('media'):
                                 media_type = broadcast.get('media_type', 'photo')
                                 caption = broadcast.get('text', '')  # 使用text作为媒体的备注
-                            
                                 media_methods = {
                                     'photo': lambda chat_id, media, caption: self.application.bot.send_photo(chat_id, media, caption=caption),
                                     'video': lambda chat_id, media, caption: self.application.bot.send_video(chat_id, media, caption=caption),
                                     'document': lambda chat_id, media, caption: self.application.bot.send_document(chat_id, media, caption=caption)
                                 }
-                            
                                 if media_type in media_methods:
-                                    await media_methods[media_type](broadcast['group_id'], broadcast['media'], caption)
-                            
-                            # 更新发送时间
+                                    if not caption:  # 如果没有文本内容作为备注，就不传递caption参数
+                                        await media_methods[media_type](broadcast['group_id'], broadcast['media'], '')
+                                    else:
+                                        await media_methods[media_type](broadcast['group_id'], broadcast['media'], caption)
+                            # 更新发送时间（确保使用带时区的datetime）
                             await self.broadcast_manager.update_last_broadcast(broadcast['_id'])
-                        
-                            # 不再发送"轮播: {broadcast['name']}"的消息
                         except Exception as e:
                             logger.error(f"发送轮播消息 {broadcast.get('name', '未知')} 时出错: {e}")
-                        
-                        await asyncio.sleep(BROADCAST_SETTINGS['check_interval'])
-                    
+                            logger.error(traceback.format_exc())  
+                    # 检查完所有广播后休眠一段时间        
+                    await asyncio.sleep(BROADCAST_SETTINGS['check_interval'])
                 except Exception as e:
                     logger.error(f"轮播任务出错: {e}")
-                    await asyncio.sleep(60)
-                
+                    logger.error(traceback.format_exc())
+                    await asyncio.sleep(60)     
         asyncio.create_task(broadcast_routine())
 
     async def _start_cleanup_task(self):
@@ -1162,14 +1162,13 @@ class TelegramBot:
                                 # 可选：移除群组或将其标记为无法访问
                                 # await self.db.remove_group(group_id)
                                 # 或者仅记录日志以供手动审核
-                
                     # 一天后再次检查
                     await asyncio.sleep(24 * 60 * 60)
                 except Exception as e:
                     logger.error(f"群组清理任务出错: {e}")
                     await asyncio.sleep(1 * 60 * 60)
-    
-    asyncio.create_task(cleanup_routine())
+        # 任务创建语句在方法内部的最后
+        asyncio.create_task(cleanup_routine())
 
     async def handle_signals(self):
         try:
