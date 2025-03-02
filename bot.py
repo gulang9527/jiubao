@@ -2020,27 +2020,70 @@ class TelegramBot:
                 )
 
             elif step == 2:
-                parts = update.message.text.split(maxsplit=4)
-                if len(parts) != 5:
-                    await update.message.reply_text("❌ 参数数量不正确")
+                # 这里修改解析逻辑，更加灵活地处理输入格式
+                text_parts = update.message.text.strip().split()
+            
+                if len(text_parts) < 5:
+                    await update.message.reply_text("❌ 参数数量不足，格式应为：名称 开始日期 开始时间 结束日期 结束时间 间隔")
                     return
-                name, start_date, start_time, end_date, end_time, interval_str = parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]
-                start_time = Utils.validate_time_format(f"{start_date} {start_time}")
-                end_time = Utils.validate_time_format(f"{end_date} {end_time}")
+                
+                # 提取名称（可能包含空格）
+                name_parts = []
+                remaining_parts = text_parts.copy()
+            
+                # 识别日期-时间模式，尝试找到第一个日期格式
+                date_pattern = re.compile(r'\d{4}-\d{2}-\d{2}')
+                date_index = -1
+            
+                for i, part in enumerate(text_parts):
+                    if date_pattern.match(part):
+                        date_index = i
+                        break
+            
+                if date_index == -1:
+                    await update.message.reply_text("❌ 无法识别日期格式，请使用YYYY-MM-DD格式")
+                    return
+                
+                # 名称是日期之前的所有部分
+                name = ' '.join(text_parts[:date_index])
+                if not name:
+                    name = "未命名轮播"
+                
+                # 剩余部分应该包含：开始日期 开始时间 结束日期 结束时间 间隔
+                remaining = text_parts[date_index:]
+            
+                if len(remaining) < 5:
+                    await update.message.reply_text("❌ 日期时间参数不足，应包含：开始日期 开始时间 结束日期 结束时间 间隔")
+                    return
+                
+                start_date, start_time = remaining[0], remaining[1]
+                end_date, end_time = remaining[2], remaining[3]
+                interval_str = ' '.join(remaining[4:])  # 间隔可能包含空格，如"2小时30分"
+            
+                start_time_str = f"{start_date} {start_time}"
+                end_time_str = f"{end_date} {end_time}"
+            
+                start_time = Utils.validate_time_format(start_time_str)
+                end_time = Utils.validate_time_format(end_time_str)
                 interval = Utils.parse_interval(interval_str)
+            
                 if not all([start_time, end_time, interval]):
-                    await update.message.reply_text("❌ 时间格式或间隔无效")
+                    await update.message.reply_text("❌ 时间格式或间隔无效，请使用YYYY-MM-DD HH:MM格式")
                     return
+                
                 if start_time >= end_time:
                     await update.message.reply_text("❌ 结束时间必须晚于开始时间")
                     return
+                
                 if interval < BROADCAST_SETTINGS['min_interval']:
                     await update.message.reply_text(f"❌ 间隔时间不能小于{BROADCAST_SETTINGS['min_interval']}秒")
                     return
+                
                 broadcasts = await self.db.db.broadcasts.count_documents({'group_id': group_id})
                 if broadcasts >= BROADCAST_SETTINGS['max_broadcasts']:
                     await update.message.reply_text(f"❌ 轮播消息数量已达到上限 {BROADCAST_SETTINGS['max_broadcasts']} 条")
                     return
+                
                 await self.db.db.broadcasts.insert_one({
                     'group_id': group_id,
                     'name': name,
@@ -2051,12 +2094,14 @@ class TelegramBot:
                     'end_time': end_time,
                     'interval': interval
                 })
+            
                 await update.message.reply_text("✅ 轮播消息添加成功！")
                 await self.settings_manager.clear_setting_state(update.effective_user.id, 'broadcast')
 
         except Exception as e:
             logger.error(f"处理轮播消息添加错误: {e}")
-            await update.message.reply_text("❌ 添加轮播消息时出错")
+            logger.error(traceback.format_exc())  # 添加详细错误堆栈
+            await update.message.reply_text("❌ 添加轮播消息时出错，请检查格式并重试")
             await self.settings_manager.clear_setting_state(update.effective_user.id, 'broadcast')
 
     def _create_navigation_keyboard(self, current_page: int, total_pages: int, base_callback: str) -> List[List[InlineKeyboardButton]]:
