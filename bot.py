@@ -455,13 +455,14 @@ class SettingsManager:
             await self._start_broadcast_task()
             await self._start_cleanup_task()
             await self._start_keep_alive_task()
-            await self._start_group_cleanup_task()  # 添加这一行
+            # 先注释掉这一行，待修复后再添加
+            # await self._start_group_cleanup_task()
             logger.info("机器人成功启动")
             return True
         except Exception as e:
             logger.error(f"机器人启动失败: {e}")
             return False
-
+            
     async def stop(self):
         if self._cleanup_task:
             self._cleanup_task.cancel()
@@ -1168,7 +1169,7 @@ class TelegramBot:
                     logger.error(f"群组清理任务出错: {e}")
                     await asyncio.sleep(1 * 60 * 60)
     
-        asyncio.create_task(cleanup_routine())
+    asyncio.create_task(cleanup_routine())
 
     async def handle_signals(self):
         try:
