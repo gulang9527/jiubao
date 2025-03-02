@@ -445,8 +445,22 @@ class SettingsManager:
         self._max_states_per_user = STATE_MANAGEMENT_SETTINGS['max_concurrent_states']
 
     async def start(self):
-        self._cleanup_task = asyncio.create_task(self._cleanup_loop())
-        logger.info("状态管理器已启动")
+        try:
+            if not self.application:
+                logger.error("机器人未初始化")
+                return False
+            await self.application.initialize()
+            await self.application.start()
+            self.running = True
+            await self._start_broadcast_task()
+            await self._start_cleanup_task()
+            await self._start_keep_alive_task()
+            await self._start_group_cleanup_task()  # 添加这一行
+            logger.info("机器人成功启动")
+            return True
+        except Exception as e:
+            logger.error(f"机器人启动失败: {e}")
+            return False
 
     async def stop(self):
         if self._cleanup_task:
@@ -1121,6 +1135,31 @@ class TelegramBot:
                     await asyncio.sleep(60)
         asyncio.create_task(keep_alive_routine())
 
+    async def _start_group_cleanup_task(self):
+        async def cleanup_routine():
+            while self.running:
+                try:
+                    groups = await self.db.find_all_groups()
+                    for group in groups:
+                        group_id = group['group_id']
+                        try:
+                            # 尝试获取群组基本信息
+                            await self.application.bot.get_chat(group_id)
+                        except Exception as e:
+                            if "chat not found" in str(e).lower() or "bot was kicked" in str(e).lower():
+                                logger.warning(f"机器人无法访问群组 {group_id}，标记为清理对象")
+                                # 可选：移除群组或将其标记为无法访问
+                                # await self.db.remove_group(group_id)
+                                # 或者仅记录日志以供手动审核
+                
+                    # 一天后再次检查
+                    await asyncio.sleep(24 * 60 * 60)
+                except Exception as e:
+                    logger.error(f"群组清理任务出错: {e}")
+                    await asyncio.sleep(1 * 60 * 60)
+    
+        asyncio.create_task(cleanup_routine())
+
     async def handle_signals(self):
         try:
             for sig in (signal.SIGTERM, signal.SIGINT):
@@ -1500,12 +1539,21 @@ class TelegramBot:
             if not manageable_groups:
                 await update.message.reply_text("❌ 你没有权限管理任何群组")
                 return
-            keyboard = [
-                [InlineKeyboardButton(
-                    (await context.bot.get_chat(group['group_id'])).title or f"群组 {group['group_id']}",
+        
+            keyboard = []
+            for group in manageable_groups:
+                try:
+                    chat = await context.bot.get_chat(group['group_id'])
+                    group_title = chat.title or f"群组 {group['group_id']}"
+                except Exception as e:
+                    logger.warning(f"无法获取群组 {group['group_id']} 信息: {e}")
+                    group_title = f"群组 {group['group_id']}"
+                
+                keyboard.append([InlineKeyboardButton(
+                    group_title,
                     callback_data=f"settings_select_{group['group_id']}"
-                )] for group in manageable_groups
-            ]
+                )])
+        
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text("请选择要管理的群组：", reply_markup=reply_markup)
         except Exception as e:
@@ -1564,7 +1612,13 @@ class TelegramBot:
                 return
             text = "📝 你可以管理的群组：\n\n"
             for group in groups:
-                group_name = (await context.bot.get_chat(group['group_id'])).title or f"群组 {group['group_id']}"
+                try:
+                    chat = await context.bot.get_chat(group['group_id'])
+                    group_name = chat.title or f"群组 {group['group_id']}"
+                except Exception as e:
+                    logger.warning(f"无法获取群组 {group['group_id']} 信息: {e}")
+                    group_name = f"群组 {group['group_id']}"
+            
                 text += f"• {group_name}\n  ID: {group['group_id']}\n  权限: {', '.join(group.get('permissions', []))}\n\n"
             await update.message.reply_text(text)
         except Exception as e:
@@ -1730,12 +1784,21 @@ class TelegramBot:
             if not manageable_groups:
                 await query.edit_message_text("❌ 你没有权限管理任何群组")
                 return
-            keyboard = [
-                [InlineKeyboardButton(
-                    (await context.bot.get_chat(group['group_id'])).title or f"群组 {group['group_id']}",
+        
+            keyboard = []
+            for group in manageable_groups:
+                try:
+                    chat = await context.bot.get_chat(group['group_id'])
+                    group_title = chat.title or f"群组 {group['group_id']}"
+                except Exception as e:
+                    logger.warning(f"无法获取群组 {group['group_id']} 信息: {e}")
+                    group_title = f"群组 {group['group_id']}"
+                
+                keyboard.append([InlineKeyboardButton(
+                    group_title,
                     callback_data=f"settings_select_{group['group_id']}"
-                )] for group in manageable_groups
-            ]
+                )])
+        
             await query.edit_message_text("请选择要管理的群组：", reply_markup=InlineKeyboardMarkup(keyboard))
         except Exception as e:
             logger.error(f"显示可管理群组错误: {e}")
