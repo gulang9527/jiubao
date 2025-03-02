@@ -21,16 +21,17 @@ WEB_PORT = int(os.getenv('PORT', '8080'))
 DEFAULT_SUPERADMINS = [
     358987879,  # 用户1
     502226686,  # 用户2
-    7713337585,  # 用户3
+    7713337585, # 用户3
     883253093   # 用户4
 ]
 
+# 默认群组配置
 DEFAULT_GROUPS = [
     {
         'group_id': -1001234567890,  # 替换为你的群组ID
-        'permissions': ['keywords', 'stats', 'broadcast']
+        'permissions': ['keywords', 'stats', 'broadcast'],
+        'feature_switches': {'keywords': True, 'stats': True, 'broadcast': True}
     }
-    # 可以添加更多群组
 ]
 
 # 统计设置
@@ -62,51 +63,44 @@ AUTO_DELETE_SETTINGS = {
     'max_timeout': 86400,        # 最大删除时间：24小时
     'min_timeout': 10,           # 最小删除时间：10秒
     'enabled': True,             # 是否启用自动删除
-    'exempt_roles': [            # 免除自动删除的用户角色
-        'SUPERADMIN', 
-        'ADMIN'
-    ],
-    'exempt_command_prefixes': [  # 免除自动删除的命令前缀
-        '/start', 
-        '/help', 
-        '/settings'
-    ]
+    'exempt_roles': ['SUPERADMIN', 'ADMIN'],
+    'exempt_command_prefixes': ['/start', '/help', '/settings', '/tongji', '/tongji30'],
+    'timeouts': {
+        'broadcast': 3600,       # 轮播消息删除时间：1小时
+        'keyword': 1800,         # 关键词响应删除时间：30分钟
+        'ranking': 7200,         # 排行榜删除时间：2小时
+        'default': 300           # 其他消息默认删除时间：5分钟
+    }
 }
 
 # 消息类型配置
-ALLOWED_MEDIA_TYPES = [
-    'text',
-    'photo',
-    'video',
-    'document'
-]
+ALLOWED_MEDIA_TYPES = ['text', 'photo', 'video', 'document']
 
 # 权限配置
-DEFAULT_PERMISSIONS = [
-    'keywords',
-    'stats',
-    'broadcast'
-]
+DEFAULT_PERMISSIONS = ['keywords', 'stats', 'broadcast']
 
 # 时区设置
 TIMEZONE = os.getenv('TIMEZONE', 'Asia/Shanghai')
 
 # 状态管理配置
 STATE_MANAGEMENT_SETTINGS = {
-    'cleanup_interval': 60,        # 清理检查间隔（秒）
-    'state_timeout': 300,         # 状态超时时间（秒）
-    'max_concurrent_states': 100  # 每个用户最大并发状态数
+    'cleanup_interval': 60,      # 清理检查间隔（秒）
+    'state_timeout': 300,        # 状态超时时间（秒）
+    'max_concurrent_states': 5   # 每个用户最大并发状态数
 }
 
 # 消息回调配置
 CALLBACK_SETTINGS = {
-    'answer_timeout': 10,         # 回调应答超时时间（秒）
-    'max_callback_age': 3600,     # 回调数据最大有效期（秒）
+    'answer_timeout': 10,        # 回调应答超时时间（秒）
+    'max_callback_age': 3600,    # 回调数据最大有效期（秒）
 }
 
 # 错误处理配置
 ERROR_HANDLING_SETTINGS = {
-    'max_retries': 3,             # 最大重试次数
-    'retry_delay': 1,             # 重试延迟（秒）
-    'error_report_channel': None  # 错误报告频道ID
+    'max_retries': 3,            # 最大重试次数
+    'retry_delay': 1,            # 重试延迟（秒）
+    'error_report_channel': None # 错误报告频道ID
 }
+
+# 防休眠设置
+KEEP_ALIVE_INTERVAL = 300        # 防休眠请求间隔（秒）
