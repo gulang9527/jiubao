@@ -1548,30 +1548,30 @@ class TelegramBot:
                     logger.error(f"无法发送错误消息", exc_info=True)
 
         async def _handle_show_manageable_groups(self, update: Update, context):
-        query = update.callback_query
-        try:
-            manageable_groups = await self.db.get_manageable_groups(update.effective_user.id)
-            if not manageable_groups:
-                await query.edit_message_text("❌ 你没有权限管理任何群组")
-                return  
-            keyboard = []
-            for group in manageable_groups:
-                try:
-                    group_info = await context.bot.get_chat(group['group_id'])
-                    group_name = group_info.title or f"群组 {group['group_id']}"
-                except Exception:
-                    group_name = f"群组 {group['group_id']}"   
-                keyboard.append([InlineKeyboardButton(group_name, callback_data=f"settings_select_{group['group_id']}")])
-            await query.edit_message_text("请选择要管理的群组：", reply_markup=InlineKeyboardMarkup(keyboard))
-        except Exception as e:
-            logger.error(f"显示可管理群组时出错: {e}", exc_info=True)
+            query = update.callback_query
             try:
-                await query.edit_message_text("❌ 获取群组列表失败，请重试")
-            except Exception:
+                manageable_groups = await self.db.get_manageable_groups(update.effective_user.id)
+                if not manageable_groups:
+                    await query.edit_message_text("❌ 你没有权限管理任何群组")
+                    return  
+                keyboard = []
+                for group in manageable_groups:
+                    try:
+                        group_info = await context.bot.get_chat(group['group_id'])
+                        group_name = group_info.title or f"群组 {group['group_id']}"
+                    except Exception:
+                        group_name = f"群组 {group['group_id']}"   
+                    keyboard.append([InlineKeyboardButton(group_name, callback_data=f"settings_select_{group['group_id']}")])
+                await query.edit_message_text("请选择要管理的群组：", reply_markup=InlineKeyboardMarkup(keyboard))
+            except Exception as e:
+                logger.error(f"显示可管理群组时出错: {e}", exc_info=True)
                 try:
-                    await context.bot.send_message(chat_id=query.message.chat_id, text="❌ 获取群组列表失败，请重试")
+                    await query.edit_message_text("❌ 获取群组列表失败，请重试")
                 except Exception:
-                    logger.error(f"无法发送错误消息", exc_info=True)
+                    try:
+                        await context.bot.send_message(chat_id=query.message.chat_id, text="❌ 获取群组列表失败，请重试")
+                    except Exception:
+                        logger.error(f"无法发送错误消息", exc_info=True)
 
     async def _handle_settings_section(self, query, context, group_id: int, section: str):
         if section == "stats":
