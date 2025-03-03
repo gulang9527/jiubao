@@ -128,6 +128,8 @@ class SettingsManager:
         self._state_locks = {}
         self._cleanup_task = None
         self._max_states_per_user = 5
+        import config
+        self.config = config
         
     async def start(self):
         """启动状态管理器"""
@@ -154,7 +156,7 @@ class SettingsManager:
         """清理过期状态"""
         while True:
             try:
-                now = datetime.now(config.TIMEZONE)
+                now = datetime.now(self.config.TIMEZONE)
                 expired_keys = []
                 async with asyncio.Lock():
                     for key, state in self._states.items():
