@@ -993,26 +993,28 @@ class TelegramBot:
         await query.edit_message_text("请选择关键词匹配类型：", reply_markup=InlineKeyboardMarkup(keyboard))
 
     @handle_callback_errors
-    async def _handle_settings_callback(self, update, context):
+        async def _handle_settings_callback(self, update, context):
         query = update.callback_query
         logger.info(f"收到回调查询: {query.id} at {query.message.date}")
         try:
             # 立即响应回调查询，但不修改消息
             await query.answer()    
             data = query.data
-            # 优先处理返回群组列表的情况
+            # 处理返回群组列表的情况
             if data == "show_manageable_groups":
-                await self._handle_show_manageable_groups(update, context)
-                return   
-            parts = data.split('_')
-            if len(parts) < 3:
-                await query.edit_message_text("❌ 无效的操作")
-                return       
-            action = parts[1]
-            group_id = int(parts[2])
-            # 检查用户是否有权限管理该群组
-            if not await self.db.can_manage_group(update.effective_user.id, group_id):
-                await query.edit_message_text("❌ 无权限管理此群组")
+                manageable_groups = await self.db.get_manageable_groups(update.effective_user.id)
+                if not manageable_groups:
+                    await query.edit_message_text("❌ 你没有权限管理任何群组")
+                    return  
+                keyboard = []
+                for group in manageable_groups:
+                    try:
+                        group_info = await context.bot.get_chat(group['group_id'])
+                        group_name = group_info.title or f"群组 {group['group_id']}"
+                    except Exception:
+                        group_name = f"群组 {group['group_id']}"   
+                    keyboard.append([InlineKeyboardButton(group_name, callback_data=f"settings_select_{group['group_id']}")])
+                await query.edit_message_text("请选择要管理的群组：", reply_markup=InlineKeyboardMarkup(keyboard))
                 return
             # 处理特定的设置操作
             if action == "select":
@@ -1546,32 +1548,6 @@ class TelegramBot:
                     await context.bot.send_message(chat_id=query.message.chat_id, text="❌ 获取群组列表失败，请重试")
                 except Exception:
                     logger.error(f"无法发送错误消息", exc_info=True)
-
-        async def _handle_show_manageable_groups(self, update: Update, context):
-            query = update.callback_query
-            try:
-                manageable_groups = await self.db.get_manageable_groups(update.effective_user.id)
-                if not manageable_groups:
-                    await query.edit_message_text("❌ 你没有权限管理任何群组")
-                    return  
-                keyboard = []
-                for group in manageable_groups:
-                    try:
-                        group_info = await context.bot.get_chat(group['group_id'])
-                        group_name = group_info.title or f"群组 {group['group_id']}"
-                    except Exception:
-                        group_name = f"群组 {group['group_id']}"   
-                    keyboard.append([InlineKeyboardButton(group_name, callback_data=f"settings_select_{group['group_id']}")])
-                await query.edit_message_text("请选择要管理的群组：", reply_markup=InlineKeyboardMarkup(keyboard))
-            except Exception as e:
-                logger.error(f"显示可管理群组时出错: {e}", exc_info=True)
-                try:
-                    await query.edit_message_text("❌ 获取群组列表失败，请重试")
-                except Exception:
-                    try:
-                        await context.bot.send_message(chat_id=query.message.chat_id, text="❌ 获取群组列表失败，请重试")
-                    except Exception:
-                        logger.error(f"无法发送错误消息", exc_info=True)
 
     async def _handle_settings_section(self, query, context, group_id: int, section: str):
         if section == "stats":
