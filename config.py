@@ -1,5 +1,6 @@
 import os
 from dotenv import load_dotenv
+import pytz  # For timezone handling
 
 # 加载环境变量
 load_dotenv()
@@ -33,6 +34,10 @@ DEFAULT_GROUPS = [
         'feature_switches': {'keywords': True, 'stats': True, 'broadcast': True}
     }
 ]
+
+# 时区设置
+TIMEZONE_STR = os.getenv('TIMEZONE', 'Asia/Shanghai')
+TIMEZONE = pytz.timezone(TIMEZONE_STR)
 
 # 统计设置
 DEFAULT_SETTINGS = {
@@ -78,9 +83,6 @@ ALLOWED_MEDIA_TYPES = ['text', 'photo', 'video', 'document']
 
 # 权限配置
 DEFAULT_PERMISSIONS = ['keywords', 'stats', 'broadcast']
-
-# 时区设置
-TIMEZONE = os.getenv('TIMEZONE', 'Asia/Shanghai')
 
 # 状态管理配置
 STATE_MANAGEMENT_SETTINGS = {
