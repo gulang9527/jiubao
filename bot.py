@@ -679,8 +679,8 @@ class CommandHelper:
             'example': '/deauthgroup -100123456789',
             'admin_only': True
         },
-        '取消': {  # 修改为 /取消
-            'usage': '/取消',
+        'cancel': {
+            'usage': '/cancel',
             'description': '取消当前操作',
             'example': None,
             'admin_only': False
@@ -1013,7 +1013,7 @@ class TelegramBot:
         self.application.add_handler(CommandHandler("tongji30", self._handle_rank_command))
         self.application.add_handler(CommandHandler("settings", self._handle_settings))
         self.application.add_handler(CommandHandler("admingroups", self._handle_admin_groups))
-        self.application.add_handler(CommandHandler("取消", self._handle_cancel))  # 修改为 /取消
+        self.application.add_handler(CommandHandler("cancel", self._handle_cancel))
     
         self.application.add_handler(CommandHandler("addsuperadmin", self._handle_add_superadmin))
         self.application.add_handler(CommandHandler("delsuperadmin", self._handle_del_superadmin))
@@ -1076,7 +1076,7 @@ class TelegramBot:
 
             match_type_text = "精确匹配" if match_type == "exact" else "正则匹配"
             await query.edit_message_text(
-                f"您选择了{match_type_text}方式\n\n请发送关键词内容：\n{'(支持正则表达式)' if match_type == 'regex' else ''}\n\n发送 /取消 取消"
+                f"您选择了{match_type_text}方式\n\n请发送关键词内容：\n{'(支持正则表达式)' if match_type == 'regex' else ''}\n\n发送 /cancel 取消"
             )
 
         elif action == "detail":
@@ -1222,7 +1222,7 @@ class TelegramBot:
         if action == "add":
             await self.settings_manager.start_setting(update.effective_user.id, 'broadcast', group_id)
             await query.edit_message_text(
-                "请发送要轮播的内容：\n支持文本、图片、视频或文件\n\n发送 /取消 取消"
+                "请发送要轮播的内容：\n支持文本、图片、视频或文件\n\n发送 /cancel 取消"
             )
 
         elif action == "detail":
@@ -1290,7 +1290,7 @@ class TelegramBot:
         settings = await self.db.get_group_settings(group_id)
 
         if setting_type == "min_bytes":
-            await query.edit_message_text("请输入最小统计字节数：\n• 低于此值的消息将不计入统计\n• 输入 0 表示统计所有消息\n\n发送 /取消 取消")
+            await query.edit_message_text("请输入最小统计字节数：\n• 低于此值的消息将不计入统计\n• 输入 0 表示统计所有消息\n\n发送 /cancel 取消")
             await self.settings_manager.start_setting(update.effective_user.id, 'stats_min_bytes', group_id)
 
         elif setting_type == "toggle_media":
@@ -1299,11 +1299,11 @@ class TelegramBot:
             await self._show_stats_settings(query, group_id, settings)
 
         elif setting_type == "daily_rank":
-            await query.edit_message_text("请输入日排行显示的用户数量：\n• 建议在 5-20 之间\n\n发送 /取消 取消")
+            await query.edit_message_text("请输入日排行显示的用户数量：\n• 建议在 5-20 之间\n\n发送 /cancel 取消")
             await self.settings_manager.start_setting(update.effective_user.id, 'stats_daily_rank', group_id)
 
         elif setting_type == "monthly_rank":
-            await query.edit_message_text("请输入月排行显示的用户数量：\n• 建议在 5-20 之间\n\n发送 /取消 取消")
+            await query.edit_message_text("请输入月排行显示的用户数量：\n• 建议在 5-20 之间\n\n发送 /cancel 取消")
             await self.settings_manager.start_setting(update.effective_user.id, 'stats_monthly_rank', group_id)
 
     @handle_callback_errors
@@ -1363,7 +1363,7 @@ class TelegramBot:
 
         elif action == "custom":
             await self.settings_manager.start_setting(update.effective_user.id, 'auto_delete_timeout', group_id)
-            await query.edit_message_text("请输入自定义超时时间（单位：秒，60-86400）：\n\n发送 /取消 取消")
+            await query.edit_message_text("请输入自定义超时时间（单位：秒，60-86400）：\n\n发送 /cancel 取消")
 
     @check_command_usage
     async def _handle_start(self, update: Update, context):
@@ -1384,7 +1384,7 @@ class TelegramBot:
             "🔧 /settings - 配置机器人\n"
             "📊 /tongji - 查看今日统计\n"
             "📈 /tongji30 - 查看30日统计\n"
-            "🚫 /取消 - 取消当前操作\n"
+            "🚫 /cancel - 取消当前操作\n"
         )
 
         if is_admin:
@@ -1834,7 +1834,7 @@ class TelegramBot:
                     self.settings_manager._states[state_key]['step'] = 2
                     self.settings_manager._states[state_key]['timestamp'] = datetime.now(config.TIMEZONE)
             
-            await update.message.reply_text("✅ 关键词已设置\n\n请发送此关键词的回复内容（支持文字/图片/视频/文件）：\n\n发送 /取消 取消设置")
+            await update.message.reply_text("✅ 关键词已设置\n\n请发送此关键词的回复内容（支持文字/图片/视频/文件）：\n\n发送 /cancel 取消设置")
             
         elif step == 2:
             response_type = None
@@ -1935,7 +1935,7 @@ class TelegramBot:
                     self.settings_manager._states[state_key]['timestamp'] = datetime.now(config.TIMEZONE)
 
             await update.message.reply_text(
-                "✅ 内容已设置\n\n请设置轮播时间参数：\n格式：开始时间 结束时间 间隔秒数\n例如：2024-02-22 08:00 2024-03-22 20:00 3600\n\n发送 /取消 取消"
+                "✅ 内容已设置\n\n请设置轮播时间参数：\n格式：开始时间 结束时间 间隔秒数\n例如：2024-02-22 08:00 2024-03-22 20:00 3600\n\n发送 /cancel 取消"
             )
 
         elif step == 2:
@@ -2012,7 +2012,7 @@ class TelegramBot:
 
     @check_command_usage
     async def _handle_cancel(self, update: Update, context):
-        """处理 /取消 命令"""
+        """处理 /cancel 命令"""
         user_id = update.effective_user.id
         active_settings = await self.settings_manager.get_active_settings(user_id)
         if not active_settings:
