@@ -125,43 +125,23 @@ def format_error_message(error: Exception) -> str:
     error_message = str(error)
     return f"❌ {error_type}: {error_message}"
 
-def validate_delete_timeout(
-    timeout: Optional[int] = None, 
-    message_type: Optional[str] = None
-) -> int:
+def validate_delete_timeout(timeout: Optional[int] = None, message_type: Optional[str] = None) -> int:
     """
     验证并返回有效的删除超时时间
-    
     :param timeout: 超时时间（秒）
-    :param message_type: 消息类型，可用于差异化超时
+    :param message_type: 消息类型，用于差异化超时
     :return: 有效的超时时间
     """
     from config import AUTO_DELETE_SETTINGS
     
-    # 如果未启用自动删除，返回0（不删除）
     if not AUTO_DELETE_SETTINGS.get('enabled', False):
         return 0
     
-    # 如果未提供超时时间，返回默认值
     if timeout is None:
-        # 可以根据消息类型设置不同的默认超时
-        type_timeouts = {
-            'text': AUTO_DELETE_SETTINGS['default_timeout'],
-            'photo': AUTO_DELETE_SETTINGS['default_timeout'] * 2,
-            'video': AUTO_DELETE_SETTINGS['default_timeout'] * 3,
-            'document': AUTO_DELETE_SETTINGS['default_timeout'] * 1.5
-        }
-        timeout = type_timeouts.get(
-            message_type, 
-            AUTO_DELETE_SETTINGS['default_timeout']
-        )
+        timeouts = AUTO_DELETE_SETTINGS['timeouts']
+        timeout = timeouts.get(message_type, timeouts['default']) if message_type else timeouts['default']
     
-    # 检查超时时间是否在允许范围内
-    timeout = max(
-        AUTO_DELETE_SETTINGS['min_timeout'], 
-        min(timeout, AUTO_DELETE_SETTINGS['max_timeout'])
-    )
-    
+    timeout = max(AUTO_DELETE_SETTINGS['min_timeout'], min(timeout, AUTO_DELETE_SETTINGS['max_timeout']))
     return timeout
 
 def is_auto_delete_exempt(user_role: str, command: Optional[str] = None) -> bool:
