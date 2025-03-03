@@ -5,7 +5,6 @@ import asyncio
 import logging
 import traceback
 import config
-import logging
 from telegram.error import BadRequest
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Tuple, Callable, Union
