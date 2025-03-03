@@ -969,60 +969,91 @@ class TelegramBot:
         ]
         await query.edit_message_text("请选择关键词匹配类型：", reply_markup=InlineKeyboardMarkup(keyboard))
 
+    @handle_callback_errors
     async def _handle_settings_callback(self, update, context):
         query = update.callback_query
         logger.info(f"收到回调查询: {query.id} at {query.message.date}")
         try:
-            await query.answer()  # 立即响应
-            await query.edit_message_text("设置已更新")
+            # 立即响应回调查询，但不修改消息
+            await query.answer()    
+            data = query.data
+            # 优先处理返回群组列表的情况
+            if data == "show_manageable_groups":
+                await self._handle_show_manageable_groups(update, context)
+                return   
+            parts = data.split('_')
+            if len(parts) < 3:
+                await query.edit_message_text("❌ 无效的操作")
+                return       
+            action = parts[1]
+            group_id = int(parts[2])
+            # 检查用户是否有权限管理该群组
+            if not await self.db.can_manage_group(update.effective_user.id, group_id):
+                await query.edit_message_text("❌ 无权限管理此群组")
+                return
+            # 处理特定的设置操作
+            if action == "select":
+                group = await self.db.get_group(group_id)
+                switches = group.get('feature_switches', {'keywords': True, 'stats': True, 'broadcast': True})
+                keyboard = []
+                if 'stats' in group.get('permissions', []):
+                    status = '开' if switches.get('stats', True) else '关'
+                    keyboard.append([InlineKeyboardButton(f"📊 统计设置: {status}", callback_data=f"settings_stats_{group_id}")])
+                if 'broadcast' in group.get('permissions', []):
+                    status = '开' if switches.get('broadcast', True) else '关'
+                    keyboard.append([InlineKeyboardButton(f"📢 轮播消息: {status}", callback_data=f"settings_broadcast_{group_id}")])
+                if 'keywords' in group.get('permissions', []):
+                    status = '开' if switches.get('keywords', True) else '关'
+                    keyboard.append([InlineKeyboardButton(f"🔑 关键词设置: {status}", callback_data=f"settings_keywords_{group_id}")]) 
+                settings = await self.db.get_group_settings(group_id)
+                auto_delete_status = '开启' if settings.get('auto_delete', False) else '关闭'
+                keyboard.append([InlineKeyboardButton(f"🗑️ 自动删除: {auto_delete_status}", callback_data=f"auto_delete_toggle_{group_id}")])
+                keyboard.append([InlineKeyboardButton("🔙 返回群组列表", callback_data="show_manageable_groups")])
+                await query.edit_message_text("请选择要管理的功能：", reply_markup=InlineKeyboardMarkup(keyboard)) 
+            elif action in ["stats", "broadcast", "keywords"]:
+                # 切换功能开关状态
+                group = await self.db.get_group(group_id)
+                switches = group.get('feature_switches', {'keywords': True, 'stats': True, 'broadcast': True})
+                new_status = not switches.get(action, True)
+                await self.db.db.groups.update_one(
+                    {'group_id': group_id},
+                    {'$set': {f'feature_switches.{action}': new_status}}
+                )
+                group = await self.db.get_group(group_id)
+                switches = group.get('feature_switches', {'keywords': True, 'stats': True, 'broadcast': True})
+                keyboard = []
+                if 'stats' in group.get('permissions', []):
+                    status = '开' if switches.get('stats', True) else '关'
+                    keyboard.append([InlineKeyboardButton(f"📊 统计设置: {status}", callback_data=f"settings_stats_{group_id}")])
+                if 'broadcast' in group.get('permissions', []):
+                    status = '开' if switches.get('broadcast', True) else '关'
+                    keyboard.append([InlineKeyboardButton(f"📢 轮播消息: {status}", callback_data=f"settings_broadcast_{group_id}")])
+                if 'keywords' in group.get('permissions', []):
+                    status = '开' if switches.get('keywords', True) else '关'
+                    keyboard.append([InlineKeyboardButton(f"🔑 关键词设置: {status}", callback_data=f"settings_keywords_{group_id}")])
+                settings = await self.db.get_group_settings(group_id)
+                auto_delete_status = '开启' if settings.get('auto_delete', False) else '关闭'
+                keyboard.append([InlineKeyboardButton(f"🗑️ 自动删除: {auto_delete_status}", callback_data=f"auto_delete_toggle_{group_id}")])
+                keyboard.append([InlineKeyboardButton("🔙 返回群组列表", callback_data="show_manageable_groups")])
+                await query.edit_message_text("请选择要管理的功能：", reply_markup=InlineKeyboardMarkup(keyboard))
+            else:
+                # 处理设置的各个子部分
+                await self._handle_settings_section(query, context, group_id, action)
         except BadRequest as e:
             logger.error(f"回调查询失败: {e}")
-            await context.bot.send_message(chat_id=query.message.chat_id, text="操作超时，请重试")
-        logger.info(f"响应完成: {query.id}")
-        # 然后执行其他耗时操作
-        await query.edit_message_text("处理中...")
-        data = query.data
-        if data == "show_manageable_groups":
-            await self._handle_show_manageable_groups(update, context)
-            return
-        parts = data.split('_')
-        if len(parts) < 3:
-            await query.edit_message_text("❌ 无效的操作")
-            return
-        action = parts[1]
-        group_id = int(parts[2])
-        if not await self.db.can_manage_group(update.effective_user.id, group_id):
-            await query.edit_message_text("❌ 无权限管理此群组")
-            return
-        if action == "select":
-            group = await self.db.get_group(group_id)
-            switches = group.get('feature_switches', {'keywords': True, 'stats': True, 'broadcast': True})
-            keyboard = []
-            if 'stats' in group.get('permissions', []):
-                status = '开' if switches.get('stats', True) else '关'
-                keyboard.append([InlineKeyboardButton(f"📊 统计设置: {status}", callback_data=f"settings_stats_{group_id}")])
-            if 'broadcast' in group.get('permissions', []):
-                status = '开' if switches.get('broadcast', True) else '关'
-                keyboard.append([InlineKeyboardButton(f"📢 轮播消息: {status}", callback_data=f"settings_broadcast_{group_id}")])
-            if 'keywords' in group.get('permissions', []):
-                status = '开' if switches.get('keywords', True) else '关'
-                keyboard.append([InlineKeyboardButton(f"🔑 关键词设置: {status}", callback_data=f"settings_keywords_{group_id}")])
-            settings = await self.db.get_group_settings(group_id)
-            auto_delete_status = '开启' if settings.get('auto_delete', False) else '关闭'
-            keyboard.append([InlineKeyboardButton(f"🗑️ 自动删除: {auto_delete_status}", callback_data=f"auto_delete_toggle_{group_id}")])
-            keyboard.append([InlineKeyboardButton("🔙 返回群组列表", callback_data="show_manageable_groups")])
-            await query.edit_message_text("请选择要管理的功能：", reply_markup=InlineKeyboardMarkup(keyboard))
-        elif action in ["stats", "broadcast", "keywords"]:
-            group = await self.db.get_group(group_id)
-            switches = group.get('feature_switches', {'keywords': True, 'stats': True, 'broadcast': True})
-            new_status = not switches.get(action, True)
-            await self.db.db.groups.update_one(
-                {'group_id': group_id},
-                {'$set': {f'feature_switches.{action}': new_status}}
-            )
-            await self._handle_settings_callback(update, context)  # 刷新界面
-        else:
-            await self._handle_settings_section(query, context, group_id, action)
+            try:
+                await context.bot.send_message(chat_id=query.message.chat_id, text="操作超时或消息已过期，请重试")
+            except Exception:
+                logger.error(f"无法发送错误消息", exc_info=True)
+        except Exception as e:
+            logger.error(f"处理设置回调时出错: {e}", exc_info=True)
+            try:
+                await query.edit_message_text("❌ 处理请求时出错，请重试")
+            except Exception:
+                try:
+                    await context.bot.send_message(chat_id=query.message.chat_id, text="❌ 处理请求时出错，请重试")
+                except Exception:
+                    logger.error(f"无法发送错误消息", exc_info=True)
 
     @handle_callback_errors
     async def _handle_broadcast_callback(self, update: Update, context):
@@ -1439,20 +1470,29 @@ class TelegramBot:
 
     async def _handle_show_manageable_groups(self, update: Update, context):
         query = update.callback_query
-        await query.answer()
-        manageable_groups = await self.db.get_manageable_groups(update.effective_user.id)
-        if not manageable_groups:
-            await query.edit_message_text("❌ 你没有权限管理任何群组")
-            return
-        keyboard = []
-        for group in manageable_groups:
+        try:
+            manageable_groups = await self.db.get_manageable_groups(update.effective_user.id)
+            if not manageable_groups:
+                await query.edit_message_text("❌ 你没有权限管理任何群组")
+                return  
+            keyboard = []
+            for group in manageable_groups:
+                try:
+                    group_info = await context.bot.get_chat(group['group_id'])
+                    group_name = group_info.title or f"群组 {group['group_id']}"
+                except Exception:
+                    group_name = f"群组 {group['group_id']}"   
+                keyboard.append([InlineKeyboardButton(group_name, callback_data=f"settings_select_{group['group_id']}")])
+            await query.edit_message_text("请选择要管理的群组：", reply_markup=InlineKeyboardMarkup(keyboard))
+        except Exception as e:
+            logger.error(f"显示可管理群组时出错: {e}", exc_info=True)
             try:
-                group_info = await context.bot.get_chat(group['group_id'])
-                group_name = group_info.title or f"群组 {group['group_id']}"
+                await query.edit_message_text("❌ 获取群组列表失败，请重试")
             except Exception:
-                group_name = f"群组 {group['group_id']}"
-            keyboard.append([InlineKeyboardButton(group_name, callback_data=f"settings_select_{group['group_id']}")])
-        await query.edit_message_text("请选择要管理的群组：", reply_markup=InlineKeyboardMarkup(keyboard))
+                try:
+                    await context.bot.send_message(chat_id=query.message.chat_id, text="❌ 获取群组列表失败，请重试")
+                except Exception:
+                    logger.error(f"无法发送错误消息", exc_info=True)
 
     async def _handle_settings_section(self, query, context, group_id: int, section: str):
         if section == "stats":
