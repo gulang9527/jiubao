@@ -993,7 +993,7 @@ class TelegramBot:
         await query.edit_message_text("请选择关键词匹配类型：", reply_markup=InlineKeyboardMarkup(keyboard))
 
     @handle_callback_errors
-        async def _handle_settings_callback(self, update, context):
+    async def _handle_settings_callback(self, update, context):
         query = update.callback_query
         logger.info(f"收到回调查询: {query.id} at {query.message.date}")
         try:
