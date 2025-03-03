@@ -40,6 +40,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+async def _handle_settings_callback(self, update, context):
+    query = update.callback_query
+    logger.info(f"收到回调查询: {query.id} at {query.message.date}")
+    await query.answer()
+    logger.info(f"响应完成: {query.id}")
+
 # 加载环境变量
 load_dotenv()
 
@@ -969,7 +975,15 @@ class TelegramBot:
 
     async def _handle_settings_callback(self, update: Update, context):
         query = update.callback_query
-        await query.answer()
+        try:
+            await query.answer()
+            await query.edit_message_text("操作成功")
+        except telegram.error.BadRequest as e:
+            print(f"回调查询失败: {e}")
+            await context.bot.send_message(chat_id=query.message.chat_id, text="操作超时，请重试")
+        await query.answer()  # 立即响应，避免超时
+        # 然后执行其他耗时操作
+        await query.edit_message_text("处理中...")
         data = query.data
         if data == "show_manageable_groups":
             await self._handle_show_manageable_groups(update, context)
