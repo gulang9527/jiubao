@@ -948,11 +948,34 @@ class TelegramBot:
                 return
             keyword_id = parts[2]
             keyword = await self.keyword_manager.get_keyword_by_id(group_id, keyword_id)
-            pattern = keyword['pattern'] if keyword else "未知关键词"
+           pattern = keyword['pattern'] if keyword else "未知关键词"
+            # 删除关键词
             await self.db.remove_keyword(group_id, keyword_id)
-            await query.edit_message_text(f"✅ 已删除关键词「{pattern}」")
-            await asyncio.sleep(1)
-            await self._show_keyword_settings(query, group_id)
+            # 直接获取最新关键词列表并显示
+            keywords = await self.db.get_keywords(group_id)
+            total_pages = (len(keywords) + 9) // 10
+            page = 1
+            start_idx = 0
+            end_idx = min(10, len(keywords))
+            page_keywords = keywords[start_idx:end_idx] if keywords else []
+            keyboard = [
+                [InlineKeyboardButton(f"🔑 {kw['pattern'][:20] + '...' if len(kw['pattern']) > 20 else kw['pattern']}", 
+                                      callback_data=f"keyword_detail_{kw['_id']}_{group_id}")] 
+                for kw in page_keywords
+            ]
+            if total_pages > 1:
+                nav_buttons = []
+                if page < total_pages:
+                    nav_buttons.append(InlineKeyboardButton("下一页 ▶️", callback_data=f"keyword_list_page_{page+1}_{group_id}"))
+                if nav_buttons:
+                    keyboard.append(nav_buttons) 
+            keyboard.append([InlineKeyboardButton("➕ 添加关键词", callback_data=f"keyword_add_{group_id}")])
+            keyboard.append([InlineKeyboardButton("返回设置菜单", callback_data=f"settings_select_{group_id}")])
+            text = f"✅ 已删除关键词「{pattern}」\n\n群组 {group_id} 的关键词设置" + (f"\n第 {page}/{total_pages} 页" if total_pages > 1 else "")
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        elif action == "list_page":
+            page = int(parts[2])
+            await self._show_keyword_settings(query, group_id, page)
 
     @handle_callback_errors
     async def _handle_keyword_continue_callback(self, update: Update, context):
@@ -1069,20 +1092,23 @@ class TelegramBot:
         if not await self.db.can_manage_group(update.effective_user.id, group_id):
             await query.edit_message_text("❌ 无权限管理此群组")
             return
+        if not await self.has_permission(group_id, GroupPermission.BROADCAST):
+            await query.edit_message_text("❌ 此群组未启用轮播功能")
+            return 
         if action == "add":
             await self.settings_manager.start_setting(update.effective_user.id, 'broadcast', group_id)
             await query.edit_message_text(
                 "请发送要轮播的内容：\n支持文本、图片、视频或文件\n\n发送 /cancel 取消"
-            )
+            )  
         elif action == "detail":
             if len(parts) < 4:
                 await query.edit_message_text("❌ 无效的轮播消息ID")
                 return
             broadcast_id = ObjectId(parts[2])
-            broadcast = await self.db.db.broadcasts.find_one({'_id': broadcast_id, 'group_id': group_id})
+            broadcast = await self.db.db.broadcasts.find_one({'_id': broadcast_id, 'group_id': group_id}) 
             if not broadcast:
                 await query.edit_message_text("❌ 未找到该轮播消息")
-                return
+                return     
             content_preview = str(broadcast['content'])[:50] + "..." if len(str(broadcast['content'])) > 50 else str(broadcast['content'])
             start_time = broadcast['start_time'].astimezone(config.TIMEZONE).strftime('%Y-%m-%d %H:%M')
             end_time = broadcast['end_time'].astimezone(config.TIMEZONE).strftime('%Y-%m-%d %H:%M')
@@ -1094,21 +1120,41 @@ class TelegramBot:
                 f"🔹 开始时间：{start_time}\n"
                 f"🔹 结束时间：{end_time}\n"
                 f"🔹 间隔：{interval}"
-            )
+            )   
             keyboard = [
                 [InlineKeyboardButton("❌ 删除此轮播消息", callback_data=f"broadcast_delete_{broadcast_id}_{group_id}")],
                 [InlineKeyboardButton("🔙 返回列表", callback_data=f"settings_broadcast_{group_id}")]
-            ]
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+            ]  
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))        
         elif action == "delete":
             if len(parts) < 4:
                 await query.edit_message_text("❌ 无效的轮播消息ID")
-                return
-            broadcast_id = ObjectId(parts[2])
-            await self.db.db.broadcasts.delete_one({'_id': broadcast_id, 'group_id': group_id})
-            await query.edit_message_text("✅ 已删除轮播消息")
-            await asyncio.sleep(1)
-            await self._show_broadcast_settings(query, group_id)
+                return         
+            broadcast_id = ObjectId(parts[2])   
+            # 检查轮播消息是否存在
+            broadcast = await self.db.db.broadcasts.find_one({'_id': broadcast_id, 'group_id': group_id})
+            if not broadcast:
+                await query.edit_message_text("❌ 未找到该轮播消息")
+                return       
+            # 删除轮播消息
+            await self.db.db.broadcasts.delete_one({'_id': broadcast_id, 'group_id': group_id})      
+            # 获取最新的轮播消息列表并直接显示
+            broadcasts = await self.db.get_broadcasts(group_id)
+            keyboard = []  
+            for bc in broadcasts:
+                content_type = bc.get('content_type', '未知类型')
+                content = bc.get('content', '')
+                content_preview = str(content)[:20] + '...' if len(str(content)) > 20 else str(content)   
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"📢 {content_type}: {content_preview}", 
+                        callback_data=f"broadcast_detail_{bc['_id']}_{group_id}"
+                    )
+                ])          
+            keyboard.append([InlineKeyboardButton("➕ 添加轮播消息", callback_data=f"broadcast_add_{group_id}")])
+            keyboard.append([InlineKeyboardButton("返回设置菜单", callback_data=f"settings_select_{group_id}")]) 
+            text = f"✅ 已删除轮播消息\n\n群组 {group_id} 的轮播消息设置"
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
     @handle_callback_errors
     async def _handle_stats_edit_callback(self, update: Update, context):
@@ -1151,46 +1197,53 @@ class TelegramBot:
         if len(parts) < 3:
             await query.edit_message_text("❌ 无效的操作")
             return
-        action = parts[2]
-        group_id = int(parts[-1])
-        if not await self.db.can_manage_group(update.effective_user.id, group_id):
-            await query.edit_message_text("❌ 无权限管理此群组")
-            return
-        settings = await self.db.get_group_settings(group_id)
-        if action == "toggle":
-            settings['auto_delete'] = not settings.get('auto_delete', False)
-            await self.db.update_group_settings(group_id, settings)
-            status = '开启' if settings['auto_delete'] else '关闭'
-            keyboard = [
-                [InlineKeyboardButton(f"自动删除: {status}", callback_data=f"auto_delete_toggle_{group_id}")],
-                [InlineKeyboardButton("设置超时时间", callback_data=f"auto_delete_timeout_{group_id}")],
-                [InlineKeyboardButton("返回设置菜单", callback_data=f"settings_select_{group_id}")]
-            ]
-            await query.edit_message_text(f"自动删除已{status}", reply_markup=InlineKeyboardMarkup(keyboard))
-        elif action == "timeout":
-            current_timeout = settings.get('auto_delete_timeout', config.AUTO_DELETE_SETTINGS['default_timeout'])
-            keyboard = [
-                [InlineKeyboardButton(f"{'✅' if current_timeout == 300 else ' '} 5分钟", callback_data=f"auto_delete_set_timeout_{group_id}_300")],
-                [InlineKeyboardButton(f"{'✅' if current_timeout == 600 else ' '} 10分钟", callback_data=f"auto_delete_set_timeout_{group_id}_600")],
-                [InlineKeyboardButton(f"{'✅' if current_timeout == 1800 else ' '} 30分钟", callback_data=f"auto_delete_set_timeout_{group_id}_1800")],
-                [InlineKeyboardButton("自定义", callback_data=f"auto_delete_custom_timeout_{group_id}")],
-                [InlineKeyboardButton("返回", callback_data=f"auto_delete_toggle_{group_id}")]
-            ]
-            await query.edit_message_text("请选择自动删除的超时时间：", reply_markup=InlineKeyboardMarkup(keyboard))
-        elif action == "set":
-            timeout = int(parts[3])
-            settings['auto_delete_timeout'] = timeout
-            await self.db.update_group_settings(group_id, settings)
-            status = '开启' if settings.get('auto_delete', False) else '关闭'
-            keyboard = [
-                [InlineKeyboardButton(f"自动删除: {status}", callback_data=f"auto_delete_toggle_{group_id}")],
-                [InlineKeyboardButton("设置超时时间", callback_data=f"auto_delete_timeout_{group_id}")],
-                [InlineKeyboardButton("返回设置菜单", callback_data=f"settings_select_{group_id}")]
-            ]
-            await query.edit_message_text(f"超时时间已设置为 {format_duration(timeout)}", reply_markup=InlineKeyboardMarkup(keyboard))
-        elif action == "custom":
-            await self.settings_manager.start_setting(update.effective_user.id, 'auto_delete_timeout', group_id)
-            await query.edit_message_text("请输入自定义超时时间（单位：秒，60-86400）：\n\n发送 /cancel 取消")
+        action = parts[1]
+        if action == "toggle" or action == "timeout" or action == "set" or action == "custom":
+            group_id = int(parts[-1])
+            if not await self.db.can_manage_group(update.effective_user.id, group_id):
+                await query.edit_message_text("❌ 无权限管理此群组")
+                return
+            settings = await self.db.get_group_settings(group_id)
+            if action == "toggle":
+                # 切换自动删除开关状态
+                settings['auto_delete'] = not settings.get('auto_delete', False)
+                await self.db.update_group_settings(group_id, settings)
+                status = '开启' if settings['auto_delete'] else '关闭'
+                keyboard = [
+                    [InlineKeyboardButton(f"自动删除: {status}", callback_data=f"auto_delete_toggle_{group_id}")],
+                    [InlineKeyboardButton("设置超时时间", callback_data=f"auto_delete_timeout_{group_id}")],
+                    [InlineKeyboardButton("返回设置菜单", callback_data=f"settings_select_{group_id}")]
+                ]
+                await query.edit_message_text(f"自动删除已{status}", reply_markup=InlineKeyboardMarkup(keyboard))
+            elif action == "timeout":
+                # 显示超时时间选择界面
+                current_timeout = settings.get('auto_delete_timeout', config.AUTO_DELETE_SETTINGS['default_timeout'])
+                keyboard = [
+                    [InlineKeyboardButton(f"{'✅' if current_timeout == 300 else ' '} 5分钟", callback_data=f"auto_delete_set_timeout_{group_id}_300")],
+                    [InlineKeyboardButton(f"{'✅' if current_timeout == 600 else ' '} 10分钟", callback_data=f"auto_delete_set_timeout_{group_id}_600")],
+                    [InlineKeyboardButton(f"{'✅' if current_timeout == 1800 else ' '} 30分钟", callback_data=f"auto_delete_set_timeout_{group_id}_1800")],
+                    [InlineKeyboardButton("自定义", callback_data=f"auto_delete_custom_timeout_{group_id}")],
+                    [InlineKeyboardButton("返回", callback_data=f"auto_delete_toggle_{group_id}")]
+                ]
+                await query.edit_message_text("请选择自动删除的超时时间：", reply_markup=InlineKeyboardMarkup(keyboard))
+            elif action == "set":
+                if len(parts) < 4:
+                    await query.edit_message_text("❌ 无效的超时时间")
+                    return
+                timeout = int(parts[3])
+                settings['auto_delete_timeout'] = timeout
+                await self.db.update_group_settings(group_id, settings)
+                status = '开启' if settings.get('auto_delete', False) else '关闭'
+                keyboard = [
+                    [InlineKeyboardButton(f"自动删除: {status}", callback_data=f"auto_delete_toggle_{group_id}")],
+                    [InlineKeyboardButton("设置超时时间", callback_data=f"auto_delete_timeout_{group_id}")],
+                    [InlineKeyboardButton("返回设置菜单", callback_data=f"settings_select_{group_id}")]
+                ]
+                await query.edit_message_text(f"超时时间已设置为 {format_duration(timeout)}", reply_markup=InlineKeyboardMarkup(keyboard))   
+            elif action == "custom":
+                # 启动自定义超时设置流程
+                await self.settings_manager.start_setting(update.effective_user.id, 'auto_delete_timeout', group_id)
+                await query.edit_message_text("请输入自定义超时时间（单位：秒，60-86400）：\n\n发送 /cancel 取消")
 
     @check_command_usage
     async def _handle_start(self, update: Update, context):
