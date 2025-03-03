@@ -1727,11 +1727,18 @@ class TelegramBot:
         
     async def _show_broadcast_settings(self, query, group_id: int):
         broadcasts = await self.db.get_broadcasts(group_id)
-        keyboard = [
-            [InlineKeyboardButton(f"📢 {bc['content_type']}: {str(bc['content'])[:20] + '...' if len(str(bc['content'])) > 20 else str(bc['content'])}", 
-                                  callback_data=f"broadcast_detail_{bc['_id']}_{group_id}") 
-             ] for bc in broadcasts
-        ]
+        keyboard = []  
+        for bc in broadcasts:
+            # 添加默认值处理
+            content_type = bc.get('content_type', '未知类型')
+            content = bc.get('content', '')
+            content_preview = str(content)[:20] + '...' if len(str(content)) > 20 else str(content)   
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"📢 {content_type}: {content_preview}", 
+                    callback_data=f"broadcast_detail_{bc['_id']}_{group_id}"
+                )
+            ])
         keyboard.append([InlineKeyboardButton("➕ 添加轮播消息", callback_data=f"broadcast_add_{group_id}")])
         keyboard.append([InlineKeyboardButton("返回设置菜单", callback_data=f"settings_select_{group_id}")])
         await query.edit_message_text(f"群组 {group_id} 的轮播消息设置", reply_markup=InlineKeyboardMarkup(keyboard))
