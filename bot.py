@@ -5,6 +5,8 @@ import asyncio
 import logging
 import traceback
 import config
+import logging
+from telegram.error import BadRequest
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Tuple, Callable, Union
 from enum import Enum
@@ -38,13 +40,8 @@ logging.basicConfig(
         logging.FileHandler('bot.log', encoding='utf-8')
     ]
 )
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-async def _handle_settings_callback(self, update, context):
-    query = update.callback_query
-    logger.info(f"收到回调查询: {query.id} at {query.message.date}")
-    await query.answer()
-    logger.info(f"响应完成: {query.id}")
 
 # 加载环境变量
 load_dotenv()
@@ -973,15 +970,16 @@ class TelegramBot:
         ]
         await query.edit_message_text("请选择关键词匹配类型：", reply_markup=InlineKeyboardMarkup(keyboard))
 
-    async def _handle_settings_callback(self, update: Update, context):
+    async def _handle_settings_callback(self, update, context):
         query = update.callback_query
+        logger.info(f"收到回调查询: {query.id} at {query.message.date}")
         try:
-            await query.answer()
-            await query.edit_message_text("操作成功")
-        except telegram.error.BadRequest as e:
-            print(f"回调查询失败: {e}")
+            await query.answer()  # 立即响应
+            await query.edit_message_text("设置已更新")
+        except BadRequest as e:
+            logger.error(f"回调查询失败: {e}")
             await context.bot.send_message(chat_id=query.message.chat_id, text="操作超时，请重试")
-        await query.answer()  # 立即响应，避免超时
+        logger.info(f"响应完成: {query.id}")
         # 然后执行其他耗时操作
         await query.edit_message_text("处理中...")
         data = query.data
