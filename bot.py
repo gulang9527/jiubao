@@ -948,7 +948,7 @@ class TelegramBot:
                 return
             keyword_id = parts[2]
             keyword = await self.keyword_manager.get_keyword_by_id(group_id, keyword_id)
-           pattern = keyword['pattern'] if keyword else "未知关键词"
+            pattern = keyword['pattern'] if keyword else "未知关键词"
             # 删除关键词
             await self.db.remove_keyword(group_id, keyword_id)
             # 直接获取最新关键词列表并显示
