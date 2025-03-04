@@ -1829,6 +1829,7 @@ class TelegramBot:
         await update.message.reply_text("✅ 已取消所有正在进行的设置操作")
 
     async def _handle_message(self, update: Update, context):
+        logger.info("进入_handle_message方法")
         message = update.effective_message
         user_id = update.effective_user.id
         group_id = update.effective_chat.id
