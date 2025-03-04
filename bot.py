@@ -1841,7 +1841,7 @@ class TelegramBot:
         user_id = update.effective_user.id
         group_id = update.effective_chat.id
     
-        logger.info(f"处理消息 - 用户ID: {user_id}, 群组ID: {group_id}, 消息类型: {message.content_type}")
+        logger.info(f"处理消息 - 用户ID: {user_id}, 群组ID: {group_id}, 消息类型: {get_media_type(message) or 'text'}")
     
         # 检查用户活动设置状态
         active_settings = await self.settings_manager.get_active_settings(user_id)
