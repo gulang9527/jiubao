@@ -192,7 +192,7 @@ class SettingsManager:
             # 创建新的设置状态
             state_key = f"setting_{user_id}_{setting_type}"
             self._states[state_key] = {
-                'group_id': group_id,
+                'group_id': keyword_state['group_id'],
                 'step': 1,
                 'data': {},
                 'timestamp': datetime.now(self.config.TIMEZONE)
@@ -265,7 +265,7 @@ class StatsManager:
             except Exception:
                 pass
         stat_data = {
-            'group_id': group_id,
+            'group_id': keyword_state['group_id'],
             'user_id': user_id,
             'date': datetime.now(config.TIMEZONE).strftime('%Y-%m-%d'),
             'total_messages': 1,
@@ -1897,7 +1897,7 @@ class TelegramBot:
                     
                         # 构建关键词数据
                         keyword_data = {
-                            'group_id': group_id,
+                            'group_id': keyword_state['group_id'],
                             'pattern': keyword_state['data'].get('pattern', ''),
                             'type': keyword_state['data'].get('match_type', 'exact'),
                             'response_type': response_type,
@@ -1975,7 +1975,7 @@ class TelegramBot:
                 
                 # 构建广播数据
                 broadcast_data = {
-                    'group_id': group_id,
+                    'group_id': keyword_state['group_id'],
                     'content_type': broadcast_state['data']['content_type'],
                     'content': broadcast_state['data']['content'],
                     'start_time': broadcast_state['data']['start_time'],
