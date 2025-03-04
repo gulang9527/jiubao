@@ -1834,42 +1834,53 @@ class TelegramBot:
         group_id = update.effective_chat.id
         # 获取所有活跃的设置状态
         active_settings = await self.settings_manager.get_active_settings(user_id)
-        # 如果有活跃的设置状态，应明确决定优先处理哪一个
-        if active_settings:
-            # 定义优先级顺序，按需处理不同类型的设置
-            priority_order = ['keyword', 'broadcast', 'auto_delete_timeout', 
-                              'stats_min_bytes', 'stats_daily_rank', 'stats_monthly_rank']
-            # 按优先级顺序处理设置
-            for setting_type in priority_order:
-                if setting_type in active_settings:
-                    state = await self.settings_manager.get_setting_state(user_id, setting_type)
-                    if not state or state['group_id'] != group_id:
-                        continue
-                    # 处理关键词设置
-                    if setting_type == 'keyword':
-                        if state['step'] == 1:
-                            pattern = message.text.strip()
-                            if state['data']['match_type'] == 'regex' and not validate_regex(pattern):
-                                await message.reply_text("❌ 无效的正则表达式，请重新输入")
-                                return
-                            await self.settings_manager.update_setting_state(user_id, 'keyword', {'pattern': pattern}, next_step=True)
-                            await message.reply_text("请发送回复内容（支持文本、图片、视频或文件）：")
-                            return
-                        elif state['step'] == 2:
-                            response_type = get_media_type(message) or 'text'
-                            response = message.text if response_type == 'text' else message.effective_attachment.file_id
-                            keyword_data = {
-                                'group_id': group_id,
-                                'pattern': state['data']['pattern'],
-                                'type': state['data']['match_type'],
-                                'response_type': response_type,
-                                'response': response
-                            }
-                            await self.db.add_keyword(keyword_data)
-                            await self.settings_manager.clear_setting_state(user_id, 'keyword')
-                            await message.reply_text("✅ 关键词添加成功！")
-                            return
-
+        logger.info(f"用户 {user_id} 的活动设置: {active_settings}")
+        # 处理关键词设置
+        keyword_state = await self.settings_manager.get_setting_state(user_id, 'keyword')
+        if keyword_state and keyword_state['group_id'] == group_id:
+            logger.info(f"处理关键词设置 - 用户: {user_id}, 步骤: {keyword_state['step']}, 输入: {message.text}")
+            if keyword_state['step'] == 1:
+                pattern = message.text.strip()
+                logger.info(f"关键词模式: {pattern}, 匹配类型: {keyword_state['data']['match_type']}")
+                if keyword_state['data']['match_type'] == 'regex' and not validate_regex(pattern):
+                    logger.info(f"无效的正则表达式: {pattern}")
+                    await message.reply_text("❌ 无效的正则表达式，请重新输入")
+                    return
+                try:
+                    logger.info(f"尝试更新关键词设置状态 - 用户: {user_id}, 模式: {pattern}")
+                    await self.settings_manager.update_setting_state(user_id, 'keyword', {'pattern': pattern}, next_step=True)
+                    logger.info(f"关键词设置状态已更新 - 用户: {user_id}, 步骤: 2")
+                    await message.reply_text("请发送回复内容（支持文本、图片、视频或文件）：")
+                    logger.info(f"已发送回复提示 - 用户: {user_id}")
+                    return
+                except Exception as e:
+                    logger.error(f"更新关键词设置状态失败 - 用户: {user_id}, 错误: {e}", exc_info=True)
+                    await message.reply_text("❌ 设置关键词时出错，请重试")
+                    return
+            elif keyword_state['step'] == 2:
+                logger.info(f"处理关键词回复内容 - 用户: {user_id}")
+                response_type = get_media_type(message) or 'text'
+                response = message.text if response_type == 'text' else message.effective_attachment.file_id
+                logger.info(f"关键词回复类型: {response_type}, 内容预览: {response[:50] if isinstance(response, str) else response}")
+                try:
+                    keyword_data = {
+                        'group_id': group_id,
+                        'pattern': keyword_state['data']['pattern'],
+                        'type': keyword_state['data']['match_type'],
+                        'response_type': response_type,
+                        'response': response
+                    }
+                    logger.info(f"尝试添加关键词 - 用户: {user_id}, 数据: {keyword_data}")
+                    await self.db.add_keyword(keyword_data)
+                    logger.info(f"关键词添加成功 - 用户: {user_id}")
+                    await self.settings_manager.clear_setting_state(user_id, 'keyword')
+                    logger.info(f"已清除关键词设置状态 - 用户: {user_id}")
+                    await message.reply_text("✅ 关键词添加成功！")
+                    return
+                except Exception as e:
+                    logger.error(f"添加关键词失败 - 用户: {user_id}, 错误: {e}", exc_info=True)
+                    await message.reply_text("❌ 添加关键词时出错，请重试")
+                    return
         # 处理广播设置
         broadcast_state = await self.settings_manager.get_setting_state(user_id, 'broadcast')
         if broadcast_state and broadcast_state['group_id'] == group_id and broadcast_state['step'] == 1:
