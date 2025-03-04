@@ -1131,19 +1131,25 @@ class TelegramBot:
             broadcast = await self.db.db.broadcasts.find_one({'_id': broadcast_id, 'group_id': group_id}) 
             if not broadcast:
                 await query.edit_message_text("❌ 未找到该轮播消息")
-                return     
-            content_preview = str(broadcast['content'])[:50] + "..." if len(str(broadcast['content'])) > 50 else str(broadcast['content'])
-            start_time = broadcast['start_time'].astimezone(config.TIMEZONE).strftime('%Y-%m-%d %H:%M')
-            end_time = broadcast['end_time'].astimezone(config.TIMEZONE).strftime('%Y-%m-%d %H:%M')
-            interval = format_duration(broadcast['interval'])
+                return
+            content = broadcast.get('content', '无内容')
+            content_preview = str(content)[:50] + "..." if len(str(content)) > 50 else str(content)
+            # 安全处理时间和间隔
+            try:
+                start_time = broadcast.get('start_time').astimezone(config.TIMEZONE).strftime('%Y-%m-%d %H:%M') if 'start_time' in broadcast else '未设置'
+                end_time = broadcast.get('end_time').astimezone(config.TIMEZONE).strftime('%Y-%m-%d %H:%M') if 'end_time' in broadcast else '未设置'
+            except Exception:
+                start_time = '时间格式错误'
+                end_time = '时间格式错误'
+            interval = format_duration(broadcast.get('interval', 0))
             text = (
                 f"📢 轮播消息详情：\n\n"
-                f"🔹 类型：{broadcast['content_type']}\n"
+                f"🔹 类型：{broadcast.get('content_type', '未知类型')}\n"
                 f"🔹 内容：{content_preview}\n"
                 f"🔹 开始时间：{start_time}\n"
                 f"🔹 结束时间：{end_time}\n"
                 f"🔹 间隔：{interval}"
-            )   
+            )
             keyboard = [
                 [InlineKeyboardButton("❌ 删除此轮播消息", callback_data=f"broadcast_delete_{broadcast_id}_{group_id}")],
                 [InlineKeyboardButton("🔙 返回列表", callback_data=f"settings_broadcast_{group_id}")]
