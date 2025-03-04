@@ -1190,13 +1190,15 @@ class TelegramBot:
         query = update.callback_query
         await query.answer()
         data = query.data
+        logger.info(f"Processing stats edit callback: {data}")
         parts = data.split('_')
         if len(parts) < 4:
+            logger.error(f"Invalid callback data format: {data}")
             await query.edit_message_text("❌ 无效的操作")
             return
         setting_type = parts[2]
         group_id = int(parts[-1])
-        if not await self.db.can_manage_group(update.effective_user.id, group_id):
+        logger.info(f"Stats edit - type: {setting_type}, group_id: {group_id}")
             await query.edit_message_text("❌ 无权限管理此群组")
             return
         if not await self.has_permission(group_id, GroupPermission.STATS):
@@ -1204,8 +1206,13 @@ class TelegramBot:
             return
         settings = await self.db.get_group_settings(group_id)
         if setting_type == "min_bytes":
-            await query.edit_message_text("请输入最小统计字节数：\n• 低于此值的消息将不计入统计\n• 输入 0 表示统计所有消息\n\n发送 /cancel 取消")
-            await self.settings_manager.start_setting(update.effective_user.id, 'stats_min_bytes', group_id)
+            logger.info("Starting min_bytes setting process")
+            try:
+                await query.edit_message_text("请输入最小统计字节数：\n• 低于此值的消息将不计入统计\n• 输入 0 表示统计所有消息\n\n发送 /cancel 取消")
+                await self.settings_manager.start_setting(update.effective_user.id, 'stats_min_bytes', group_id)
+                logger.info(f"min_bytes setting process started for user {update.effective_user.id}, group {group_id}")
+            except Exception as e:
+                logger.error(f"Error starting min_bytes setting: {e}", exc_info=True)
         elif setting_type == "toggle_media":
             settings['count_media'] = not settings.get('count_media', False)
             await self.db.update_group_settings(group_id, settings)
