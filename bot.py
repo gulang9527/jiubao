@@ -181,19 +181,21 @@ class SettingsManager:
     async def start_setting(self, user_id: int, setting_type: str, group_id: int):
         state_lock = await self._get_state_lock(user_id)
         async with state_lock:
-            user_states = sum(1 for k in self._states if k.startswith(f"setting_{user_id}"))
-            if user_states >= self._max_states_per_user:
+            user_states = [k for k in self._states if k.startswith(f"setting_{user_id}")]
+            for state_key in user_states:
+                del self._states[state_key]
+                logger.info(f"清除用户现有状态: {state_key}")
+            # 检查用户是否达到最大状态数限制
+            user_states_count = sum(1 for k in self._states if k.startswith(f"setting_{user_id}"))
+            if user_states_count >= self._max_states_per_user:
                 raise ValueError(f"用户同时进行的设置操作不能超过 {self._max_states_per_user} 个")
-            old_state_key = f"setting_{user_id}_{setting_type}"
-            if old_state_key in self._states:
-                del self._states[old_state_key]
-                logger.info(f"清除旧状态: {old_state_key}")
+            # 创建新的设置状态
             state_key = f"setting_{user_id}_{setting_type}"
             self._states[state_key] = {
                 'group_id': group_id,
                 'step': 1,
                 'data': {},
-                'timestamp': datetime.now(config.TIMEZONE)
+                'timestamp': datetime.now(self.config.TIMEZONE)
             }
             logger.info(f"创建设置状态: {state_key}, 群组: {group_id}")
         
@@ -1830,32 +1832,43 @@ class TelegramBot:
         message = update.effective_message
         user_id = update.effective_user.id
         group_id = update.effective_chat.id
-        
-        # 处理关键词设置
-        keyword_state = await self.settings_manager.get_setting_state(user_id, 'keyword')
-        if keyword_state and keyword_state['group_id'] == group_id:
-            if keyword_state['step'] == 1:
-                pattern = message.text.strip()
-                if keyword_state['data']['match_type'] == 'regex' and not validate_regex(pattern):
-                    await message.reply_text("❌ 无效的正则表达式，请重新输入")
-                    return
-                await self.settings_manager.update_setting_state(user_id, 'keyword', {'pattern': pattern}, next_step=True)
-                await message.reply_text("请发送回复内容（支持文本、图片、视频或文件）：")
-                return
-            elif keyword_state['step'] == 2:
-                response_type = get_media_type(message) or 'text'
-                response = message.text if response_type == 'text' else message.effective_attachment.file_id
-                keyword_data = {
-                    'group_id': group_id,
-                    'pattern': keyword_state['data']['pattern'],
-                    'type': keyword_state['data']['match_type'],
-                    'response_type': response_type,
-                    'response': response
-                }
-                await self.db.add_keyword(keyword_data)
-                await self.settings_manager.clear_setting_state(user_id, 'keyword')
-                await message.reply_text("✅ 关键词添加成功！")
-                return
+        # 获取所有活跃的设置状态
+        active_settings = await self.settings_manager.get_active_settings(user_id)
+        # 如果有活跃的设置状态，应明确决定优先处理哪一个
+        if active_settings:
+            # 定义优先级顺序，按需处理不同类型的设置
+            priority_order = ['keyword', 'broadcast', 'auto_delete_timeout', 
+                              'stats_min_bytes', 'stats_daily_rank', 'stats_monthly_rank']
+            # 按优先级顺序处理设置
+            for setting_type in priority_order:
+                if setting_type in active_settings:
+                    state = await self.settings_manager.get_setting_state(user_id, setting_type)
+                    if not state or state['group_id'] != group_id:
+                        continue
+                    # 处理关键词设置
+                    if setting_type == 'keyword':
+                        if state['step'] == 1:
+                            pattern = message.text.strip()
+                            if state['data']['match_type'] == 'regex' and not validate_regex(pattern):
+                                await message.reply_text("❌ 无效的正则表达式，请重新输入")
+                                return
+                            await self.settings_manager.update_setting_state(user_id, 'keyword', {'pattern': pattern}, next_step=True)
+                            await message.reply_text("请发送回复内容（支持文本、图片、视频或文件）：")
+                            return
+                        elif state['step'] == 2:
+                            response_type = get_media_type(message) or 'text'
+                            response = message.text if response_type == 'text' else message.effective_attachment.file_id
+                            keyword_data = {
+                                'group_id': group_id,
+                                'pattern': state['data']['pattern'],
+                                'type': state['data']['match_type'],
+                                'response_type': response_type,
+                                'response': response
+                            }
+                            await self.db.add_keyword(keyword_data)
+                            await self.settings_manager.clear_setting_state(user_id, 'keyword')
+                            await message.reply_text("✅ 关键词添加成功！")
+                            return
 
         # 处理广播设置
         broadcast_state = await self.settings_manager.get_setting_state(user_id, 'broadcast')
