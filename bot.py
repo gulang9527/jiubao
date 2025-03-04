@@ -250,6 +250,31 @@ class SettingsManager:
                 logger.warning(f"检测到设置冲突: 用户 {user_id}, 类型 {setting_type}, 冲突: {conflicts}")
             return has_conflict
 
+    async def process_setting(self, user_id: int, setting_type: str, message, process_func):
+        """
+        处理用户设置消息
+    
+        参数:
+        user_id: 用户ID
+        setting_type: 设置类型
+        message: 用户消息
+        process_func: 处理函数，接收state和message参数
+    
+        返回:
+        bool: 是否已处理消息
+        """
+        state = await self.get_setting_state(user_id, setting_type)
+        if not state:
+            return False
+        
+        try:
+            await process_func(state, message)
+            return True
+        except Exception as e:
+            logger.error(f"处理设置 {setting_type} 时出错: {e}", exc_info=True)
+            await message.reply_text(f"❌ 设置过程出错，请重试或使用 /cancel 取消")
+            return True
+
 # 统计管理模块
 class StatsManager:
     def __init__(self, db):
@@ -845,23 +870,38 @@ class TelegramBot:
             return permission.value in group.get('permissions', []) and switches.get(permission.value, True)
         return False
 
+    def _register_command_handler(self, command, handler, admin_only=False):
+        """
+        注册命令处理器
+    
+        参数:
+        command: 命令名称
+        handler: 处理函数
+        admin_only: 是否仅管理员可用
+        """
+        decorated_handler = check_command_usage(handler)
+        if admin_only:
+            original_handler = decorated_handler
+            decorated_handler = lambda u, c: self.is_admin(u.effective_user.id) and original_handler(u, c)
+        self.application.add_handler(CommandHandler(command, decorated_handler))
+
     async def _register_handlers(self):
         message_middleware = MessageMiddleware(self)
         error_middleware = ErrorHandlingMiddleware(self.error_handler)
         register_middleware(self.application, [message_middleware, error_middleware])
-        self.application.add_handler(CommandHandler("start", self._handle_start))
-        self.application.add_handler(CommandHandler("tongji", self._handle_rank_command))
-        self.application.add_handler(CommandHandler("tongji30", self._handle_rank_command))
-        self.application.add_handler(CommandHandler("settings", self._handle_settings))
-        self.application.add_handler(CommandHandler("admingroups", self._handle_admin_groups))
-        self.application.add_handler(CommandHandler("cancel", self._handle_cancel))
-        self.application.add_handler(CommandHandler("addsuperadmin", self._handle_add_superadmin))
-        self.application.add_handler(CommandHandler("delsuperadmin", self._handle_del_superadmin))
-        self.application.add_handler(CommandHandler("addadmin", self._handle_add_admin))
-        self.application.add_handler(CommandHandler("deladmin", self._handle_del_admin))
-        self.application.add_handler(CommandHandler("authgroup", self._handle_auth_group))
-        self.application.add_handler(CommandHandler("deauthgroup", self._handle_deauth_group))
-        self.application.add_handler(CommandHandler("checkconfig", self._handle_check_config))
+        self._register_command_handler("start", self._handle_start)
+        self._register_command_handler("tongji", self._handle_rank_command)
+        self._register_command_handler("tongji30", self._handle_rank_command)
+        self._register_command_handler("settings", self._handle_settings)
+        self._register_command_handler("admingroups", self._handle_admin_groups, admin_only=True)
+        self._register_command_handler("cancel", self._handle_cancel)
+        self._register_command_handler("addsuperadmin", self._handle_add_superadmin, admin_only=True)
+        self._register_command_handler("delsuperadmin", self._handle_del_superadmin, admin_only=True)
+        self._register_command_handler("addadmin", self._handle_add_admin, admin_only=True)
+        self._register_command_handler("deladmin", self._handle_del_admin, admin_only=True)
+        self._register_command_handler("authgroup", self._handle_auth_group, admin_only=True)
+        self._register_command_handler("deauthgroup", self._handle_deauth_group, admin_only=True)
+        self._register_command_handler("checkconfig", self._handle_check_config, admin_only=True)
         self.application.add_handler(CallbackQueryHandler(self._handle_settings_callback, pattern=r'^settings_'))
         self.application.add_handler(CallbackQueryHandler(self._handle_keyword_callback, pattern=r'^keyword_'))
         self.application.add_handler(CallbackQueryHandler(self._handle_broadcast_callback, pattern=r'^broadcast_'))
@@ -1031,12 +1071,13 @@ class TelegramBot:
                     await query.edit_message_text("❌ 获取群组列表失败，请重试")
                 return
             # 解析回调数据以获取操作类型和群组ID
-            parts = data.split('_')
+            parts = CallbackDataBuilder.parse(data)
             if len(parts) < 3:
                 await query.edit_message_text("❌ 无效的回调数据格式")
                 logger.error(f"无效的回调数据格式: {data}")
                 return
             action = parts[1]
+            group_id = int(parts[-1])
             try:
                 group_id = int(parts[-1])
             except ValueError:
@@ -1056,17 +1097,19 @@ class TelegramBot:
                         await query.edit_message_text(f"❌ 找不到群组 {group_id} 的信息")
                         return
                     # 构建功能选择菜单
-                    keyboard = [
-                        [InlineKeyboardButton("📊 统计设置", callback_data=f"settings_stats_{group_id}")],
-                        [InlineKeyboardButton("📢 轮播消息", callback_data=f"settings_broadcast_{group_id}")],
-                        [InlineKeyboardButton("🔑 关键词设置", callback_data=f"settings_keywords_{group_id}")],
-                        [InlineKeyboardButton("⚙️ 开关设置", callback_data=f"settings_switches_{group_id}")],
+                    buttons = [
+                        InlineKeyboardButton("📊 统计设置", callback_data=CallbackDataBuilder.build("settings", "stats", group_id)),
+                        InlineKeyboardButton("📢 轮播消息", callback_data=CallbackDataBuilder.build("settings", "broadcast", group_id)),
+                        InlineKeyboardButton("🔑 关键词设置", callback_data=CallbackDataBuilder.build("settings", "keywords", group_id)),
+                        InlineKeyboardButton("⚙️ 开关设置", callback_data=CallbackDataBuilder.build("settings", "switches", group_id))
                     ]
                     # 自动删除设置
                     settings = await self.db.get_group_settings(group_id)
                     auto_delete_status = '开启' if settings.get('auto_delete', False) else '关闭'
-                    keyboard.append([InlineKeyboardButton(f"🗑️ 自动删除: {auto_delete_status}", callback_data=f"auto_delete_toggle_{group_id}")])
-                    keyboard.append([InlineKeyboardButton("🔙 返回群组列表", callback_data="show_manageable_groups")])
+                    buttons.append(InlineKeyboardButton(f"🗑️ 自动删除: {auto_delete_status}", 
+                                                      callback_data=CallbackDataBuilder.build("auto_delete", "toggle", group_id)))
+                    buttons.append(InlineKeyboardButton("🔙 返回群组列表", callback_data="show_manageable_groups"))
+                    keyboard = KeyboardBuilder.build(buttons)
                     await query.edit_message_text(f"管理群组: {group_id}\n\n请选择要管理的功能：", reply_markup=InlineKeyboardMarkup(keyboard))
                 except Exception as e:
                     logger.error(f"显示群组 {group_id} 设置菜单失败: {e}", exc_info=True)
@@ -1997,95 +2040,103 @@ class TelegramBot:
     
         # 3. 处理统计设置
         # 处理最小字节数设置
-        stats_min_bytes_state = await self.settings_manager.get_setting_state(user_id, 'stats_min_bytes')
-        if stats_min_bytes_state and (stats_min_bytes_state['group_id'] == group_id or update.effective_chat.type == 'private'):
+        async def process_min_bytes(state, message):
+            group_id = state['group_id']
             try:
                 value = int(message.text)
                 if value < 0:
                     await message.reply_text("❌ 最小字节数不能为负数")
                     return
-                
+        
                 # 更新设置
                 settings = await self.db.get_group_settings(group_id)
                 settings['min_bytes'] = value
                 await self.db.update_group_settings(group_id, settings)
-            
+    
                 # 清理设置状态
-                await self.settings_manager.clear_setting_state(user_id, 'stats_min_bytes')
-            
+                await self.settings_manager.clear_setting_state(message.from_user.id, 'stats_min_bytes')
+    
                 # 通知用户完成
                 await message.reply_text(f"✅ 最小统计字节数已设置为 {value} 字节")
             except ValueError:
                 await message.reply_text("❌ 请输入一个有效的数字")
+
+        if await self.settings_manager.process_setting(user_id, 'stats_min_bytes', message, process_min_bytes):
             return
     
         # 处理日排行显示数量设置
-        stats_daily_rank_state = await self.settings_manager.get_setting_state(user_id, 'stats_daily_rank')
-        if stats_daily_rank_state and (stats_daily_rank_state['group_id'] == group_id or update.effective_chat.type == 'private'):
+        async def process_daily_rank(state, message):
+            group_id = state['group_id']
             try:
                 value = int(message.text)
                 if value < 1 or value > 50:
                     await message.reply_text("❌ 显示数量必须在1-50之间")
                     return
-                
+        
                 # 更新设置
                 settings = await self.db.get_group_settings(group_id)
                 settings['daily_rank_size'] = value
                 await self.db.update_group_settings(group_id, settings)
-            
+    
                 # 清理设置状态
-                await self.settings_manager.clear_setting_state(user_id, 'stats_daily_rank')
-            
+                await self.settings_manager.clear_setting_state(message.from_user.id, 'stats_daily_rank')
+    
                 # 通知用户完成
                 await message.reply_text(f"✅ 日排行显示数量已设置为 {value}")
             except ValueError:
                 await message.reply_text("❌ 请输入一个有效的数字")
+
+        if await self.settings_manager.process_setting(user_id, 'stats_daily_rank', message, process_daily_rank):
             return
     
         # 处理月排行显示数量设置
-        stats_monthly_rank_state = await self.settings_manager.get_setting_state(user_id, 'stats_monthly_rank')
-        if stats_monthly_rank_state and (stats_monthly_rank_state['group_id'] == group_id or update.effective_chat.type == 'private'):
+        async def process_monthly_rank(state, message):
+            group_id = state['group_id']
             try:
                 value = int(message.text)
                 if value < 1 or value > 50:
                     await message.reply_text("❌ 显示数量必须在1-50之间")
                     return
-                
+        
                 # 更新设置
                 settings = await self.db.get_group_settings(group_id)
                 settings['monthly_rank_size'] = value
                 await self.db.update_group_settings(group_id, settings)
-            
+    
                 # 清理设置状态
-                await self.settings_manager.clear_setting_state(user_id, 'stats_monthly_rank')
-            
+                await self.settings_manager.clear_setting_state(message.from_user.id, 'stats_monthly_rank')
+    
                 # 通知用户完成
                 await message.reply_text(f"✅ 月排行显示数量已设置为 {value}")
             except ValueError:
                 await message.reply_text("❌ 请输入一个有效的数字")
+
+        if await self.settings_manager.process_setting(user_id, 'stats_monthly_rank', message, process_monthly_rank):
             return
     
         # 4. 处理自动删除超时设置
-        auto_delete_state = await self.settings_manager.get_setting_state(user_id, 'auto_delete_timeout')
-        if auto_delete_state and (auto_delete_state['group_id'] == group_id or update.effective_chat.type == 'private'):
+        async def process_auto_delete_timeout(state, message):
+            group_id = state['group_id']
             try:
                 timeout = int(message.text)
                 if timeout < 60 or timeout > 86400:
                     await message.reply_text("❌ 超时时间必须在60-86400秒之间")
                     return
-                
+        
                 # 更新设置
                 settings = await self.db.get_group_settings(group_id)
                 settings['auto_delete_timeout'] = timeout
                 await self.db.update_group_settings(group_id, settings)
-            
-                # 清理设置状态
-                await self.settings_manager.clear_setting_state(user_id, 'auto_delete_timeout')
-            
-                # 通知用户完成
-                await message.reply_text(f"✅ 自动删除超时时间已设置为 {format_duration(timeout)}")
+    
+        # 清理设置状态
+        await self.settings_manager.clear_setting_state(message.from_user.id, 'auto_delete_timeout')
+    
+        # 通知用户完成
+        await message.reply_text(f"✅ 自动删除超时时间已设置为 {format_duration(timeout)}")
             except ValueError:
                 await message.reply_text("❌ 请输入一个有效的数字")
+
+        if await self.settings_manager.process_setting(user_id, 'auto_delete_timeout', message, process_auto_delete_timeout):
             return
     
         # ========== 功能处理 ==========
