@@ -2128,11 +2128,11 @@ class TelegramBot:
                 settings['auto_delete_timeout'] = timeout
                 await self.db.update_group_settings(group_id, settings)
     
-        # 清理设置状态
-        await self.settings_manager.clear_setting_state(message.from_user.id, 'auto_delete_timeout')
+                # 清理设置状态
+                await self.settings_manager.clear_setting_state(message.from_user.id, 'auto_delete_timeout')
     
-        # 通知用户完成
-        await message.reply_text(f"✅ 自动删除超时时间已设置为 {format_duration(timeout)}")
+                # 通知用户完成
+                await message.reply_text(f"✅ 自动删除超时时间已设置为 {format_duration(timeout)}")
             except ValueError:
                 await message.reply_text("❌ 请输入一个有效的数字")
 
