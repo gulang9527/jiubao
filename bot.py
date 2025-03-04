@@ -1199,6 +1199,7 @@ class TelegramBot:
         setting_type = parts[2]
         group_id = int(parts[-1])
         logger.info(f"Stats edit - type: {setting_type}, group_id: {group_id}")
+        if not await self.db.can_manage_group(update.effective_user.id, group_id):
             await query.edit_message_text("❌ 无权限管理此群组")
             return
         if not await self.has_permission(group_id, GroupPermission.STATS):
