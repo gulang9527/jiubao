@@ -1201,32 +1201,31 @@ class TelegramBot:
         if len(parts) != 2:
             logger.error(f"Invalid callback data format: {data}")
             await query.edit_message_text("❌ 无效的操作")
-            return 
+            return
         setting_type = parts[0]
         try:
             group_id = int(parts[1])
         except ValueError:
             logger.error(f"Invalid group ID: {parts[1]}")
             await query.edit_message_text("❌ 无效的群组ID")
-            return    
-        logger.info(f"Stats edit - type: {setting_type}, group_id: {group_id}")    
+            return
+        logger.info(f"Stats edit - type: {setting_type}, group_id: {group_id}")
         # 权限检查
         if not await self.db.can_manage_group(update.effective_user.id, group_id):
             logger.warning(f"User {update.effective_user.id} has no permission to manage group {group_id}")
             await query.edit_message_text("❌ 无权限管理此群组")
-            return    
+            return
         if not await self.has_permission(group_id, GroupPermission.STATS):
             logger.warning(f"Group {group_id} has no stats permission")
             await query.edit_message_text("❌ 此群组未启用统计功能")
-            return    
-        # 获取当前设置
+            return
         try:
             settings = await self.db.get_group_settings(group_id)
             logger.info(f"Current settings for group {group_id}: {settings}")
         except Exception as e:
             logger.error(f"Error getting settings for group {group_id}: {e}", exc_info=True)
             await query.edit_message_text("❌ 获取设置信息失败")
-            return    
+            return
         # 根据setting_type处理不同的设置
         if setting_type == "min_bytes":
             logger.info("Starting min_bytes setting process")
@@ -1235,7 +1234,7 @@ class TelegramBot:
                 await self.settings_manager.start_setting(update.effective_user.id, 'stats_min_bytes', group_id)
                 logger.info(f"min_bytes setting process started for user {update.effective_user.id}, group {group_id}")
             except Exception as e:
-                logger.error(f"Error starting min_bytes setting: {e}", exc_info=True)    
+                logger.error(f"Error starting min_bytes setting: {e}", exc_info=True)
         elif setting_type == "toggle_media":
             logger.info("Processing toggle_media setting")
             try:
@@ -1244,12 +1243,23 @@ class TelegramBot:
                 new_value = not current_value
                 settings['count_media'] = new_value
                 await self.db.update_group_settings(group_id, settings)
-                logger.info(f"Updated count_media setting to {new_value} for group {group_id}")     
-                # 显示更新后的设置
-                await self._show_stats_settings(query, group_id, settings)
+                logger.info(f"Updated count_media setting to {new_value} for group {group_id}")
+                # 显示开关状态的消息
+                status = '✅ 开启' if new_value else '❌ 关闭'
+                keyboard = [
+                    [InlineKeyboardButton(f"最小统计字节数: {settings.get('min_bytes', 0)} 字节", callback_data=f"stats_edit_min_bytes_{group_id}")],
+                    [InlineKeyboardButton(f"统计多媒体: {status}", callback_data=f"stats_edit_toggle_media_{group_id}")],
+                    [InlineKeyboardButton(f"日排行显示数量: {settings.get('daily_rank_size', 15)}", callback_data=f"stats_edit_daily_rank_{group_id}")],
+                    [InlineKeyboardButton(f"月排行显示数量: {settings.get('monthly_rank_size', 15)}", callback_data=f"stats_edit_monthly_rank_{group_id}")],
+                    [InlineKeyboardButton("返回设置菜单", callback_data=f"settings_select_{group_id}")]
+                ]
+                await query.edit_message_text(
+                    f"群组 {group_id} 的统计设置\n\n统计多媒体已{' 开启 ✅' if new_value else ' 关闭 ❌'}",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             except Exception as e:
                 logger.error(f"Error updating toggle_media setting: {e}", exc_info=True)
-                await query.edit_message_text("❌ 更新设置失败，请重试")   
+                await query.edit_message_text("❌ 更新设置失败，请重试")
         elif setting_type == "daily_rank":
             logger.info("Starting daily_rank setting process")
             try:
@@ -1712,9 +1722,10 @@ class TelegramBot:
             await self._show_keyword_settings(query, group_id)
 
     async def _show_stats_settings(self, query, group_id: int, settings: dict):
+        count_media_status = '✅ 开启' if settings.get('count_media', False) else '❌ 关闭'
         keyboard = [
             [InlineKeyboardButton(f"最小统计字节数: {settings.get('min_bytes', 0)} 字节", callback_data=f"stats_edit_min_bytes_{group_id}")],
-            [InlineKeyboardButton(f"统计多媒体: {'是' if settings.get('count_media', False) else '否'}", callback_data=f"stats_edit_toggle_media_{group_id}")],
+            [InlineKeyboardButton(f"统计多媒体: {count_media_status}", callback_data=f"stats_edit_toggle_media_{group_id}")],
             [InlineKeyboardButton(f"日排行显示数量: {settings.get('daily_rank_size', 15)}", callback_data=f"stats_edit_daily_rank_{group_id}")],
             [InlineKeyboardButton(f"月排行显示数量: {settings.get('monthly_rank_size', 15)}", callback_data=f"stats_edit_monthly_rank_{group_id}")],
             [InlineKeyboardButton("返回设置菜单", callback_data=f"settings_select_{group_id}")]
