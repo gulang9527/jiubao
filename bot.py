@@ -863,6 +863,7 @@ class TelegramBot:
         self.application.add_handler(CallbackQueryHandler(self._handle_keyword_continue_callback, pattern=r'^keyword_continue_'))
         self.application.add_handler(CallbackQueryHandler(self._handle_stats_edit_callback, pattern=r'^stats_edit_'))
         self.application.add_handler(CallbackQueryHandler(self._handle_auto_delete_callback, pattern=r'^auto_delete_'))
+        self.application.add_handler(CallbackQueryHandler(self._handle_switch_toggle_callback, pattern=r'^switch_toggle_'))
         self.application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, self._handle_message))
 
     @handle_callback_errors
@@ -1047,60 +1048,36 @@ class TelegramBot:
                     if not group:
                         await query.edit_message_text(f"❌ 找不到群组 {group_id} 的信息")
                         return
-                    switches = group.get('feature_switches', {'keywords': True, 'stats': True, 'broadcast': True})
-                    keyboard = []
-                    if 'stats' in group.get('permissions', []):
-                        status = '开' if switches.get('stats', True) else '关'
-                        keyboard.append([InlineKeyboardButton(f"📊 统计设置: {status}", callback_data=f"settings_stats_{group_id}")])
-                    if 'broadcast' in group.get('permissions', []):
-                        status = '开' if switches.get('broadcast', True) else '关'
-                        keyboard.append([InlineKeyboardButton(f"📢 轮播消息: {status}", callback_data=f"settings_broadcast_{group_id}")])
-                    if 'keywords' in group.get('permissions', []):
-                        status = '开' if switches.get('keywords', True) else '关'
-                        keyboard.append([InlineKeyboardButton(f"🔑 关键词设置: {status}", callback_data=f"settings_keywords_{group_id}")]) 
+                    # 构建功能选择菜单
+                    keyboard = [
+                        [InlineKeyboardButton("📊 统计设置", callback_data=f"settings_stats_{group_id}")],
+                        [InlineKeyboardButton("📢 轮播消息", callback_data=f"settings_broadcast_{group_id}")],
+                        [InlineKeyboardButton("🔑 关键词设置", callback_data=f"settings_keywords_{group_id}")],
+                        [InlineKeyboardButton("⚙️ 开关设置", callback_data=f"settings_switches_{group_id}")],
+                    ]
+                    # 自动删除设置
                     settings = await self.db.get_group_settings(group_id)
                     auto_delete_status = '开启' if settings.get('auto_delete', False) else '关闭'
                     keyboard.append([InlineKeyboardButton(f"🗑️ 自动删除: {auto_delete_status}", callback_data=f"auto_delete_toggle_{group_id}")])
                     keyboard.append([InlineKeyboardButton("🔙 返回群组列表", callback_data="show_manageable_groups")])
-                    await query.edit_message_text("请选择要管理的功能：", reply_markup=InlineKeyboardMarkup(keyboard))
+                    await query.edit_message_text(f"管理群组: {group_id}\n\n请选择要管理的功能：", reply_markup=InlineKeyboardMarkup(keyboard))
                 except Exception as e:
                     logger.error(f"显示群组 {group_id} 设置菜单失败: {e}", exc_info=True)
                     await query.edit_message_text(f"❌ 获取群组 {group_id} 设置失败，请重试")
-            elif action in ["stats", "broadcast", "keywords"]:
+            elif action == "switches":
+                # 显示开关设置菜单
                 try:
-                    # 切换功能开关状态
-                    group = await self.db.get_group(group_id)
-                    if not group:
-                        await query.edit_message_text(f"❌ 找不到群组 {group_id} 的信息")
-                        return
-                    switches = group.get('feature_switches', {'keywords': True, 'stats': True, 'broadcast': True})
-                    new_status = not switches.get(action, True)
-                    logger.info(f"用户 {update.effective_user.id} 切换群组 {group_id} 的 {action} 功能为 {new_status}")
-                    await self.db.db.groups.update_one(
-                        {'group_id': group_id},
-                        {'$set': {f'feature_switches.{action}': new_status}}
-                    )
-                    # 刷新群组信息
-                    group = await self.db.get_group(group_id)
-                    switches = group.get('feature_switches', {'keywords': True, 'stats': True, 'broadcast': True})
-                    keyboard = []
-                    if 'stats' in group.get('permissions', []):
-                        status = '开' if switches.get('stats', True) else '关'
-                        keyboard.append([InlineKeyboardButton(f"📊 统计设置: {status}", callback_data=f"settings_stats_{group_id}")])
-                    if 'broadcast' in group.get('permissions', []):
-                        status = '开' if switches.get('broadcast', True) else '关'
-                        keyboard.append([InlineKeyboardButton(f"📢 轮播消息: {status}", callback_data=f"settings_broadcast_{group_id}")])
-                    if 'keywords' in group.get('permissions', []):
-                        status = '开' if switches.get('keywords', True) else '关'
-                        keyboard.append([InlineKeyboardButton(f"🔑 关键词设置: {status}", callback_data=f"settings_keywords_{group_id}")])
-                    settings = await self.db.get_group_settings(group_id)
-                    auto_delete_status = '开启' if settings.get('auto_delete', False) else '关闭'
-                    keyboard.append([InlineKeyboardButton(f"🗑️ 自动删除: {auto_delete_status}", callback_data=f"auto_delete_toggle_{group_id}")])
-                    keyboard.append([InlineKeyboardButton("🔙 返回群组列表", callback_data="show_manageable_groups")])
-                    await query.edit_message_text(f"已{new_status and '开启' or '关闭'} {action} 功能\n\n请选择要管理的功能：", reply_markup=InlineKeyboardMarkup(keyboard))
+                    await self._show_feature_switches(query, group_id)
                 except Exception as e:
-                    logger.error(f"切换功能状态失败 - 群组: {group_id}, 功能: {action}, 错误: {e}", exc_info=True)
-                    await query.edit_message_text(f"❌ 切换功能状态失败，请重试")
+                    logger.error(f"显示功能开关设置失败 - 群组: {group_id}, 错误: {e}", exc_info=True)
+                    await query.edit_message_text(f"❌ 获取功能开关设置失败，请重试")
+            elif action in ["stats", "broadcast", "keywords"]:
+                # 处理设置的各个子部分
+                try:
+                    await self._handle_settings_section(query, context, group_id, action)
+                except Exception as e:
+                    logger.error(f"处理设置子部分失败 - 群组: {group_id}, 操作: {action}, 错误: {e}", exc_info=True)
+                    await query.edit_message_text(f"❌ 操作失败，请重试")
             else:
                 # 处理设置的各个子部分
                 try:
@@ -1290,6 +1267,79 @@ class TelegramBot:
                 # 启动自定义超时设置流程
                 await self.settings_manager.start_setting(update.effective_user.id, 'auto_delete_timeout', group_id)
                 await query.edit_message_text("请输入自定义超时时间（单位：秒，60-86400）：\n\n发送 /cancel 取消")
+
+    @handle_callback_errors
+    async def _show_feature_switches(self, query, group_id):
+        """显示功能开关设置菜单"""
+        group = await self.db.get_group(group_id)
+        if not group:
+            await query.edit_message_text(f"❌ 找不到群组 {group_id} 的信息")
+            return
+        # 获取当前的功能开关状态
+        switches = group.get('feature_switches', {'keywords': True, 'stats': True, 'broadcast': True})
+        # 构建功能开关菜单
+        keyboard = []
+        # 检查群组权限并显示相应的功能开关
+        permissions = group.get('permissions', [])
+        if 'stats' in permissions:
+            status = '✅ 开启' if switches.get('stats', True) else '❌ 关闭'
+            keyboard.append([InlineKeyboardButton(f"📊 统计功能: {status}", callback_data=f"switch_toggle_stats_{group_id}")])
+        if 'broadcast' in permissions:
+            status = '✅ 开启' if switches.get('broadcast', True) else '❌ 关闭'
+            keyboard.append([InlineKeyboardButton(f"📢 轮播功能: {status}", callback_data=f"switch_toggle_broadcast_{group_id}")])
+        if 'keywords' in permissions:
+            status = '✅ 开启' if switches.get('keywords', True) else '❌ 关闭'
+            keyboard.append([InlineKeyboardButton(f"🔑 关键词功能: {status}", callback_data=f"switch_toggle_keywords_{group_id}")])
+        # 返回按钮
+        keyboard.append([InlineKeyboardButton("🔙 返回设置菜单", callback_data=f"settings_select_{group_id}")])
+        await query.edit_message_text(
+            f"⚙️ 群组 {group_id} 功能开关设置\n\n"
+            "点击相应按钮切换功能开关状态：",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    @handle_callback_errors
+    async def _handle_switch_toggle_callback(self, update, context):
+        """处理功能开关切换回调"""
+        query = update.callback_query
+        await query.answer()
+        data = query.data
+        parts = data.split('_')
+        if len(parts) < 4:
+            await query.edit_message_text("❌ 无效的回调数据")
+            return
+        feature = parts[2]
+        group_id = int(parts[3])
+        # 验证用户对该群组的管理权限
+        if not await self.db.can_manage_group(update.effective_user.id, group_id):
+            await query.edit_message_text("❌ 你没有权限管理此群组")
+            return
+        try:
+            # 获取当前群组信息
+            group = await self.db.get_group(group_id)
+            if not group:
+                await query.edit_message_text(f"❌ 找不到群组 {group_id} 的信息")
+                return
+            # 获取当前功能开关状态
+            switches = group.get('feature_switches', {'keywords': True, 'stats': True, 'broadcast': True})
+            # 检查该功能是否在群组权限中
+            if feature not in group.get('permissions', []):
+                await query.edit_message_text(f"❌ 群组 {group_id} 没有 {feature} 权限")
+                return
+            # 切换功能开关状态
+            current_status = switches.get(feature, True)
+            new_status = not current_status
+            # 更新数据库
+            await self.db.db.groups.update_one(
+                {'group_id': group_id},
+                {'$set': {f'feature_switches.{feature}': new_status}}
+            )
+            logger.info(f"用户 {update.effective_user.id} 将群组 {group_id} 的 {feature} 功能设置为 {new_status}")
+            # 重新显示功能开关设置菜单
+            await self._show_feature_switches(query, group_id)
+        except Exception as e:
+            logger.error(f"切换功能开关失败: {e}", exc_info=True)
+            await query.edit_message_text(f"❌ 切换功能开关失败，请重试")
 
     @check_command_usage
     async def _handle_start(self, update: Update, context):
