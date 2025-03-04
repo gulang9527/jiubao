@@ -1829,125 +1829,238 @@ class TelegramBot:
         await update.message.reply_text("✅ 已取消所有正在进行的设置操作")
 
     async def _handle_message(self, update: Update, context):
+        """处理所有非命令消息"""
         logger.info("进入_handle_message方法")
+    
+        # 基本检查
+        if not update.effective_message or not update.effective_user or not update.effective_chat:
+            logger.warning("消息缺少基本属性")
+            return
+    
         message = update.effective_message
         user_id = update.effective_user.id
         group_id = update.effective_chat.id
-        # 获取所有活跃的设置状态
+    
+        logger.info(f"处理消息 - 用户ID: {user_id}, 群组ID: {group_id}, 消息类型: {message.content_type}")
+    
+        # 检查用户活动设置状态
         active_settings = await self.settings_manager.get_active_settings(user_id)
         logger.info(f"用户 {user_id} 的活动设置: {active_settings}")
-        # 处理关键词设置
+
+        # ========== 设置处理 ==========
+        # 1. 优先处理关键词设置
         keyword_state = await self.settings_manager.get_setting_state(user_id, 'keyword')
-        if keyword_state and keyword_state['group_id'] == group_id:
-            logger.info(f"处理关键词设置 - 用户: {user_id}, 步骤: {keyword_state['step']}, 输入: {message.text}")
-            if keyword_state['step'] == 1:
-                pattern = message.text.strip()
-                logger.info(f"关键词模式: {pattern}, 匹配类型: {keyword_state['data']['match_type']}")
-                if keyword_state['data']['match_type'] == 'regex' and not validate_regex(pattern):
-                    logger.info(f"无效的正则表达式: {pattern}")
-                    await message.reply_text("❌ 无效的正则表达式，请重新输入")
-                    return
-                try:
-                    logger.info(f"尝试更新关键词设置状态 - 用户: {user_id}, 模式: {pattern}")
-                    await self.settings_manager.update_setting_state(user_id, 'keyword', {'pattern': pattern}, next_step=True)
-                    logger.info(f"关键词设置状态已更新 - 用户: {user_id}, 步骤: 2")
-                    await message.reply_text("请发送回复内容（支持文本、图片、视频或文件）：")
-                    logger.info(f"已发送回复提示 - 用户: {user_id}")
-                    return
-                except Exception as e:
-                    logger.error(f"更新关键词设置状态失败 - 用户: {user_id}, 错误: {e}", exc_info=True)
-                    await message.reply_text("❌ 设置关键词时出错，请重试")
-                    return
-            elif keyword_state['step'] == 2:
-                logger.info(f"处理关键词回复内容 - 用户: {user_id}")
-                response_type = get_media_type(message) or 'text'
-                response = message.text if response_type == 'text' else message.effective_attachment.file_id
-                logger.info(f"关键词回复类型: {response_type}, 内容预览: {response[:50] if isinstance(response, str) else response}")
-                try:
-                    keyword_data = {
-                        'group_id': group_id,
-                        'pattern': keyword_state['data']['pattern'],
-                        'type': keyword_state['data']['match_type'],
-                        'response_type': response_type,
-                        'response': response
-                    }
-                    logger.info(f"尝试添加关键词 - 用户: {user_id}, 数据: {keyword_data}")
-                    await self.db.add_keyword(keyword_data)
-                    logger.info(f"关键词添加成功 - 用户: {user_id}")
-                    await self.settings_manager.clear_setting_state(user_id, 'keyword')
-                    logger.info(f"已清除关键词设置状态 - 用户: {user_id}")
-                    await message.reply_text("✅ 关键词添加成功！")
-                    return
-                except Exception as e:
-                    logger.error(f"添加关键词失败 - 用户: {user_id}, 错误: {e}", exc_info=True)
-                    await message.reply_text("❌ 添加关键词时出错，请重试")
-                    return
-        # 处理广播设置
+        if keyword_state:
+            logger.info(f"发现关键词设置状态 - 用户: {user_id}, 群组: {keyword_state['group_id']}, 当前群组: {group_id}")
+        
+            if keyword_state['group_id'] == group_id:
+                logger.info(f"处理关键词设置 - 用户: {user_id}, 步骤: {keyword_state['step']}")
+            
+                # 步骤1：收集关键词模式
+                if keyword_state['step'] == 1:
+                    pattern = message.text.strip()
+                    logger.info(f"关键词模式: {pattern}, 匹配类型: {keyword_state['data'].get('match_type')}")
+                
+                    # 正则表达式验证
+                    if keyword_state['data'].get('match_type') == 'regex' and not validate_regex(pattern):
+                        logger.info(f"无效的正则表达式: {pattern}")
+                        await message.reply_text("❌ 无效的正则表达式，请重新输入")
+                        return
+                
+                    try:
+                        # 更新状态并进入下一步
+                        logger.info(f"更新关键词设置状态 - 用户: {user_id}, 模式: {pattern}")
+                        await self.settings_manager.update_setting_state(
+                            user_id, 'keyword', {'pattern': pattern}, next_step=True
+                        )
+                        logger.info(f"关键词设置进入下一步 - 用户: {user_id}")
+                    
+                        # 提示用户输入回复内容
+                        await message.reply_text("请发送回复内容（支持文本、图片、视频或文件）：")
+                        return
+                    except Exception as e:
+                        logger.error(f"更新关键词设置状态失败 - 用户: {user_id}, 错误: {str(e)}", exc_info=True)
+                        await message.reply_text("❌ 设置过程出错，请重试或使用 /cancel 取消")
+                        return
+            
+                # 步骤2：收集回复内容
+                elif keyword_state['step'] == 2:
+                    try:
+                        # 确定回复类型和内容
+                        response_type = get_media_type(message) or 'text'
+                        response = message.text if response_type == 'text' else message.effective_attachment.file_id
+                    
+                        logger.info(f"关键词回复类型: {response_type}")
+                    
+                        # 构建关键词数据
+                        keyword_data = {
+                            'group_id': group_id,
+                            'pattern': keyword_state['data'].get('pattern', ''),
+                            'type': keyword_state['data'].get('match_type', 'exact'),
+                            'response_type': response_type,
+                            'response': response
+                        }
+                    
+                        # 添加关键词到数据库
+                        logger.info(f"添加关键词 - 数据: {keyword_data}")
+                        await self.db.add_keyword(keyword_data)
+                    
+                        # 清理设置状态
+                        await self.settings_manager.clear_setting_state(user_id, 'keyword')
+                        logger.info(f"关键词设置完成 - 用户: {user_id}")
+                    
+                        # 通知用户完成
+                        await message.reply_text("✅ 关键词添加成功！")
+                        return
+                    except Exception as e:
+                        logger.error(f"添加关键词失败 - 用户: {user_id}, 错误: {str(e)}", exc_info=True)
+                        await message.reply_text("❌ 添加关键词失败，请重试或使用 /cancel 取消")
+                        return
+    
+        # 2. 处理广播设置
         broadcast_state = await self.settings_manager.get_setting_state(user_id, 'broadcast')
-        if broadcast_state and broadcast_state['group_id'] == group_id and broadcast_state['step'] == 1:
-            content_type = get_media_type(message) or 'text'
-            content = message.text if content_type == 'text' else message.effective_attachment.file_id
-            await self.settings_manager.update_setting_state(user_id, 'broadcast', {
-                'content_type': content_type,
-                'content': content
-            }, next_step=True)
-            await message.reply_text("请设置开始时间（格式：YYYY-MM-DD HH:MM）：")
-            return
-        elif broadcast_state and broadcast_state['step'] == 2:
-            if not validate_time_format(message.text):
-                await message.reply_text("❌ 时间格式错误，请使用 YYYY-MM-DD HH:MM")
+        if broadcast_state and broadcast_state['group_id'] == group_id:
+            logger.info(f"处理广播设置 - 用户: {user_id}, 步骤: {broadcast_state['step']}")
+        
+            # 步骤1：收集广播内容
+            if broadcast_state['step'] == 1:
+                content_type = get_media_type(message) or 'text'
+                content = message.text if content_type == 'text' else message.effective_attachment.file_id
+            
+                await self.settings_manager.update_setting_state(user_id, 'broadcast', {
+                    'content_type': content_type,
+                    'content': content
+                }, next_step=True)
+            
+                await message.reply_text("请设置开始时间（格式：YYYY-MM-DD HH:MM）：")
                 return
-            start_time = datetime.strptime(message.text, '%Y-%m-%d %H:%M').replace(tzinfo=config.TIMEZONE)
-            await self.settings_manager.update_setting_state(user_id, 'broadcast', {'start_time': start_time}, next_step=True)
-            await message.reply_text("请设置结束时间（格式：YYYY-MM-DD HH:MM）：")
-            return
-        elif broadcast_state and broadcast_state['step'] == 3:
-            if not validate_time_format(message.text):
-                await message.reply_text("❌ 时间格式错误，请使用 YYYY-MM-DD HH:MM")
+        
+            # 步骤2：收集开始时间
+            elif broadcast_state['step'] == 2:
+                if not validate_time_format(message.text):
+                    await message.reply_text("❌ 时间格式错误，请使用 YYYY-MM-DD HH:MM")
+                    return
+                
+                start_time = datetime.strptime(message.text, '%Y-%m-%d %H:%M').replace(tzinfo=config.TIMEZONE)
+                await self.settings_manager.update_setting_state(user_id, 'broadcast', {'start_time': start_time}, next_step=True)
+            
+                await message.reply_text("请设置结束时间（格式：YYYY-MM-DD HH:MM）：")
                 return
-            end_time = datetime.strptime(message.text, '%Y-%m-%d %H:%M').replace(tzinfo=config.TIMEZONE)
-            if end_time <= broadcast_state['data']['start_time']:
-                await message.reply_text("❌ 结束时间必须晚于开始时间")
+        
+            # 步骤3：收集结束时间
+            elif broadcast_state['step'] == 3:
+                if not validate_time_format(message.text):
+                    await message.reply_text("❌ 时间格式错误，请使用 YYYY-MM-DD HH:MM")
+                    return
+                
+                end_time = datetime.strptime(message.text, '%Y-%m-%d %H:%M').replace(tzinfo=config.TIMEZONE)
+                if end_time <= broadcast_state['data']['start_time']:
+                    await message.reply_text("❌ 结束时间必须晚于开始时间")
+                    return
+                
+                await self.settings_manager.update_setting_state(user_id, 'broadcast', {'end_time': end_time}, next_step=True)
+            
+                await message.reply_text("请设置广播间隔（单位：秒，最小300秒）：")
                 return
-            await self.settings_manager.update_setting_state(user_id, 'broadcast', {'end_time': end_time}, next_step=True)
-            await message.reply_text("请设置广播间隔（单位：秒，最小300秒）：")
-            return
-        elif broadcast_state and broadcast_state['step'] == 4:
-            interval = validate_interval(message.text)
-            if not interval:
-                await message.reply_text("❌ 间隔必须是大于等于300秒的数字")
+        
+            # 步骤4：收集广播间隔
+            elif broadcast_state['step'] == 4:
+                interval = validate_interval(message.text)
+                if not interval:
+                    await message.reply_text("❌ 间隔必须是大于等于300秒的数字")
+                    return
+                
+                # 构建广播数据
+                broadcast_data = {
+                    'group_id': group_id,
+                    'content_type': broadcast_state['data']['content_type'],
+                    'content': broadcast_state['data']['content'],
+                    'start_time': broadcast_state['data']['start_time'],
+                    'end_time': broadcast_state['data']['end_time'],
+                    'interval': interval
+                }
+            
+                # 添加广播到数据库
+                await self.broadcast_manager.add_broadcast(broadcast_data)
+            
+                # 清理设置状态
+                await self.settings_manager.clear_setting_state(user_id, 'broadcast')
+            
+                # 通知用户完成
+                await message.reply_text("✅ 轮播消息添加成功！")
                 return
-            broadcast_data = {
-                'group_id': group_id,
-                'content_type': broadcast_state['data']['content_type'],
-                'content': broadcast_state['data']['content'],
-                'start_time': broadcast_state['data']['start_time'],
-                'end_time': broadcast_state['data']['end_time'],
-                'interval': interval
-            }
-            await self.broadcast_manager.add_broadcast(broadcast_data)
-            await self.settings_manager.clear_setting_state(user_id, 'broadcast')
-            await message.reply_text("✅ 轮播消息添加成功！")
+    
+        # 3. 处理统计设置
+        # 处理最小字节数设置
+        stats_min_bytes_state = await self.settings_manager.get_setting_state(user_id, 'stats_min_bytes')
+        if stats_min_bytes_state and stats_min_bytes_state['group_id'] == group_id:
+            try:
+                value = int(message.text)
+                if value < 0:
+                    await message.reply_text("❌ 最小字节数不能为负数")
+                    return
+                
+                # 更新设置
+                settings = await self.db.get_group_settings(group_id)
+                settings['min_bytes'] = value
+                await self.db.update_group_settings(group_id, settings)
+            
+                # 清理设置状态
+                await self.settings_manager.clear_setting_state(user_id, 'stats_min_bytes')
+            
+                # 通知用户完成
+                await message.reply_text(f"✅ 最小统计字节数已设置为 {value} 字节")
+            except ValueError:
+                await message.reply_text("❌ 请输入一个有效的数字")
             return
-
-        # 处理统计设置
-        stats_state = await self.settings_manager.get_setting_state(user_id, 'stats_min_bytes')
-        if stats_state and stats_state['group_id'] == group_id:
-            await self._process_stats_setting(update, context, stats_state, 'stats_min_bytes')
-            await self.settings_manager.clear_setting_state(user_id, 'stats_min_bytes')
+    
+        # 处理日排行显示数量设置
+        stats_daily_rank_state = await self.settings_manager.get_setting_state(user_id, 'stats_daily_rank')
+        if stats_daily_rank_state and stats_daily_rank_state['group_id'] == group_id:
+            try:
+                value = int(message.text)
+                if value < 1 or value > 50:
+                    await message.reply_text("❌ 显示数量必须在1-50之间")
+                    return
+                
+                # 更新设置
+                settings = await self.db.get_group_settings(group_id)
+                settings['daily_rank_size'] = value
+                await self.db.update_group_settings(group_id, settings)
+            
+                # 清理设置状态
+                await self.settings_manager.clear_setting_state(user_id, 'stats_daily_rank')
+            
+                # 通知用户完成
+                await message.reply_text(f"✅ 日排行显示数量已设置为 {value}")
+            except ValueError:
+                await message.reply_text("❌ 请输入一个有效的数字")
             return
-        stats_state = await self.settings_manager.get_setting_state(user_id, 'stats_daily_rank')
-        if stats_state and stats_state['group_id'] == group_id:
-            await self._process_stats_setting(update, context, stats_state, 'stats_daily_rank')
-            await self.settings_manager.clear_setting_state(user_id, 'stats_daily_rank')
+    
+        # 处理月排行显示数量设置
+        stats_monthly_rank_state = await self.settings_manager.get_setting_state(user_id, 'stats_monthly_rank')
+        if stats_monthly_rank_state and stats_monthly_rank_state['group_id'] == group_id:
+            try:
+                value = int(message.text)
+                if value < 1 or value > 50:
+                    await message.reply_text("❌ 显示数量必须在1-50之间")
+                    return
+                
+                # 更新设置
+                settings = await self.db.get_group_settings(group_id)
+                settings['monthly_rank_size'] = value
+                await self.db.update_group_settings(group_id, settings)
+            
+                # 清理设置状态
+                await self.settings_manager.clear_setting_state(user_id, 'stats_monthly_rank')
+            
+                # 通知用户完成
+                await message.reply_text(f"✅ 月排行显示数量已设置为 {value}")
+            except ValueError:
+                await message.reply_text("❌ 请输入一个有效的数字")
             return
-        stats_state = await self.settings_manager.get_setting_state(user_id, 'stats_monthly_rank')
-        if stats_state and stats_state['group_id'] == group_id:
-            await self._process_stats_setting(update, context, stats_state, 'stats_monthly_rank')
-            await self.settings_manager.clear_setting_state(user_id, 'stats_monthly_rank')
-            return
-
-        # 处理自动删除超时设置
+    
+        # 4. 处理自动删除超时设置
         auto_delete_state = await self.settings_manager.get_setting_state(user_id, 'auto_delete_timeout')
         if auto_delete_state and auto_delete_state['group_id'] == group_id:
             try:
@@ -1955,21 +2068,34 @@ class TelegramBot:
                 if timeout < 60 or timeout > 86400:
                     await message.reply_text("❌ 超时时间必须在60-86400秒之间")
                     return
+                
+                # 更新设置
                 settings = await self.db.get_group_settings(group_id)
                 settings['auto_delete_timeout'] = timeout
                 await self.db.update_group_settings(group_id, settings)
+            
+                # 清理设置状态
                 await self.settings_manager.clear_setting_state(user_id, 'auto_delete_timeout')
+            
+                # 通知用户完成
                 await message.reply_text(f"✅ 自动删除超时时间已设置为 {format_duration(timeout)}")
             except ValueError:
                 await message.reply_text("❌ 请输入一个有效的数字")
             return
-
+    
+        # ========== 功能处理 ==========
         # 处理关键词回复
         if message.text and await self.has_permission(group_id, GroupPermission.KEYWORDS):
+            logger.info(f"检查关键词匹配 - 群组: {group_id}, 文本: {message.text[:20]}...")
             response = await self.keyword_manager.match_keyword(group_id, message.text, message)
+        
             if response:
+                logger.info(f"关键词匹配成功 - 群组: {group_id}")
+            
                 if response.startswith('__media__'):
                     _, media_type, media_id = response.split('__', 2)
+                    logger.info(f"发送媒体回复 - 类型: {media_type}")
+                
                     if media_type == 'photo':
                         msg = await message.reply_photo(media_id)
                     elif media_type == 'video':
@@ -1977,11 +2103,23 @@ class TelegramBot:
                     elif media_type == 'document':
                         msg = await message.reply_document(media_id)
                 else:
+                    logger.info("发送文本回复")
                     msg = await message.reply_text(response)
+            
+                # 处理自动删除
                 settings = await self.db.get_group_settings(group_id)
                 if settings.get('auto_delete', False):
                     timeout = validate_delete_timeout(message_type='keyword')
+                    logger.info(f"设置自动删除 - 超时: {timeout}秒")
                     asyncio.create_task(self._schedule_delete(msg, timeout))
+    
+        # 处理消息统计
+        if await self.has_permission(group_id, GroupPermission.STATS):
+            logger.info(f"添加消息统计 - 群组: {group_id}, 用户: {user_id}")
+            try:
+                await self.stats_manager.add_message_stat(group_id, user_id, message)
+            except Exception as e:
+                logger.error(f"添加消息统计失败: {e}", exc_info=True)
 
 if __name__ == '__main__':
     asyncio.run(TelegramBot.main())
