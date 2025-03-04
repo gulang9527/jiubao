@@ -882,6 +882,8 @@ class TelegramBot:
             return
         action = parts[1]
         group_id = int(parts[-1])
+        user_id = update.effective_user.id
+        keyword_state = await self.settings_manager.get_setting_state(user_id, 'keyword')
         if not await self.db.can_manage_group(update.effective_user.id, group_id):
             await query.edit_message_text("❌ 无权限管理此群组")
             return
