@@ -184,20 +184,100 @@ def get_message_metadata(message) -> Dict[str, Any]:
 class CallbackDataBuilder:
     """回调数据构建器"""
     @staticmethod
-    def build(action: str, *args) -> str:
-        """构建回调数据"""
-        return '_'.join([str(arg) for arg in [action, *args]])
-    
+    def build(*args) -> str:
+        """
+        构建回调数据
+        
+        参数:
+        *args: 要拼接的回调数据部分
+        
+        返回:
+        拼接后的回调数据字符串
+        """
+        return '_'.join(str(arg) for arg in args)
+        
     @staticmethod
-    def parse(data: str) -> tuple:
-        """解析回调数据"""
+    def parse(data: str) -> list:
+        """
+        解析回调数据
+        
+        参数:
+        data: 回调数据字符串
+        
+        返回:
+        回调数据各部分组成的列表
+        """
+        return data.split('_')
+        
+    @staticmethod
+    def get_action(data: str) -> str:
+        """
+        获取回调数据中的操作类型
+        
+        参数:
+        data: 回调数据字符串
+        
+        返回:
+        操作类型字符串
+        """
         parts = data.split('_')
-        if len(parts) < 2:
-            raise ValueError("Invalid callback data format")
-        return parts[0], parts[1], parts[2:]
+        if len(parts) >= 2:
+            return parts[1]
+        return ""
+        
+    @staticmethod
+    def get_group_id(data: str) -> int:
+        """
+        获取回调数据中的群组ID
+        
+        参数:
+        data: 回调数据字符串
+        
+        返回:
+        群组ID (int)
+        """
+        parts = data.split('_')
+        if len(parts) >= 3:
+            try:
+                return int(parts[-1])
+            except ValueError:
+                pass
+        return 0
 
 class KeyboardBuilder:
     """键盘构建器"""
+    @staticmethod
+    def build(buttons, rows=None):
+        """
+        构建内联键盘布局
+        
+        参数:
+        buttons: 按钮列表或按钮行的列表
+        rows: 每行按钮数量，如果不指定则每个按钮独占一行
+        
+        返回:
+        InlineKeyboardMarkup对象
+        """
+        keyboard = []
+        
+        if not buttons:
+            return InlineKeyboardMarkup(keyboard)
+            
+        # 如果传入的是已经分好行的按钮
+        if isinstance(buttons[0], list):
+            return InlineKeyboardMarkup(buttons)
+            
+        # 按照rows指定的数量分行
+        if rows:
+            for i in range(0, len(buttons), rows):
+                row = buttons[i:i+rows]
+                keyboard.append(row)
+        else:
+            # 默认每个按钮一行
+            keyboard = [[button] for button in buttons]
+            
+        return InlineKeyboardMarkup(keyboard)
+            
     @staticmethod
     def create_settings_keyboard(group_id: int, permissions: list) -> InlineKeyboardMarkup:
         """创建设置菜单键盘"""
