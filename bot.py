@@ -1024,7 +1024,7 @@ class TelegramBot:
             action = parts[1]
             group_id = int(parts[2])
             # 验证用户是否有权限管理该群组
-        if not await self.db.can_manage_group(update.effective_user.id, group_id):
+            if not await self.db.can_manage_group(update.effective_user.id, group_id):
                 await query.edit_message_text("❌ 无权限管理此群组")
                 return
             # 处理特定的设置操作
