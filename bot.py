@@ -370,11 +370,14 @@ class KeywordManager:
         self._built_in_keywords[pattern] = handler
         
     async def match_keyword(self, group_id: int, text: str, message: Message) -> Optional[str]:
+        logger.info(f"开始匹配关键词 - 群组: {group_id}, 文本: {text}")
         for pattern, handler in self._built_in_keywords.items():
             if text == pattern:
                 return await handler(message)
         keywords = await self.get_keywords(group_id)
+        logger.info(f"群组 {group_id} 有 {len(keywords)} 个关键词")
         for kw in keywords:
+            logger.info(f"尝试匹配关键词: {kw['pattern']}, 类型: {kw['type']}")
             try:
                 if kw['type'] == 'regex':
                     pattern = re.compile(kw['pattern'])
