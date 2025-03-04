@@ -1016,6 +1016,17 @@ class TelegramBot:
                     keyboard.append([InlineKeyboardButton(group_name, callback_data=f"settings_select_{group['group_id']}")])
                 await query.edit_message_text("请选择要管理的群组：", reply_markup=InlineKeyboardMarkup(keyboard))
                 return
+            # 从回调数据中提取操作类型和群组ID
+            parts = data.split('_')
+            if len(parts) < 3:
+                await query.edit_message_text("❌ 无效的回调数据")
+                return
+            action = parts[1]
+            group_id = int(parts[2])
+            # 验证用户是否有权限管理该群组
+        if not await self.db.can_manage_group(update.effective_user.id, group_id):
+                await query.edit_message_text("❌ 无权限管理此群组")
+                return
             # 处理特定的设置操作
             if action == "select":
                 group = await self.db.get_group(group_id)
