@@ -1853,7 +1853,7 @@ class TelegramBot:
         if keyword_state:
             logger.info(f"发现关键词设置状态 - 用户: {user_id}, 群组: {keyword_state['group_id']}, 当前群组: {group_id}")
         
-            if keyword_state['group_id'] == group_id:
+            if True: 
                 logger.info(f"处理关键词设置 - 用户: {user_id}, 步骤: {keyword_state['step']}")
             
                 # 步骤1：收集关键词模式
@@ -1919,7 +1919,7 @@ class TelegramBot:
     
         # 2. 处理广播设置
         broadcast_state = await self.settings_manager.get_setting_state(user_id, 'broadcast')
-        if broadcast_state and broadcast_state['group_id'] == group_id:
+        if broadcast_state and (broadcast_state['group_id'] == group_id or update.effective_chat.type == 'private'):
             logger.info(f"处理广播设置 - 用户: {user_id}, 步骤: {broadcast_state['step']}")
         
             # 步骤1：收集广播内容
@@ -1993,7 +1993,7 @@ class TelegramBot:
         # 3. 处理统计设置
         # 处理最小字节数设置
         stats_min_bytes_state = await self.settings_manager.get_setting_state(user_id, 'stats_min_bytes')
-        if stats_min_bytes_state and stats_min_bytes_state['group_id'] == group_id:
+        if stats_min_bytes_state and (stats_min_bytes_state['group_id'] == group_id or update.effective_chat.type == 'private'):
             try:
                 value = int(message.text)
                 if value < 0:
@@ -2016,7 +2016,7 @@ class TelegramBot:
     
         # 处理日排行显示数量设置
         stats_daily_rank_state = await self.settings_manager.get_setting_state(user_id, 'stats_daily_rank')
-        if stats_daily_rank_state and stats_daily_rank_state['group_id'] == group_id:
+        if stats_daily_rank_state and (stats_daily_rank_state['group_id'] == group_id or update.effective_chat.type == 'private'):
             try:
                 value = int(message.text)
                 if value < 1 or value > 50:
@@ -2039,7 +2039,7 @@ class TelegramBot:
     
         # 处理月排行显示数量设置
         stats_monthly_rank_state = await self.settings_manager.get_setting_state(user_id, 'stats_monthly_rank')
-        if stats_monthly_rank_state and stats_monthly_rank_state['group_id'] == group_id:
+        if stats_monthly_rank_state and (stats_monthly_rank_state['group_id'] == group_id or update.effective_chat.type == 'private'):
             try:
                 value = int(message.text)
                 if value < 1 or value > 50:
@@ -2062,7 +2062,7 @@ class TelegramBot:
     
         # 4. 处理自动删除超时设置
         auto_delete_state = await self.settings_manager.get_setting_state(user_id, 'auto_delete_timeout')
-        if auto_delete_state and auto_delete_state['group_id'] == group_id:
+        if auto_delete_state and (auto_delete_state['group_id'] == group_id or update.effective_chat.type == 'private'):
             try:
                 timeout = int(message.text)
                 if timeout < 60 or timeout > 86400:
