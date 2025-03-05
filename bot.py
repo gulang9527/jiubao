@@ -1102,11 +1102,11 @@ class TelegramBot:
         # 添加命令使用检查
         async def wrapper(update, context):
         
-        # 如果需要，添加管理员检查
-        if admin_only and not await self.is_admin(update.effective_user.id):
-            await update.message.reply_text("❌ 该命令仅管理员可用")
-            return
-        return await handler(self, update, context)
+            # 如果需要，添加管理员检查
+            if admin_only and not await self.is_admin(update.effective_user.id):
+                await update.message.reply_text("❌ 该命令仅管理员可用")
+                return
+            return await handler(self, update, context)
             
         # 注册处理器
         self.application.add_handler(CommandHandler(command, wrapper))
