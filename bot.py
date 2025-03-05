@@ -1105,11 +1105,11 @@ class TelegramBot:
         # 如果需要，添加管理员检查
         if admin_only:
             original_handler = decorated_handler
-            decorated_handler = lambda u, c: self.is_admin(u.effective_user.id) and original_handler(u, c)
+            decorated_handler = lambda update, context: self.is_admin(update.effective_user.id) and original_handler(self, update, context)
             
         # 注册处理器
-        self.application.add_handler(CommandHandler(command, decorated_handler))
-
+        self.application.add_handler(CommandHandler(command, lambda u, c: decorated_handler(self, u, c)))
+        
     async def _register_handlers(self):
         """注册所有处理器"""
         # 注册中间件
