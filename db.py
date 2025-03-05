@@ -372,9 +372,18 @@ class Database:
         """删除关键词"""
         await self.ensure_connected()
         try:
+            # 验证 keyword_id 是否为有效的 ObjectId
+            try:
+                from bson import ObjectId
+                obj_id = ObjectId(keyword_id)
+            except Exception as e:
+                logger.error(f"无效的关键词ID: {keyword_id}, 错误: {e}")
+                raise ValueError(f"无效的关键词ID: {keyword_id}")
+        
+            # 删除关键词
             await self.db.keywords.delete_one({
                 'group_id': group_id,
-                '_id': ObjectId(keyword_id)
+                '_id': obj_id
             })
         except Exception as e:
             logger.error(f"删除关键词失败: {e}")
