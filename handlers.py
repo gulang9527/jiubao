@@ -1107,7 +1107,7 @@ async def handle_keyword_callback(update: Update, context: CallbackContext):
                 # 尝试创建ObjectId验证格式是否正确
                 from bson import ObjectId
                 ObjectId(keyword_id)
-            except Exception as e:
+        except Exception as e:
                 logger.error(f"无效的关键词ID: {keyword_id}, 错误: {e}")
                 await query.edit_message_text("❌ 无效的关键词ID格式")
                 return
