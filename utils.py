@@ -3,14 +3,16 @@ from typing import Optional, Tuple, Dict, Any
 import re
 import pytz
 import logging
-from config import TIMEZONE
-from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton, Message
+
+logger = logging.getLogger(__name__)
 
 def validate_time_format(time_str: str) -> Optional[datetime]:
     """验证时间格式并转换为datetime对象"""
     try:
         dt = datetime.strptime(time_str, "%Y-%m-%d %H:%M")
-        tz = pytz.timezone(TIMEZONE)
+        import config
+        tz = pytz.timezone(config.TIMEZONE_STR)
         return tz.localize(dt)
     except ValueError:
         return None
@@ -41,7 +43,7 @@ def validate_regex(pattern: str) -> bool:
     except re.error:
         return False
 
-def get_media_type(message) -> Optional[str]:
+def get_media_type(message: Message) -> Optional[str]:
     """获取消息的媒体类型"""
     if message.photo:
         return 'photo'
@@ -94,24 +96,24 @@ def escape_markdown(text: str) -> str:
 
 def validate_settings(settings: Dict[str, Any]) -> Tuple[bool, str]:
     """验证设置是否有效"""
-    from config import DEFAULT_SETTINGS
+    import config
     
     try:
         # 验证最低字节数
-        min_bytes = settings.get('min_bytes', DEFAULT_SETTINGS['min_bytes'])
+        min_bytes = settings.get('min_bytes', config.DEFAULT_SETTINGS['min_bytes'])
         if not isinstance(min_bytes, int) or min_bytes < 0:
             return False, "最低字节数必须是非负整数"
             
         # 验证排行显示数量
-        daily_rank_size = settings.get('daily_rank_size', DEFAULT_SETTINGS['daily_rank_size'])
-        monthly_rank_size = settings.get('monthly_rank_size', DEFAULT_SETTINGS['monthly_rank_size'])
+        daily_rank_size = settings.get('daily_rank_size', config.DEFAULT_SETTINGS['daily_rank_size'])
+        monthly_rank_size = settings.get('monthly_rank_size', config.DEFAULT_SETTINGS['monthly_rank_size'])
         if not isinstance(daily_rank_size, int) or daily_rank_size < 1:
             return False, "日排行显示数量必须是正整数"
         if not isinstance(monthly_rank_size, int) or monthly_rank_size < 1:
             return False, "月排行显示数量必须是正整数"
             
         # 验证其他布尔值设置
-        count_media = settings.get('count_media', DEFAULT_SETTINGS['count_media'])
+        count_media = settings.get('count_media', config.DEFAULT_SETTINGS['count_media'])
         if not isinstance(count_media, bool):
             return False, "count_media必须是布尔值"
             
@@ -132,16 +134,16 @@ def validate_delete_timeout(timeout: Optional[int] = None, message_type: Optiona
     :param message_type: 消息类型，用于差异化超时
     :return: 有效的超时时间
     """
-    from config import AUTO_DELETE_SETTINGS
+    import config
     
-    if not AUTO_DELETE_SETTINGS.get('enabled', False):
+    if not config.AUTO_DELETE_SETTINGS.get('enabled', False):
         return 0
     
     if timeout is None:
-        timeouts = AUTO_DELETE_SETTINGS['timeouts']
+        timeouts = config.AUTO_DELETE_SETTINGS['timeouts']
         timeout = timeouts.get(message_type, timeouts['default']) if message_type else timeouts['default']
     
-    timeout = max(AUTO_DELETE_SETTINGS['min_timeout'], min(timeout, AUTO_DELETE_SETTINGS['max_timeout']))
+    timeout = max(config.AUTO_DELETE_SETTINGS['min_timeout'], min(timeout, config.AUTO_DELETE_SETTINGS['max_timeout']))
     return timeout
 
 def is_auto_delete_exempt(user_role: str, command: Optional[str] = None) -> bool:
@@ -152,22 +154,22 @@ def is_auto_delete_exempt(user_role: str, command: Optional[str] = None) -> bool
     :param command: 命令（可选）
     :return: 是否免除自动删除
     """
-    from config import AUTO_DELETE_SETTINGS
+    import config
     
     # 检查用户角色
-    if user_role in AUTO_DELETE_SETTINGS.get('exempt_roles', []):
+    if user_role in config.AUTO_DELETE_SETTINGS.get('exempt_roles', []):
         return True
     
     # 检查命令前缀
     if command and any(
         command.startswith(prefix) 
-        for prefix in AUTO_DELETE_SETTINGS.get('exempt_command_prefixes', [])
+        for prefix in config.AUTO_DELETE_SETTINGS.get('exempt_command_prefixes', [])
     ):
         return True
     
     return False
 
-def get_message_metadata(message) -> Dict[str, Any]:
+def get_message_metadata(message: Message) -> Dict[str, Any]:
     """
     获取消息的元数据，用于自动删除判断
     
@@ -315,3 +317,34 @@ class KeyboardBuilder:
         ])
         
         return InlineKeyboardMarkup(keyboard)
+
+class CommandHelper:
+    COMMAND_USAGE = {
+        'start': {'usage': '/start', 'description': '启动机器人并查看功能列表', 'example': None, 'admin_only': False},
+        'settings': {'usage': '/settings', 'description': '打开设置菜单', 'example': None, 'admin_only': True},
+        'tongji': {'usage': '/tongji [页码]', 'description': '查看今日统计排行', 'example': '/tongji 2', 'admin_only': False},
+        'tongji30': {'usage': '/tongji30 [页码]', 'description': '查看30日统计排行', 'example': '/tongji30 2', 'admin_only': False},
+        'addadmin': {'usage': '/addadmin <用户ID>', 'description': '添加管理员', 'example': '/addadmin 123456789', 'admin_only': True},
+        'deladmin': {'usage': '/deladmin <用户ID>', 'description': '删除管理员', 'example': '/deladmin 123456789', 'admin_only': True},
+        'authgroup': {'usage': '/authgroup <群组ID> ...', 'description': '授权群组', 'example': '/authgroup -100123456789 keywords stats broadcast', 'admin_only': True},
+        'deauthgroup': {'usage': '/deauthgroup <群组ID>', 'description': '取消群组授权', 'example': '/deauthgroup -100123456789', 'admin_only': True},
+        'cancel': {'usage': '/cancel', 'description': '取消当前操作', 'example': None, 'admin_only': False}
+    }
+    
+    @classmethod
+    def get_usage(cls, command: str) -> Optional[dict]:
+        """获取命令使用说明"""
+        return cls.COMMAND_USAGE.get(command)
+        
+    @classmethod
+    def format_usage(cls, command: str) -> str:
+        """格式化命令使用说明"""
+        usage = cls.get_usage(command)
+        if not usage:
+            return "❌ 未知命令"
+        text = [f"📝 命令: {command}", f"用法: {usage['usage']}", f"说明: {usage['description']}"]
+        if usage['example']:
+            text.append(f"示例: {usage['example']}")
+        if usage['admin_only']:
+            text.append("注意: 仅管理员可用")
+        return "\n".join(text)
