@@ -1133,14 +1133,14 @@ async def handle_keyword_callback(update: Update, context: CallbackContext):
         keyword_id = parts[2]
         logger.info(f"执行删除关键词 - 回调数据: {data}, 解析后的ID: {keyword_id}")
     
-            # 检查是否为有效ID
-            try:
-                from bson import ObjectId
-                ObjectId(keyword_id)
-            except Exception as e:
-                logger.error(f"无效的关键词ID: {keyword_id}, 错误: {e}")
-                await query.edit_message_text("❌ 无效的关键词ID格式")
-                return
+        # 检查是否为有效ID
+        try:
+            from bson import ObjectId
+            ObjectId(keyword_id)
+         except Exception as e:
+            logger.error(f"无效的关键词ID: {keyword_id}, 错误: {e}")
+            await query.edit_message_text("❌ 无效的关键词ID格式")
+            return
                 
         keyword = await bot_instance.keyword_manager.get_keyword_by_id(group_id, keyword_id)
         pattern = keyword['pattern'] if keyword else "未知关键词"
