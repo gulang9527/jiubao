@@ -1101,13 +1101,16 @@ async def handle_keyword_callback(update: Update, context: CallbackContext):
             return
             
         keyword_id = parts[2]
-        keyword = await bot_instance.keyword_manager.get_keyword_by_id(group_id, keyword_id)
+        logger.info(f"确认删除关键词 - 回调数据: {data}, 解析后的ID: {keyword_id}")
         
-        if not keyword:
-            await query.edit_message_text("❌ 未找到该关键词")
-            return
-            
-        pattern = keyword['pattern']
+        try:
+                # 尝试创建ObjectId验证格式是否正确
+                from bson import ObjectId
+                ObjectId(keyword_id)
+            except Exception as e:
+                logger.error(f"无效的关键词ID: {keyword_id}, 错误: {e}")
+                await query.edit_message_text("❌ 无效的关键词ID格式")
+                return
         
         # 构建确认键盘
         keyboard = [
@@ -1128,6 +1131,17 @@ async def handle_keyword_callback(update: Update, context: CallbackContext):
             return
             
         keyword_id = parts[2]
+        logger.info(f"执行删除关键词 - 回调数据: {data}, 解析后的ID: {keyword_id}")
+    
+            # 检查是否为有效ID
+            try:
+                from bson import ObjectId
+                ObjectId(keyword_id)
+            except Exception as e:
+                logger.error(f"无效的关键词ID: {keyword_id}, 错误: {e}")
+                await query.edit_message_text("❌ 无效的关键词ID格式")
+                return
+                
         keyword = await bot_instance.keyword_manager.get_keyword_by_id(group_id, keyword_id)
         pattern = keyword['pattern'] if keyword else "未知关键词"
         
