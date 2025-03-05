@@ -1119,32 +1119,38 @@ class TelegramBot:
         # 注册中间件
         self.application.post_init = [message_middleware, error_middleware]
     
+        # 创建包装函数以确保正确传递self参数
+        async def create_handler(handler):
+            async def wrapped_handler(update, context):
+                return await handler(self, update, context)
+            return wrapped_handler
+    
         # 直接注册命令处理器
-        self.application.add_handler(CommandHandler("start", lambda u, c: self._handle_start(self, u, c)))
-        self.application.add_handler(CommandHandler("tongji", lambda u, c: self._handle_rank_command(self, u, c)))
-        self.application.add_handler(CommandHandler("tongji30", lambda u, c: self._handle_rank_command(self, u, c)))
-        self.application.add_handler(CommandHandler("settings", lambda u, c: self._handle_settings(self, u, c)))
-        self.application.add_handler(CommandHandler("admingroups", lambda u, c: self._handle_admin_groups(self, u, c)))
-        self.application.add_handler(CommandHandler("cancel", lambda u, c: self._handle_cancel(self, u, c)))
-        self.application.add_handler(CommandHandler("addsuperadmin", lambda u, c: self._handle_add_superadmin(self, u, c)))
-        self.application.add_handler(CommandHandler("delsuperadmin", lambda u, c: self._handle_del_superadmin(self, u, c)))
-        self.application.add_handler(CommandHandler("addadmin", lambda u, c: self._handle_add_admin(self, u, c)))
-        self.application.add_handler(CommandHandler("deladmin", lambda u, c: self._handle_del_admin(self, u, c)))
-        self.application.add_handler(CommandHandler("authgroup", lambda u, c: self._handle_auth_group(self, u, c)))
-        self.application.add_handler(CommandHandler("deauthgroup", lambda u, c: self._handle_deauth_group(self, u, c)))
-        self.application.add_handler(CommandHandler("checkconfig", lambda u, c: self._handle_check_config(self, u, c)))
+        self.application.add_handler(CommandHandler("start", await create_handler(self._handle_start)))
+        self.application.add_handler(CommandHandler("tongji", await create_handler(self._handle_rank_command)))
+        self.application.add_handler(CommandHandler("tongji30", await create_handler(self._handle_rank_command)))
+        self.application.add_handler(CommandHandler("settings", await create_handler(self._handle_settings)))
+        self.application.add_handler(CommandHandler("admingroups", await create_handler(self._handle_admin_groups)))
+        self.application.add_handler(CommandHandler("cancel", await create_handler(self._handle_cancel)))
+        self.application.add_handler(CommandHandler("addsuperadmin", await create_handler(self._handle_add_superadmin)))
+        self.application.add_handler(CommandHandler("delsuperadmin", await create_handler(self._handle_del_superadmin)))
+        self.application.add_handler(CommandHandler("addadmin", await create_handler(self._handle_add_admin)))
+        self.application.add_handler(CommandHandler("deladmin", await create_handler(self._handle_del_admin)))
+        self.application.add_handler(CommandHandler("authgroup", await create_handler(self._handle_auth_group)))
+        self.application.add_handler(CommandHandler("deauthgroup", await create_handler(self._handle_deauth_group)))
+        self.application.add_handler(CommandHandler("checkconfig", await create_handler(self._handle_check_config)))
     
         # 注册回调查询处理器
-        self.application.add_handler(CallbackQueryHandler(lambda u, c: self._handle_settings_callback(self, u, c), pattern=r'^settings_'))
-        self.application.add_handler(CallbackQueryHandler(lambda u, c: self._handle_keyword_callback(self, u, c), pattern=r'^keyword_'))
-        self.application.add_handler(CallbackQueryHandler(lambda u, c: self._handle_broadcast_callback(self, u, c), pattern=r'^broadcast_'))
-        self.application.add_handler(CallbackQueryHandler(lambda u, c: self._handle_keyword_continue_callback(self, u, c), pattern=r'^keyword_continue_'))
-        self.application.add_handler(CallbackQueryHandler(lambda u, c: self._handle_stats_edit_callback(self, u, c), pattern=r'^stats_edit_'))
-        self.application.add_handler(CallbackQueryHandler(lambda u, c: self._handle_auto_delete_callback(self, u, c), pattern=r'^auto_delete_'))
-        self.application.add_handler(CallbackQueryHandler(lambda u, c: self._handle_switch_toggle_callback(self, u, c), pattern=r'^switch_toggle_'))
+        self.application.add_handler(CallbackQueryHandler(await create_handler(self._handle_settings_callback), pattern=r'^settings_'))
+        self.application.add_handler(CallbackQueryHandler(await create_handler(self._handle_keyword_callback), pattern=r'^keyword_'))
+        self.application.add_handler(CallbackQueryHandler(await create_handler(self._handle_broadcast_callback), pattern=r'^broadcast_'))
+        self.application.add_handler(CallbackQueryHandler(await create_handler(self._handle_keyword_continue_callback), pattern=r'^keyword_continue_'))
+        self.application.add_handler(CallbackQueryHandler(await create_handler(self._handle_stats_edit_callback), pattern=r'^stats_edit_'))
+        self.application.add_handler(CallbackQueryHandler(await create_handler(self._handle_auto_delete_callback), pattern=r'^auto_delete_'))
+        self.application.add_handler(CallbackQueryHandler(await create_handler(self._handle_switch_toggle_callback), pattern=r'^switch_toggle_'))
     
         # 注册消息处理器
-        self.application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, lambda u, c: self._handle_message(self, u, c)))
+        self.application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, await create_handler(self._handle_message)))
     
         # 注册错误处理器
         self.application.add_error_handler(self.error_handler.handle_error)
