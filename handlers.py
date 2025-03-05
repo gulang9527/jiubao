@@ -1114,7 +1114,7 @@ async def handle_keyword_callback(update: Update, context: CallbackContext):
         
         # 构建确认键盘
         keyboard = [
-            [InlineKeyboardButton("✅ 确认删除", callback_data=f"keyword_delete_{keyword_id}_{group_id}"),
+            [InlineKeyboardButton("✅ 确认删除", callback_data=f"keyword_delete_confirm_{keyword_id}_{group_id}""),
             InlineKeyboardButton("❌ 取消", callback_data=f"keyword_detail_{keyword_id}_{group_id}")]
         ]
         
@@ -1126,11 +1126,15 @@ async def handle_keyword_callback(update: Update, context: CallbackContext):
         
     elif action == "delete":
         # 执行删除关键词
-        if len(parts) < 4:
+        if len(parts) >= 5 and parts[2] == "confirm":
+            keyword_id = parts[3]  # 从正确位置获取 keyword_id
+            logger.info(f"检测到confirm格式: 执行删除关键词 - ID: {keyword_id}")
+        elif len(parts) < 4:
             await query.edit_message_text("❌ 无效的关键词ID")
             return
-            
-        keyword_id = parts[2]
+        else:
+            keyword_id = parts[2]  # 常规格式
+ 
         logger.info(f"执行删除关键词 - 回调数据: {data}, 解析后的ID: {keyword_id}")
     
         # 检查是否为有效ID
