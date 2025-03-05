@@ -1114,7 +1114,7 @@ async def handle_keyword_callback(update: Update, context: CallbackContext):
         
         # 构建确认键盘
         keyboard = [
-            [InlineKeyboardButton("✅ 确认删除", callback_data=f"keyword_delete_confirm_{keyword_id}_{group_id}""),
+            [InlineKeyboardButton("✅ 确认删除", callback_data=f"keyword_delete_confirm_{keyword_id}_{group_id}"),
             InlineKeyboardButton("❌ 取消", callback_data=f"keyword_detail_{keyword_id}_{group_id}")]
         ]
         
