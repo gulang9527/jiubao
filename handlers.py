@@ -1769,7 +1769,7 @@ async def handle_keyword_form_callback(update: Update, context: CallbackContext)
         if update.callback_query:
             try:
                 await update.callback_query.edit_message_text(f"❌ 处理操作时出错: {str(e)[:50]}...")
-             except Exception as reply_error:
+            except Exception as reply_error:
                 logger.error(f"无法发送错误消息: {reply_error}")
 
 async def show_response_options(update: Update, context: CallbackContext):
