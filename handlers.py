@@ -517,21 +517,77 @@ async def handle_keyword_setting(bot_instance, user_id: int, message: Message) -
             await bot_instance.settings_manager.update_setting_state(
                 user_id, 'keyword', {'pattern': pattern}, next_step=True
             )
-            await message.reply_text("请发送回复内容（支持文本、图片、视频或文件）：")
+            await message.reply_text("请发送回复文本内容，或发送 /skip 跳过此步骤：")
             return True
             
         elif keyword_state['step'] == 2:
-            # 处理回复内容
-            response_type = get_media_type(message) or 'text'
-            response = message.text if response_type == 'text' else message.effective_attachment.file_id
+            # 处理回复文本
+            if message.text and message.text.strip().lower() == '/skip':
+                await bot_instance.settings_manager.update_setting_state(user_id, 'keyword', {
+                    'response': ""
+                }, next_step=True)
+            else:
+                await bot_instance.settings_manager.update_setting_state(user_id, 'keyword', {
+                    'response': message.text or ""
+                }, next_step=True)
+                
+            await message.reply_text("回复文本已设置。现在请发送媒体内容（图片/视频/文档），或发送 /skip 跳过此步骤：")
+            return True
             
+        elif keyword_state['step'] == 3:
+            # 处理媒体内容
+            if message.text and message.text.strip().lower() == '/skip':
+                await bot_instance.settings_manager.update_setting_state(user_id, 'keyword', {
+                    'media': None
+                }, next_step=True)
+            else:
+                media_type = get_media_type(message)
+                if media_type:
+                    from utils import get_file_id
+                    file_id = get_file_id(message)
+                    
+                    if file_id:
+                        await bot_instance.settings_manager.update_setting_state(user_id, 'keyword', {
+                            'media': {'type': media_type, 'file_id': file_id}
+                        }, next_step=True)
+                    else:
+                        await message.reply_text("❌ 无法获取媒体文件ID，请重试或输入 /skip 跳过")
+                        return True
+                else:
+                    await message.reply_text("❌ 请发送媒体内容或输入 /skip 跳过此步骤")
+                    return True
+                    
+            await message.reply_text("媒体内容已设置。现在请设置按钮（格式：按钮文字|https://网址），每行一个，或发送 /skip 跳过：")
+            return True
+            
+        elif keyword_state['step'] == 4:
+            # 处理按钮
+            buttons = []
+            if message.text and message.text.strip().lower() != '/skip':
+                lines = message.text.strip().split('\n')
+                for line in lines:
+                    if '|' in line:
+                        text, url = line.split('|', 1)
+                        if text and url and url.startswith('http'):
+                            buttons.append({'text': text.strip(), 'url': url.strip()})
+            
+            # 验证至少有一项回复内容
+            has_text = bool(keyword_state['data'].get('response'))
+            has_media = bool(keyword_state['data'].get('media'))
+            has_buttons = bool(buttons)
+            
+            if not (has_text or has_media or has_buttons):
+                await message.reply_text("❌ 关键词回复必须包含文本、媒体或按钮中的至少一项")
+                return True
+                
             # 构建关键词数据
             keyword_data = {
                 'group_id': keyword_state['group_id'],
                 'pattern': keyword_state['data'].get('pattern', ''),
                 'type': keyword_state['data'].get('match_type', 'exact'),
-                'response_type': response_type,
-                'response': response
+                'response': keyword_state['data'].get('response', ''),
+                'media': keyword_state['data'].get('media'),
+                'buttons': buttons
             }
             
             # 添加关键词到数据库
@@ -559,20 +615,64 @@ async def handle_broadcast_setting(bot_instance, user_id: int, group_id: int, me
         
     try:
         if broadcast_state['step'] == 1:
-            # 处理轮播内容
-            content_type = get_media_type(message) or 'text'
-            content = message.text if content_type == 'text' else message.effective_attachment.file_id
+            # 处理文本内容
+            if message.text:
+                await bot_instance.settings_manager.update_setting_state(user_id, 'broadcast', {
+                    'text': message.text
+                }, next_step=True)
+            else:
+                await bot_instance.settings_manager.update_setting_state(user_id, 'broadcast', {
+                    'text': ""
+                }, next_step=True)
             
-            # 更新状态并进入下一步
-            await bot_instance.settings_manager.update_setting_state(user_id, 'broadcast', {
-                'content_type': content_type,
-                'content': content
-            }, next_step=True)
-            
-            await message.reply_text("请设置开始时间（格式：YYYY-MM-DD HH:MM）：")
+            await message.reply_text("文本内容已设置。现在请发送媒体内容（图片/视频/文档），或发送 /skip 跳过此步骤：")
             return True
             
         elif broadcast_state['step'] == 2:
+            # 处理媒体内容
+            if message.text and message.text.strip().lower() == '/skip':
+                await bot_instance.settings_manager.update_setting_state(user_id, 'broadcast', {
+                    'media': None
+                }, next_step=True)
+            else:
+                media_type = get_media_type(message)
+                if media_type:
+                    from utils import get_file_id
+                    file_id = get_file_id(message)
+                    
+                    if file_id:
+                        await bot_instance.settings_manager.update_setting_state(user_id, 'broadcast', {
+                            'media': {'type': media_type, 'file_id': file_id}
+                        }, next_step=True)
+                    else:
+                        await message.reply_text("❌ 无法获取媒体文件ID，请重试或输入 /skip 跳过")
+                        return True
+                else:
+                    await message.reply_text("❌ 请发送媒体内容或输入 /skip 跳过此步骤")
+                    return True
+            
+            await message.reply_text("媒体内容已设置。现在请设置按钮（格式：按钮文字|https://网址），每行一个，或发送 /skip 跳过：")
+            return True
+            
+        elif broadcast_state['step'] == 3:
+            # 处理按钮
+            buttons = []
+            if message.text and message.text.strip().lower() != '/skip':
+                lines = message.text.strip().split('\n')
+                for line in lines:
+                    if '|' in line:
+                        text, url = line.split('|', 1)
+                        if text and url and url.startswith('http'):
+                            buttons.append({'text': text.strip(), 'url': url.strip()})
+            
+            await bot_instance.settings_manager.update_setting_state(user_id, 'broadcast', {
+                'buttons': buttons
+            }, next_step=True)
+            
+            await message.reply_text("按钮已设置。请设置开始时间（格式：YYYY-MM-DD HH:MM）：")
+            return True
+            
+        elif broadcast_state['step'] == 4:
             # 处理开始时间
             start_time = validate_time_format(message.text)
             if not start_time:
@@ -584,7 +684,7 @@ async def handle_broadcast_setting(bot_instance, user_id: int, group_id: int, me
             await message.reply_text("请设置结束时间（格式：YYYY-MM-DD HH:MM）：")
             return True
             
-        elif broadcast_state['step'] == 3:
+        elif broadcast_state['step'] == 5:
             # 处理结束时间
             end_time = validate_time_format(message.text)
             if not end_time:
@@ -600,7 +700,7 @@ async def handle_broadcast_setting(bot_instance, user_id: int, group_id: int, me
             await message.reply_text("请设置广播间隔（单位：秒，最小300秒）：")
             return True
             
-        elif broadcast_state['step'] == 4:
+        elif broadcast_state['step'] == 6:
             # 处理广播间隔
             interval = validate_interval(message.text)
             if not interval:
@@ -610,8 +710,9 @@ async def handle_broadcast_setting(bot_instance, user_id: int, group_id: int, me
             # 构建广播数据
             broadcast_data = {
                 'group_id': broadcast_state['group_id'],
-                'content_type': broadcast_state['data']['content_type'],
-                'content': broadcast_state['data']['content'],
+                'text': broadcast_state['data'].get('text', ''),
+                'media': broadcast_state['data'].get('media'),
+                'buttons': broadcast_state['data'].get('buttons', []),
                 'start_time': broadcast_state['data']['start_time'],
                 'end_time': broadcast_state['data']['end_time'],
                 'interval': interval
@@ -634,27 +735,65 @@ async def handle_broadcast_setting(bot_instance, user_id: int, group_id: int, me
         
     return False
 
-async def send_keyword_response(bot_instance, original_message: Message, response: str, group_id: int):
+async def send_keyword_response(bot_instance, original_message: Message, keyword_id: str, group_id: int):
     """发送关键词回复"""
-    if response.startswith('__media__'):
-        _, media_type, media_id = response.split('__', 2)
+    try:
+        # 获取关键词数据
+        keyword = await bot_instance.keyword_manager.get_keyword_by_id(group_id, keyword_id)
+        if not keyword:
+            logger.error(f"关键词 {keyword_id} 不存在")
+            return
+            
+        # 准备消息内容
+        text = keyword.get('response', '')
+        media = keyword.get('media')
+        buttons = keyword.get('buttons', [])
         
-        if media_type == 'photo':
-            msg = await original_message.reply_photo(media_id)
-        elif media_type == 'video':
-            msg = await original_message.reply_video(media_id)
-        elif media_type == 'document':
-            msg = await original_message.reply_document(media_id)
+        # 创建内联键盘（如果有按钮）
+        reply_markup = None
+        if buttons:
+            keyboard = []
+            for button in buttons:
+                keyboard.append([InlineKeyboardButton(button['text'], url=button['url'])])
+            reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # 根据内容组合发送不同类型的消息
+        if media and media.get('type'):
+            if media['type'] == 'photo':
+                msg = await original_message.reply_photo(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
+            elif media['type'] == 'video':
+                msg = await original_message.reply_video(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
+            elif media['type'] == 'document':
+                msg = await original_message.reply_document(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
+            elif media['type'] == 'animation':
+                msg = await original_message.reply_animation(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
+            else:
+                # 默认作为文档发送
+                msg = await original_message.reply_document(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
         else:
-            return  # 不支持的媒体类型
-    else:
-        msg = await original_message.reply_text(response)
-        
-    # 处理自动删除
-    settings = await bot_instance.db.get_group_settings(group_id)
-    if settings.get('auto_delete', False):
-        timeout = validate_delete_timeout(message_type='keyword')
-        asyncio.create_task(bot_instance._schedule_delete(msg, timeout))
+            # 纯文本消息或者只有按钮的消息
+            msg = await original_message.reply_text(
+                text or "关键词回复", reply_markup=reply_markup
+            )
+            
+        # 处理自动删除
+        settings = await bot_instance.db.get_group_settings(group_id)
+        if settings.get('auto_delete', False):
+            timeout = validate_delete_timeout(message_type='keyword')
+            asyncio.create_task(bot_instance._schedule_delete(msg, timeout))
+            
+    except Exception as e:
+        logger.error(f"发送关键词回复出错: {e}", exc_info=True)
 
 async def process_min_bytes_setting(bot_instance, state, message):
     """处理最小字节数设置"""
