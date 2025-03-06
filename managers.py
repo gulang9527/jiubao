@@ -340,11 +340,17 @@ class KeywordManager:
     async def match_keyword(self, group_id: int, text: str, message: Message) -> Optional[str]:
         """匹配消息中的关键词"""
         logger.info(f"开始匹配关键词 - 群组: {group_id}, 文本: {text[:20]}...")
-    
+
         # 匹配内置关键词
         for pattern, handler in self._built_in_keywords.items():
+            logger.info(f"尝试匹配内置关键词: {pattern}")
             if text == pattern:
+                logger.info(f"内置关键词匹配成功: {pattern}")
                 return await handler(message)
+        
+        # 匹配自定义关键词
+        keywords = await self.get_keywords(group_id)
+        logger.info(f"群组 {group_id} 有 {len(keywords)} 个关键词")
             
         # 匹配自定义关键词
         keywords = await self.get_keywords(group_id)
