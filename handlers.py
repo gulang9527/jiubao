@@ -1579,52 +1579,52 @@ async def start_keyword_form(update: Update, context: CallbackContext, group_id:
         active_settings = await bot_instance.settings_manager.get_active_settings(user_id)
         logger.info(f"用户 {user_id} 的活动设置状态: {active_settings}")
     
-    # 清理关键词相关的所有状态
-    if 'keyword' in active_settings:
-        await bot_instance.settings_manager.clear_setting_state(user_id, 'keyword')
-        logger.info(f"已清理用户 {user_id} 的旧关键词设置状态")
+        # 清理关键词相关的所有状态
+        if 'keyword' in active_settings:
+            await bot_instance.settings_manager.clear_setting_state(user_id, 'keyword')
+            logger.info(f"已清理用户 {user_id} 的旧关键词设置状态")
     
-    # 2. 清理context.user_data中的旧表单数据
-    for key in list(context.user_data.keys()):
-        if key.startswith('keyword_') or key == 'waiting_for':
-            del context.user_data[key]
-            logger.info(f"已清理用户数据中的键: {key}")
+        # 2. 清理context.user_data中的旧表单数据
+        for key in list(context.user_data.keys()):
+            if key.startswith('keyword_') or key == 'waiting_for':
+                del context.user_data[key]
+                logger.info(f"已清理用户数据中的键: {key}")
     
-    # 3. 初始化新的表单数据
-    context.user_data['keyword_form'] = {
-        'group_id': group_id,
-        'match_type': 'exact',  # 默认精确匹配
-        'pattern': '',
-        'response': '',
-        'media': None,
-        'buttons': []
-    }
-    logger.info(f"已为用户 {user_id} 初始化新的关键词表单数据")
+        # 3. 初始化新的表单数据
+        context.user_data['keyword_form'] = {
+            'group_id': group_id,
+            'match_type': 'exact',  # 默认精确匹配
+            'pattern': '',
+            'response': '',
+            'media': None,
+            'buttons': []
+        }
+        logger.info(f"已为用户 {user_id} 初始化新的关键词表单数据")
     
-    # 4. 显示匹配类型选择
-    keyboard = [
-        [
-            InlineKeyboardButton("精确匹配", callback_data=f"kwform_type_exact"),
-            InlineKeyboardButton("正则匹配", callback_data=f"kwform_type_regex")
-        ],
-        [InlineKeyboardButton("❌ 取消", callback_data=f"kwform_cancel")]
-    ]
+        # 4. 显示匹配类型选择
+        keyboard = [
+            [
+                InlineKeyboardButton("精确匹配", callback_data=f"kwform_type_exact"),
+                InlineKeyboardButton("正则匹配", callback_data=f"kwform_type_regex")
+            ],
+            [InlineKeyboardButton("❌ 取消", callback_data=f"kwform_cancel")]
+        ]
     
-    # 根据情境使用不同的发送方式
-    if update.callback_query:
-        await update.callback_query.edit_message_text(
-            "📝 关键词添加向导\n\n请选择匹配类型：\n\n"
-            "• 精确匹配：完全匹配输入的文本\n"
-            "• 正则匹配：使用正则表达式匹配模式",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-    else:
-        await update.message.reply_text(
-            "📝 关键词添加向导\n\n请选择匹配类型：\n\n"
-            "• 精确匹配：完全匹配输入的文本\n"
-            "• 正则匹配：使用正则表达式匹配模式",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        # 根据情境使用不同的发送方式
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                "📝 关键词添加向导\n\n请选择匹配类型：\n\n"
+                "• 精确匹配：完全匹配输入的文本\n"
+                "• 正则匹配：使用正则表达式匹配模式",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            await update.message.reply_text(
+                "📝 关键词添加向导\n\n请选择匹配类型：\n\n"
+                "• 精确匹配：完全匹配输入的文本\n"
+                "• 正则匹配：使用正则表达式匹配模式",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
 
         except Exception as e:
         logger.error(f"启动关键词表单流程出错: {e}", exc_info=True)
