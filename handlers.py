@@ -1763,13 +1763,14 @@ async def handle_keyword_form_callback(update: Update, context: CallbackContext)
         else:
             logger.warning(f"未知的关键词表单操作: {action}")
             await query.edit_message_text("❌ 未知操作")
-        except Exception as e:
-            logger.error(f"处理关键词表单回调时出错: {e}", exc_info=True)
-            if update.callback_query:
-                try:
-                    await update.callback_query.edit_message_text(f"❌ 处理操作时出错: {str(e)[:50]}...")
-                except Exception as reply_error:
-                    logger.error(f"无法发送错误消息: {reply_error}")
+            
+    except Exception as e:
+        logger.error(f"处理关键词表单回调时出错: {e}", exc_info=True)
+        if update.callback_query:
+            try:
+                await update.callback_query.edit_message_text(f"❌ 处理操作时出错: {str(e)[:50]}...")
+             except Exception as reply_error:
+                logger.error(f"无法发送错误消息: {reply_error}")
 
 async def show_response_options(update: Update, context: CallbackContext):
     """显示关键词响应选项"""
