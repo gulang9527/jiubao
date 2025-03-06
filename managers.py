@@ -324,29 +324,37 @@ class KeywordManager:
     async def match_keyword(self, group_id: int, text: str, message: Message) -> Optional[str]:
         """匹配消息中的关键词"""
         logger.info(f"开始匹配关键词 - 群组: {group_id}, 文本: {text[:20]}...")
-        
+    
         # 匹配内置关键词
         for pattern, handler in self._built_in_keywords.items():
             if text == pattern:
                 return await handler(message)
-                
+            
         # 匹配自定义关键词
         keywords = await self.get_keywords(group_id)
         logger.info(f"群组 {group_id} 有 {len(keywords)} 个关键词")
-        
+    
         for kw in keywords:
             logger.info(f"尝试匹配关键词: {kw['pattern']}, 类型: {kw['type']}")
             try:
                 if kw['type'] == 'regex':
                     pattern = re.compile(kw['pattern'])
                     if pattern.search(text):
-                        return self._format_response(kw)
+                        return str(kw['_id'])  # 返回关键词ID
                 else:
                     if text == kw['pattern']:
-                        return self._format_response(kw)
+                        return str(kw['_id'])  # 返回关键词ID
             except Exception as e:
                 logger.error(f"匹配关键词 {kw['pattern']} 时出错: {e}")
                 continue
+            
+        # 检查URL链接模式
+        url_pattern = re.compile(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+')
+        if url_pattern.search(text):
+            # 遍历URL关键词
+            for kw in keywords:
+                if kw.get('is_url_handler', False):
+                    return str(kw['_id'])
                 
         return None
         
