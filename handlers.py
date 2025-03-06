@@ -651,6 +651,16 @@ async def process_monthly_rank_setting(bot_instance, state, message):
     except ValueError:
         await message.reply_text("❌ 请输入一个有效的数字")
 
+async def handle_keyword_setting(bot_instance, user_id, message):
+    """处理关键词设置流程（旧版，现已废弃）"""
+    # 旧版实现现在总是返回False
+    return False
+
+async def handle_broadcast_setting(bot_instance, user_id, group_id, message):
+    """处理轮播设置流程（旧版，现已废弃）"""
+    # 旧版实现现在总是返回False
+    return False
+
 async def process_auto_delete_timeout(bot_instance, state, message):
     """处理自动删除超时设置"""
     group_id = state['group_id']
