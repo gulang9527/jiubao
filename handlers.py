@@ -1666,110 +1666,110 @@ async def handle_keyword_form_callback(update: Update, context: CallbackContext)
         # 处理不同的表单操作
         if action == "cancel":
             
-        # 取消操作 - 全面清理状态
-        user_id = update.effective_user.id
-        bot_instance = context.application.bot_data.get('bot_instance')
+            # 取消操作 - 全面清理状态
+            user_id = update.effective_user.id
+            bot_instance = context.application.bot_data.get('bot_instance')
         
-        # 清理用户数据
-        for key in list(context.user_data.keys()):
-            if key.startswith('keyword_') or key == 'waiting_for':
-                del context.user_data[key]
+            # 清理用户数据
+            for key in list(context.user_data.keys()):
+                if key.startswith('keyword_') or key == 'waiting_for':
+                    del context.user_data[key]
         
-        # 清理设置管理器状态
-        active_settings = await bot_instance.settings_manager.get_active_settings(user_id)
-        if 'keyword' in active_settings:
-            await bot_instance.settings_manager.clear_setting_state(user_id, 'keyword')
+            # 清理设置管理器状态
+            active_settings = await bot_instance.settings_manager.get_active_settings(user_id)
+            if 'keyword' in active_settings:
+                await bot_instance.settings_manager.clear_setting_state(user_id, 'keyword')
         
-        await query.edit_message_text("✅ 已取消关键词添加")
+            await query.edit_message_text("✅ 已取消关键词添加")
         
-    elif action == "type":
-        # 设置匹配类型
-        match_type = parts[3]
-        form_data['match_type'] = match_type
-        context.user_data['keyword_form'] = form_data
+        elif action == "type":
+            # 设置匹配类型
+            match_type = parts[3]
+            form_data['match_type'] = match_type
+            context.user_data['keyword_form'] = form_data
         
-        # 提示输入关键词
-        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"kwform_cancel")]]
-        await query.edit_message_text(
-            f"已选择: {'精确匹配' if match_type == 'exact' else '正则匹配'}\n\n"
-            "请发送关键词内容: \n"
-            f"({'支持正则表达式' if match_type == 'regex' else '精确匹配文字'})\n\n"
-            "发送完后请点击下方出现的「继续」按钮",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+            # 提示输入关键词
+            keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"kwform_cancel")]]
+            await query.edit_message_text(
+                f"已选择: {'精确匹配' if match_type == 'exact' else '正则匹配'}\n\n"
+                "请发送关键词内容: \n"
+                f"({'支持正则表达式' if match_type == 'regex' else '精确匹配文字'})\n\n"
+                "发送完后请点击下方出现的「继续」按钮",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
         
-        # 设置等待输入状态
-        context.user_data['waiting_for'] = 'keyword_pattern'
+            # 设置等待输入状态
+            context.user_data['waiting_for'] = 'keyword_pattern'
         
-    elif action == "select_group":
-        # 选择群组
-        group_id = int(parts[3])
-        # 启动添加流程
-        await start_keyword_form(update, context, group_id)
+        elif action == "select_group":
+            # 选择群组
+            group_id = int(parts[3])
+            # 启动添加流程
+            await start_keyword_form(update, context, group_id)
         
-    elif action == "pattern_received":
-        # 已收到关键词模式，继续设置回复
-        await show_response_options(update, context)
+        elif action == "pattern_received":
+            # 已收到关键词模式，继续设置回复
+            await show_response_options(update, context)
         
-    elif action == "add_text":
-        # 添加文本响应
-        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"kwform_cancel")]]
-        await query.edit_message_text(
-            "请发送关键词回复的文本内容:\n\n"
-            "发送完后请点击下方出现的「继续」按钮",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        context.user_data['waiting_for'] = 'keyword_response'
+        elif action == "add_text":
+            # 添加文本响应
+            keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"kwform_cancel")]]
+            await query.edit_message_text(
+                "请发送关键词回复的文本内容:\n\n"
+                "发送完后请点击下方出现的「继续」按钮",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            context.user_data['waiting_for'] = 'keyword_response'
         
-    elif action == "add_media":
-        # 添加媒体响应
-        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"kwform_cancel")]]
-        await query.edit_message_text(
-            "请发送要添加的媒体:\n"
-            "• 图片\n"
-            "• 视频\n"
-            "• 文件\n\n"
-            "发送完后请点击下方出现的「继续」按钮",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        context.user_data['waiting_for'] = 'keyword_media'
+        elif action == "add_media":
+            # 添加媒体响应
+            keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"kwform_cancel")]]
+            await query.edit_message_text(
+                "请发送要添加的媒体:\n"
+                "• 图片\n"
+                "• 视频\n"
+                "• 文件\n\n"
+                "发送完后请点击下方出现的「继续」按钮",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            context.user_data['waiting_for'] = 'keyword_media'
         
-    elif action == "add_button":
-        # 添加按钮
-        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"kwform_cancel")]]
-        await query.edit_message_text(
-            "请发送按钮信息，格式:\n\n"
-            "按钮文字|https://网址\n\n"
-            "每行一个按钮，例如:\n"
-            "访问官网|https://example.com\n"
-            "联系我们|https://t.me/username\n\n"
-            "发送完后请点击下方出现的「继续」按钮",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        context.user_data['waiting_for'] = 'keyword_buttons'
+        elif action == "add_button":
+            # 添加按钮
+            keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"kwform_cancel")]]
+            await query.edit_message_text(
+                "请发送按钮信息，格式:\n\n"
+                "按钮文字|https://网址\n\n"
+                "每行一个按钮，例如:\n"
+                "访问官网|https://example.com\n"
+                "联系我们|https://t.me/username\n\n"
+                "发送完后请点击下方出现的「继续」按钮",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            context.user_data['waiting_for'] = 'keyword_buttons'
         
-    elif action in ["response_received", "media_received", "buttons_received"]:
-        # 已收到各类数据，显示表单选项
-        await show_response_options(update, context)
+        elif action in ["response_received", "media_received", "buttons_received"]:
+            # 已收到各类数据，显示表单选项
+            await show_response_options(update, context)
         
-    elif action == "preview":
-        # 预览关键词响应
-        await preview_keyword_response(update, context)
+        elif action == "preview":
+            # 预览关键词响应
+            await preview_keyword_response(update, context)
         
-    elif action == "submit":
-        # 提交关键词
-        await submit_keyword_form(update, context)
+        elif action == "submit":
+            # 提交关键词
+            await submit_keyword_form(update, context)
         
-    else:
-        logger.warning(f"未知的关键词表单操作: {action}")
-        await query.edit_message_text("❌ 未知操作")
-    except Exception as e:
-        logger.error(f"处理关键词表单回调时出错: {e}", exc_info=True)
-        if update.callback_query:
-            try:
-                await update.callback_query.edit_message_text(f"❌ 处理操作时出错: {str(e)[:50]}...")
-            except Exception as reply_error:
-                logger.error(f"无法发送错误消息: {reply_error}")
+        else:
+            logger.warning(f"未知的关键词表单操作: {action}")
+            await query.edit_message_text("❌ 未知操作")
+        except Exception as e:
+            logger.error(f"处理关键词表单回调时出错: {e}", exc_info=True)
+            if update.callback_query:
+                try:
+                    await update.callback_query.edit_message_text(f"❌ 处理操作时出错: {str(e)[:50]}...")
+                except Exception as reply_error:
+                    logger.error(f"无法发送错误消息: {reply_error}")
 
 async def show_response_options(update: Update, context: CallbackContext):
     """显示关键词响应选项"""
