@@ -743,11 +743,11 @@ async def handle_settings_callback(update: Update, context: CallbackContext):
             except Exception as e:
                 logger.error(f"处理设置子部分失败 - 群组: {group_id}, 操作: {action}, 错误: {e}", exc_info=True)
                 await query.edit_message_text(f"❌ 操作失败，请重试")
-        except Exception:
-            try:
-                await context.bot.send_message(chat_id=query.message.chat_id, text="❌ 处理请求时出错，请重试")
-            except Exception as ex:
-                logger.error(f"无法发送错误消息: {ex}", exc_info=True)
+            except Exception:
+                try:
+                    await context.bot.send_message(chat_id=query.message.chat_id, text="❌ 处理请求时出错，请重试")
+                except Exception as ex:
+                    logger.error(f"无法发送错误消息: {ex}", exc_info=True)
 
 async def show_manageable_groups(bot_instance, query, context):
     """显示用户可管理的群组列表"""
