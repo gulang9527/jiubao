@@ -447,13 +447,6 @@ async def handle_message(update: Update, context: CallbackContext):
     message = update.effective_message
     user_id = update.effective_user.id
     group_id = update.effective_chat.id
-
-    if message.text and message.text.strip().lower() == '/skip':
-        # 检查用户活动设置状态
-        active_settings = await bot_instance.settings_manager.get_active_settings(user_id)
-        if not active_settings:
-            await message.reply_text("❌ 没有活跃的设置操作，/skip 命令无效")
-            return
     
     logger.info(f"处理消息 - 用户ID: {user_id}, 群组ID: {group_id}, 消息类型: {get_media_type(message) or 'text'}")
     
