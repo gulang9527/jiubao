@@ -255,48 +255,76 @@ class TelegramBot:
         while self.running:
             try:
                 now = datetime.now()
-                
+            
                 # 获取应该发送的广播
                 broadcasts = await self.db.db.broadcasts.find({
                     'start_time': {'$lte': now},
                     'end_time': {'$gt': now},
                 }).to_list(None)
-                
+            
                 # 过滤出需要发送的广播
                 filtered_broadcasts = []
                 for broadcast in broadcasts:
                     if 'last_broadcast' not in broadcast or broadcast['last_broadcast'] <= now - timedelta(seconds=broadcast['interval']):
                         filtered_broadcasts.append(broadcast)
-                        
+                    
                 # 发送广播
                 for broadcast in filtered_broadcasts:
                     group_id = broadcast['group_id']
-                    
+                
                     # 检查权限
                     if not await self.has_permission(group_id, GroupPermission.BROADCAST):
                         continue
-                        
+                    
                     try:
-                        # 根据内容类型发送不同的消息
-                        content_type = broadcast.get('content_type', 'text')
-                        if content_type == 'text':
-                            msg = await self.application.bot.send_message(group_id, broadcast['content'])
-                        elif content_type == 'photo':
-                            msg = await self.application.bot.send_photo(group_id, broadcast['content'])
-                        elif content_type == 'video':
-                            msg = await self.application.bot.send_video(group_id, broadcast['content'])
-                        elif content_type == 'document':
-                            msg = await self.application.bot.send_document(group_id, broadcast['content'])
+                        # 准备消息内容
+                        text = broadcast.get('text', '')
+                        media = broadcast.get('media')
+                        buttons = broadcast.get('buttons', [])
+                    
+                        # 创建内联键盘（如果有按钮）
+                        reply_markup = None
+                        if buttons:
+                            keyboard = []
+                            for button in buttons:
+                                keyboard.append([InlineKeyboardButton(button['text'], url=button['url'])])
+                            reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                        # 根据内容组合发送不同类型的消息
+                        if media and media.get('type'):
+                            if media['type'] == 'photo':
+                                msg = await self.application.bot.send_photo(
+                                    group_id, media['file_id'], caption=text, reply_markup=reply_markup
+                                )
+                            elif media['type'] == 'video':
+                                msg = await self.application.bot.send_video(
+                                    group_id, media['file_id'], caption=text, reply_markup=reply_markup
+                                )
+                            elif media['type'] == 'document':
+                                msg = await self.application.bot.send_document(
+                                    group_id, media['file_id'], caption=text, reply_markup=reply_markup
+                                )
+                            elif media['type'] == 'animation':
+                                msg = await self.application.bot.send_animation(
+                                    group_id, media['file_id'], caption=text, reply_markup=reply_markup
+                                )
+                            else:
+                                # 默认作为文档发送
+                                msg = await self.application.bot.send_document(
+                                    group_id, media['file_id'], caption=text, reply_markup=reply_markup
+                                )
                         else:
-                            logger.error(f"不支持的内容类型: {content_type}")
-                            continue
-                            
+                            # 纯文本消息或者只有按钮的消息
+                            msg = await self.application.bot.send_message(
+                                group_id, text or "轮播消息", reply_markup=reply_markup
+                            )
+                        
                         # 处理自动删除
                         settings = await self.db.get_group_settings(group_id)
                         if settings.get('auto_delete', False):
                             timeout = validate_delete_timeout(message_type='broadcast')
                             asyncio.create_task(self._schedule_delete(msg, timeout))
-                            
+                        
                         # 更新最后广播时间
                         await self.db.db.broadcasts.update_one(
                             {'_id': broadcast['_id']},
@@ -304,10 +332,10 @@ class TelegramBot:
                         )
                     except Exception as e:
                         logger.error(f"发送轮播消息时出错: {e}")
-                        
+                    
                 # 等待一分钟再检查
                 await asyncio.sleep(60)
-                
+            
             except Exception as e:
                 logger.error(f"轮播任务出错: {e}")
                 await asyncio.sleep(60)
