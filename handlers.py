@@ -1870,7 +1870,9 @@ async def submit_keyword_form(update: Update, context: CallbackContext):
 
 async def handle_easy_broadcast(update: Update, context: CallbackContext):
     """处理 /easybroadcast 命令，启动简化的广播添加流程"""
+    logger.info(f"进入 handle_easy_broadcast 函数，处理用户 {update.effective_user.id if update.effective_user else 'unknown'} 的请求")
     if not update.effective_user or not update.effective_chat:
+        logger.warning("无法获取用户或聊天信息")
         return
         
     user_id = update.effective_user.id
@@ -1920,8 +1922,17 @@ async def handle_easy_broadcast(update: Update, context: CallbackContext):
 
 async def start_broadcast_form(update: Update, context: CallbackContext, group_id: int):
     """启动广播表单流程"""
+    logger.info(f"启动广播表单流程，群组ID: {group_id}")
     # 获取bot实例
     bot_instance = context.application.bot_data.get('bot_instance')
+    if not bot_instance:
+        logger.error("获取bot实例失败")
+        if update.callback_query:
+            await update.callback_query.edit_message_text("❌ 系统错误，请联系管理员")
+        else:
+            await update.message.reply_text("❌ 系统错误，请联系管理员")
+        return
+        
     user_id = update.effective_user.id
     
     # 清理旧的设置管理器状态
@@ -1992,13 +2003,17 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
     await query.answer()
     
     data = query.data
+    logger.info(f"处理广播表单回调，数据: {data}")
     parts = data.split('_')
+    logger.info(f"解析回调数据: {parts}")
     
     if len(parts) < 3:
+        logger.error(f"回调数据格式错误: {data}")
         await query.edit_message_text("❌ 无效的操作")
         return
     
     action = parts[2]
+    logger.info(f"广播表单操作: {action}")
     
     form_data = context.user_data.get('broadcast_form', {})
     
@@ -2487,6 +2502,7 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
 # 注册所有处理函数
 def register_all_handlers(application):
     """注册所有处理函数"""
+    logger.info("开始注册所有处理函数")
     # 注册命令处理器
     application.add_handler(CommandHandler("start", handle_start))
     application.add_handler(CommandHandler("tongji", handle_rank_command))
@@ -2512,6 +2528,7 @@ def register_all_handlers(application):
     application.add_handler(CallbackQueryHandler(handle_switch_toggle_callback, pattern=r'^switch_toggle_'))
     
     # 添加简化的关键词和广播处理器
+    logger.info("注册简化的关键词和广播处理器")
     application.add_handler(CommandHandler("easykeyword", handle_easy_keyword))
     application.add_handler(CommandHandler("easybroadcast", handle_easy_broadcast))
     application.add_handler(CallbackQueryHandler(handle_keyword_form_callback, pattern=r'^kwform_'))
@@ -2519,6 +2536,8 @@ def register_all_handlers(application):
     
     # 注册消息处理器
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
+
+    logger.info("所有处理函数注册完成")
 
     # 错误处理器会由 ErrorHandlingMiddleware 处理import logging
 
