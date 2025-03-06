@@ -1957,27 +1957,29 @@ async def handle_easy_broadcast(update: Update, context: CallbackContext):
 
 async def start_broadcast_form(update: Update, context: CallbackContext, group_id: int):
     """启动广播表单流程"""
-    logger.info(f"启动广播表单流程，群组ID: {group_id}")
-    # 获取bot实例
-    bot_instance = context.application.bot_data.get('bot_instance')
-    if not bot_instance:
-        logger.error("获取bot实例失败")
-        if update.callback_query:
-            await update.callback_query.edit_message_text("❌ 系统错误，请联系管理员")
-        else:
-            await update.message.reply_text("❌ 系统错误，请联系管理员")
-        return
+    try:
+        logger.info(f"启动广播表单流程，群组ID: {group_id}")
+        # 获取bot实例
+        bot_instance = context.application.bot_data.get('bot_instance')
+        if not bot_instance:
+            logger.error("获取bot实例失败")
+            if update.callback_query:
+                await update.callback_query.edit_message_text("❌ 系统错误，无法获取bot实例")
+            else:
+                await update.message.reply_text("❌ 系统错误，无法获取bot实例")
+            return
+            
+        user_id = update.effective_user.id
+        logger.info(f"用户ID: {user_id}, 开始处理广播表单")
         
-    user_id = update.effective_user.id
-    
-    # 清理旧的设置管理器状态
-    active_settings = await bot_instance.settings_manager.get_active_settings(user_id)
-    logger.info(f"用户 {user_id} 的活动设置状态: {active_settings}")
-    
-    # 清理广播相关的所有状态
-    if 'broadcast' in active_settings:
-        await bot_instance.settings_manager.clear_setting_state(user_id, 'broadcast')
-        logger.info(f"已清理用户 {user_id} 的旧广播设置状态")
+        # 清理旧的设置管理器状态
+        active_settings = await bot_instance.settings_manager.get_active_settings(user_id)
+        logger.info(f"用户 {user_id} 的活动设置状态: {active_settings}")
+        
+        # 清理广播相关的所有状态
+        if 'broadcast' in active_settings:
+            await bot_instance.settings_manager.clear_setting_state(user_id, 'broadcast')
+            logger.info(f"已清理用户 {user_id} 的旧广播设置状态")
     
     # 清理context.user_data中的旧表单数据
     for key in list(context.user_data.keys()):
@@ -2031,6 +2033,14 @@ async def start_broadcast_form(update: Update, context: CallbackContext, group_i
             message_text,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+
+        except Exception as e:
+        logger.error(f"启动广播表单流程出错: {e}", exc_info=True)
+        if update.callback_query:
+            await update.callback_query.edit_message_text(f"❌ 启动广播表单出错: {str(e)[:50]}...")
+        else:
+            await update.message.reply_text(f"❌ 启动广播表单出错: {str(e)[:50]}...")
+        return
 
 async def handle_broadcast_form_callback(update: Update, context: CallbackContext):
     """处理广播表单回调"""
