@@ -2262,9 +2262,10 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
             # 提交广播
             await submit_broadcast_form(update, context)
         
-            else:
-                logger.warning(f"未知的广播表单操作: {action}")
-                await query.edit_message_text("❌ 未知操作")
+        else:
+            logger.warning(f"未知的广播表单操作: {action}")
+            await query.edit_message_text("❌ 未知操作")
+            
     except Exception as e:
         logger.error(f"处理广播表单回调时出错: {e}", exc_info=True)
         if update.callback_query:
