@@ -1663,8 +1663,9 @@ async def handle_keyword_form_callback(update: Update, context: CallbackContext)
         form_data = context.user_data.get('keyword_form', {})
         logger.info(f"当前关键词表单数据: {form_data}")
     
-    # 处理不同的表单操作
-    if action == "cancel":
+        # 处理不同的表单操作
+        if action == "cancel":
+            
         # 取消操作 - 全面清理状态
         user_id = update.effective_user.id
         bot_instance = context.application.bot_data.get('bot_instance')
