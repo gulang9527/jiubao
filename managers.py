@@ -267,11 +267,27 @@ class BroadcastManager:
         
     async def add_broadcast(self, broadcast_data: Dict) -> ObjectId:
         """添加广播消息"""
+        # 验证必要字段
+        required_fields = ['group_id', 'start_time', 'end_time', 'interval']
+        for field in required_fields:
+            if field not in broadcast_data:
+                raise ValueError(f"缺少必要字段 '{field}'")
+            
+        # 确保至少有文本、媒体或按钮之一
+        if not (broadcast_data.get('text') or broadcast_data.get('media') or broadcast_data.get('buttons')):
+            raise ValueError("轮播消息必须包含文本、媒体或按钮中的至少一项")
+        
+        # 验证时间设置
+        if broadcast_data['start_time'] >= broadcast_data['end_time']:
+            raise ValueError("结束时间必须晚于开始时间")
+        
+        # 验证间隔设置
         import config
-        if 'content_type' not in broadcast_data:
-            raise ValueError("Missing 'content_type' in broadcast data")
-        if broadcast_data['content_type'] not in config.ALLOWED_MEDIA_TYPES:
-            raise ValueError(f"Invalid content_type: {broadcast_data['content_type']}")
+        min_interval = config.BROADCAST_SETTINGS['min_interval']
+        if broadcast_data['interval'] < min_interval:
+            raise ValueError(f"间隔不能小于 {min_interval} 秒")
+    
+        # 添加到数据库
         result = await self.db.db.broadcasts.insert_one(broadcast_data)
         return result.inserted_id
         
