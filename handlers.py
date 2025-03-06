@@ -2077,194 +2077,194 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
             # 启动添加流程
             await start_broadcast_form(update, context, group_id)
         
-    elif action == "add_content":
-        # 显示内容添加选项
-        await show_content_options(update, context)
+        elif action == "add_content":
+            # 显示内容添加选项
+            await show_content_options(update, context)
         
-    elif action == "add_text":
-        # 添加文本内容
-        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
-        await query.edit_message_text(
-            "请发送轮播消息的文本内容:\n\n"
-            "发送完后请点击下方出现的「继续」按钮",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        context.user_data['waiting_for'] = 'broadcast_text'
+        elif action == "add_text":
+            # 添加文本内容
+            keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
+            await query.edit_message_text(
+                "请发送轮播消息的文本内容:\n\n"
+                "发送完后请点击下方出现的「继续」按钮",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            context.user_data['waiting_for'] = 'broadcast_text'
         
-    elif action == "add_media":
-        # 添加媒体内容
-        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
-        await query.edit_message_text(
-            "请发送要添加的媒体:\n"
-            "• 图片\n"
-            "• 视频\n"
-            "• 文件\n\n"
-            "发送完后请点击下方出现的「继续」按钮",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        context.user_data['waiting_for'] = 'broadcast_media'
+        elif action == "add_media":
+            # 添加媒体内容
+            keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
+            await query.edit_message_text(
+                "请发送要添加的媒体:\n"
+                "• 图片\n"
+                "• 视频\n"
+                "• 文件\n\n"
+                "发送完后请点击下方出现的「继续」按钮",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            context.user_data['waiting_for'] = 'broadcast_media'
         
-    elif action == "add_button":
-        # 添加按钮
-        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
-        await query.edit_message_text(
-            "请发送按钮信息，格式:\n\n"
-            "按钮文字|https://网址\n\n"
-            "每行一个按钮，例如:\n"
-            "访问官网|https://example.com\n"
-            "联系我们|https://t.me/username\n\n"
-            "发送完后请点击下方出现的「继续」按钮",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        context.user_data['waiting_for'] = 'broadcast_buttons'
+        elif action == "add_button":
+            # 添加按钮
+            keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
+            await query.edit_message_text(
+                "请发送按钮信息，格式:\n\n"
+                "按钮文字|https://网址\n\n"
+                "每行一个按钮，例如:\n"
+                "访问官网|https://example.com\n"
+                "联系我们|https://t.me/username\n\n"
+                "发送完后请点击下方出现的「继续」按钮",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            context.user_data['waiting_for'] = 'broadcast_buttons'
         
-    elif action in ["text_received", "media_received", "buttons_received"]:
-        # 已收到各类数据，返回内容选项
-        await show_content_options(update, context)
+        elif action in ["text_received", "media_received", "buttons_received"]:
+            # 已收到各类数据，返回内容选项
+            await show_content_options(update, context)
         
-    elif action == "content_done":
-        # 内容设置完成，返回主菜单
-        await show_broadcast_summary(update, context)
+        elif action == "content_done":
+            # 内容设置完成，返回主菜单
+            await show_broadcast_summary(update, context)
         
-    elif action == "set_time":
-        # 显示时间设置选项
-        await show_time_options(update, context)
+        elif action == "set_time":
+            # 显示时间设置选项
+            await show_time_options(update, context)
         
-    elif action == "set_start_time":
-        # 设置开始时间
-        await show_time_preset_options(update, context, "start")
+        elif action == "set_start_time":
+            # 设置开始时间
+            await show_time_preset_options(update, context, "start")
         
-    elif action == "set_end_time":
-        # 设置结束时间
-        await show_time_preset_options(update, context, "end")
+        elif action == "set_end_time":
+            # 设置结束时间
+            await show_time_preset_options(update, context, "end")
         
-    elif action == "time_preset":
-        # 处理预设时间选择
-        time_type = parts[3]  # start 或 end
-        preset = parts[4]
+        elif action == "time_preset":
+            # 处理预设时间选择
+            time_type = parts[3]  # start 或 end
+            preset = parts[4]
         
-        from datetime import datetime, timedelta
-        import config
+            from datetime import datetime, timedelta
+            import config
         
-        now = datetime.now(config.TIMEZONE)
+            now = datetime.now(config.TIMEZONE)
         
-        # 根据预设计算时间
-        if preset == "now":
-            selected_time = now
-        elif preset == "today":
-            # 今天结束
-            selected_time = now.replace(hour=23, minute=59, second=59)
-        elif preset == "tomorrow":
-            # 明天结束
-            selected_time = (now + timedelta(days=1)).replace(hour=23, minute=59, second=59)
-        elif preset == "week":
-            # 一周后
-            selected_time = now + timedelta(days=7)
-        elif preset == "month":
-            # 一个月后
-            selected_time = now + timedelta(days=30)
-        else:
-            await query.answer("无效的时间预设")
-            return
-        
-        # 更新表单数据
-        if time_type == "start":
-            form_data['start_time'] = selected_time
-        else:
-            form_data['end_time'] = selected_time
-            
-        context.user_data['broadcast_form'] = form_data
-        
-        # 返回时间设置菜单
-        await show_time_options(update, context)
-        
-    elif action == "time_custom":
-        # 自定义时间输入
-        time_type = parts[3]  # start 或 end
-        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
-        
-        await query.edit_message_text(
-            f"请输入{'开始' if time_type == 'start' else '结束'}时间\n\n"
-            "格式: YYYY-MM-DD HH:MM\n"
-            "例如: 2025-03-15 14:30\n\n"
-            "发送完后请点击下方出现的「继续」按钮",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        
-        context.user_data['waiting_for'] = f'broadcast_{time_type}_time'
-        
-    elif action == "time_done":
-        # 时间设置完成
-        await show_broadcast_summary(update, context)
-        
-    elif action == "set_interval":
-        # 设置发送间隔
-        await show_interval_options(update, context)
-        
-    elif action == "interval_preset":
-        # 处理预设间隔
-        preset = parts[3]
-        
-        # 根据预设设置间隔（秒）
-        if preset == "hourly":
-            interval = 3600  # 1小时
-        elif preset == "daily":
-            interval = 86400  # 24小时
-        elif preset == "twice_daily":
-            interval = 43200  # 12小时
-        else:
-            try:
-                interval = int(preset)
-            except ValueError:
-                await query.answer("无效的间隔预设")
+            # 根据预设计算时间
+            if preset == "now":
+                selected_time = now
+            elif preset == "today":
+                # 今天结束
+                selected_time = now.replace(hour=23, minute=59, second=59)
+            elif preset == "tomorrow":
+                # 明天结束
+                selected_time = (now + timedelta(days=1)).replace(hour=23, minute=59, second=59)
+            elif preset == "week":
+                # 一周后
+                selected_time = now + timedelta(days=7)
+            elif preset == "month":
+                # 一个月后
+                selected_time = now + timedelta(days=30)
+            else:
+                await query.answer("无效的时间预设")
                 return
-                
-        # 验证间隔是否符合最小要求
-        import config
-        min_interval = config.BROADCAST_SETTINGS['min_interval']
-        if interval < min_interval:
-            await query.answer(f"间隔不能小于 {min_interval} 秒")
-            return
+        
+            # 更新表单数据
+            if time_type == "start":
+                form_data['start_time'] = selected_time
+            else:
+                form_data['end_time'] = selected_time
             
-        # 更新表单数据
-        form_data['interval'] = interval
-        context.user_data['broadcast_form'] = form_data
+            context.user_data['broadcast_form'] = form_data
         
-        # 返回主菜单
-        await show_broadcast_summary(update, context)
+            # 返回时间设置菜单
+            await show_time_options(update, context)
         
-    elif action == "interval_custom":
-        # 自定义间隔输入
-        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
+        elif action == "time_custom":
+            # 自定义时间输入
+            time_type = parts[3]  # start 或 end
+            keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
         
-        import config
-        min_interval = config.BROADCAST_SETTINGS['min_interval']
+            await query.edit_message_text(
+                f"请输入{'开始' if time_type == 'start' else '结束'}时间\n\n"
+                "格式: YYYY-MM-DD HH:MM\n"
+                "例如: 2025-03-15 14:30\n\n"
+                "发送完后请点击下方出现的「继续」按钮",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
         
-        await query.edit_message_text(
-            "请输入轮播消息发送间隔（秒）\n\n"
-            f"最小间隔: {min_interval} 秒\n"
-            "常用间隔:\n"
-            "- 1小时: 3600秒\n"
-            "- 6小时: 21600秒\n"
-            "- 12小时: 43200秒\n"
-            "- 24小时: 86400秒\n\n"
-            "发送完后请点击下方出现的「继续」按钮",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+            context.user_data['waiting_for'] = f'broadcast_{time_type}_time'
         
-        context.user_data['waiting_for'] = 'broadcast_interval'
+        elif action == "time_done":
+            # 时间设置完成
+            await show_broadcast_summary(update, context)
         
-    elif action == "preview":
-        # 预览广播效果
-        await preview_broadcast(update, context)
+        elif action == "set_interval":
+            # 设置发送间隔
+            await show_interval_options(update, context)
         
-    elif action == "submit":
-        # 提交广播
-        await submit_broadcast_form(update, context)
+        elif action == "interval_preset":
+            # 处理预设间隔
+            preset = parts[3]
         
-        else:
-            logger.warning(f"未知的广播表单操作: {action}")
-            await query.edit_message_text("❌ 未知操作")
+            # 根据预设设置间隔（秒）
+            if preset == "hourly":
+                interval = 3600  # 1小时
+            elif preset == "daily":
+                interval = 86400  # 24小时
+            elif preset == "twice_daily":
+                interval = 43200  # 12小时
+            else:
+                try:
+                    interval = int(preset)
+                except ValueError:
+                    await query.answer("无效的间隔预设")
+                    return
+                
+            # 验证间隔是否符合最小要求
+            import config
+            min_interval = config.BROADCAST_SETTINGS['min_interval']
+            if interval < min_interval:
+                await query.answer(f"间隔不能小于 {min_interval} 秒")
+                return
+            
+            # 更新表单数据
+            form_data['interval'] = interval
+            context.user_data['broadcast_form'] = form_data
+        
+            # 返回主菜单
+            await show_broadcast_summary(update, context)
+        
+        elif action == "interval_custom":
+            # 自定义间隔输入
+            keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
+        
+            import config
+            min_interval = config.BROADCAST_SETTINGS['min_interval']
+        
+            await query.edit_message_text(
+                "请输入轮播消息发送间隔（秒）\n\n"
+                f"最小间隔: {min_interval} 秒\n"
+                "常用间隔:\n"
+                "- 1小时: 3600秒\n"
+                "- 6小时: 21600秒\n"
+                "- 12小时: 43200秒\n"
+                "- 24小时: 86400秒\n\n"
+                "发送完后请点击下方出现的「继续」按钮",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        
+            context.user_data['waiting_for'] = 'broadcast_interval'
+        
+        elif action == "preview":
+            # 预览广播效果
+            await preview_broadcast(update, context)
+        
+        elif action == "submit":
+            # 提交广播
+            await submit_broadcast_form(update, context)
+        
+            else:
+                logger.warning(f"未知的广播表单操作: {action}")
+                await query.edit_message_text("❌ 未知操作")
     except Exception as e:
         logger.error(f"处理广播表单回调时出错: {e}", exc_info=True)
         if update.callback_query:
