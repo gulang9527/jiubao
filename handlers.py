@@ -529,13 +529,16 @@ async def handle_keyword_setting(bot_instance, user_id: int, message: Message) -
                 await bot_instance.settings_manager.update_setting_state(user_id, 'keyword', {
                     'response': ""
                 }, next_step=True)
+                # 添加跳过的反馈消息
+                await message.reply_text("✅ 已跳过回复文本步骤。现在请发送媒体内容（图片/视频/文档），或发送 /skip 跳过此步骤：")
+                return True
             else:
                 await bot_instance.settings_manager.update_setting_state(user_id, 'keyword', {
                     'response': message.text or ""
                 }, next_step=True)
                 
-            await message.reply_text("回复文本已设置。现在请发送媒体内容（图片/视频/文档），或发送 /skip 跳过此步骤：")
-            return True
+                await message.reply_text("回复文本已设置。现在请发送媒体内容（图片/视频/文档），或发送 /skip 跳过此步骤：")
+                return True
             
         elif keyword_state['step'] == 3:
             # 处理媒体内容
@@ -543,6 +546,9 @@ async def handle_keyword_setting(bot_instance, user_id: int, message: Message) -
                 await bot_instance.settings_manager.update_setting_state(user_id, 'keyword', {
                     'media': None
                 }, next_step=True)
+                # 添加跳过的反馈消息
+                await message.reply_text("✅ 已跳过媒体内容步骤。现在请设置按钮（格式：按钮文字|https://网址），每行一个，或发送 /skip 跳过：")
+                return True
             else:
                 media_type = get_media_type(message)
                 if media_type:
@@ -560,8 +566,8 @@ async def handle_keyword_setting(bot_instance, user_id: int, message: Message) -
                     await message.reply_text("❌ 请发送媒体内容或输入 /skip 跳过此步骤")
                     return True
                     
-            await message.reply_text("媒体内容已设置。现在请设置按钮（格式：按钮文字|https://网址），每行一个，或发送 /skip 跳过：")
-            return True
+                await message.reply_text("媒体内容已设置。现在请设置按钮（格式：按钮文字|https://网址），每行一个，或发送 /skip 跳过：")
+                return True
             
         elif keyword_state['step'] == 4:
             # 处理按钮
@@ -573,6 +579,10 @@ async def handle_keyword_setting(bot_instance, user_id: int, message: Message) -
                         text, url = line.split('|', 1)
                         if text and url and url.startswith('http'):
                             buttons.append({'text': text.strip(), 'url': url.strip()})
+            else:
+                # 添加跳过的反馈消息
+                if message.text and message.text.strip().lower() == '/skip':
+                    await message.reply_text("✅ 已跳过按钮设置步骤")
             
             # 验证至少有一项回复内容
             has_text = bool(keyword_state['data'].get('response'))
@@ -637,6 +647,9 @@ async def handle_broadcast_setting(bot_instance, user_id: int, group_id: int, me
                 await bot_instance.settings_manager.update_setting_state(user_id, 'broadcast', {
                     'media': None
                 }, next_step=True)
+                # 添加跳过的反馈消息
+                await message.reply_text("✅ 已跳过媒体内容步骤。现在请设置按钮（格式：按钮文字|https://网址），每行一个，或发送 /skip 跳过：")
+                return True
             else:
                 media_type = get_media_type(message)
                 if media_type:
@@ -654,8 +667,8 @@ async def handle_broadcast_setting(bot_instance, user_id: int, group_id: int, me
                     await message.reply_text("❌ 请发送媒体内容或输入 /skip 跳过此步骤")
                     return True
             
-            await message.reply_text("媒体内容已设置。现在请设置按钮（格式：按钮文字|https://网址），每行一个，或发送 /skip 跳过：")
-            return True
+                await message.reply_text("媒体内容已设置。现在请设置按钮（格式：按钮文字|https://网址），每行一个，或发送 /skip 跳过：")
+                return True
             
         elif broadcast_state['step'] == 3:
             # 处理按钮
@@ -667,6 +680,10 @@ async def handle_broadcast_setting(bot_instance, user_id: int, group_id: int, me
                         text, url = line.split('|', 1)
                         if text and url and url.startswith('http'):
                             buttons.append({'text': text.strip(), 'url': url.strip()})
+            else:
+                # 添加跳过的反馈消息
+                if message.text and message.text.strip().lower() == '/skip':
+                    await message.reply_text("✅ 已跳过按钮设置步骤")
             
             await bot_instance.settings_manager.update_setting_state(user_id, 'broadcast', {
                 'buttons': buttons
