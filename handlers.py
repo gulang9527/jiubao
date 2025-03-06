@@ -480,14 +480,222 @@ async def handle_message(update: Update, context: CallbackContext):
                                                         lambda state, msg: process_auto_delete_timeout(bot_instance, state, msg)):
         return
     
+    # 处理表单等待输入
+    waiting_for = context.user_data.get('waiting_for')
+    if waiting_for:
+        # 处理关键词表单输入
+        if waiting_for == 'keyword_pattern':
+            # 保存关键词模式
+            context.user_data['keyword_form']['pattern'] = update.message.text
+            context.user_data['waiting_for'] = None
+            
+            # 显示继续按钮
+            keyboard = [[InlineKeyboardButton("➡️ 继续", callback_data=f"kwform_pattern_received")]]
+            await update.message.reply_text(
+                f"已设置关键词: {update.message.text}\n\n"
+                "点击「继续」进行下一步",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return True
+            
+        elif waiting_for == 'keyword_response':
+            # 保存关键词响应文本
+            context.user_data['keyword_form']['response'] = update.message.text
+            context.user_data['waiting_for'] = None
+            
+            # 显示继续按钮
+            keyboard = [[InlineKeyboardButton("➡️ 继续", callback_data=f"kwform_response_received")]]
+            await update.message.reply_text(
+                "已设置文本回复\n\n"
+                "点击「继续」进行下一步",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return True
+            
+        elif waiting_for == 'keyword_media':
+            # 保存媒体信息
+            media_type = get_media_type(update.message)
+            if media_type:
+                file_id = get_file_id(update.message)
+                if file_id:
+                    context.user_data['keyword_form']['media'] = {
+                        'type': media_type,
+                        'file_id': file_id
+                    }
+                    context.user_data['waiting_for'] = None
+                    
+                    # 显示继续按钮
+                    keyboard = [[InlineKeyboardButton("➡️ 继续", callback_data=f"kwform_media_received")]]
+                    await update.message.reply_text(
+                        f"已设置媒体: {media_type}\n\n"
+                        "点击「继续」进行下一步",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                    return True
+                else:
+                    await update.message.reply_text("❌ 无法获取媒体文件，请重试")
+            else:
+                await update.message.reply_text("❌ 不支持的媒体类型，请发送图片、视频或文件")
+            return True
+            
+        elif waiting_for == 'keyword_buttons':
+            # 处理按钮输入
+            buttons = []
+            lines = update.message.text.strip().split('\n')
+            for line in lines:
+                if '|' in line:
+                    text, url = line.split('|', 1)
+                    if text and url and url.startswith('http'):
+                        buttons.append({'text': text.strip(), 'url': url.strip()})
+            
+            if buttons:
+                context.user_data['keyword_form']['buttons'] = buttons
+                context.user_data['waiting_for'] = None
+                
+                # 显示继续按钮
+                keyboard = [[InlineKeyboardButton("➡️ 继续", callback_data=f"kwform_buttons_received")]]
+                await update.message.reply_text(
+                    f"已设置 {len(buttons)} 个按钮\n\n"
+                    "点击「继续」进行下一步",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            else:
+                await update.message.reply_text(
+                    "❌ 无效的按钮格式，请使用正确格式：\n"
+                    "按钮文字|https://网址\n\n"
+                    "每行一个按钮"
+                )
+            return True
+            
+        # 处理广播表单输入
+        elif waiting_for == 'broadcast_text':
+            # 保存广播文本
+            context.user_data['broadcast_form']['text'] = update.message.text
+            context.user_data['waiting_for'] = None
+            
+            # 显示继续按钮
+            keyboard = [[InlineKeyboardButton("➡️ 继续", callback_data=f"bcform_text_received")]]
+            await update.message.reply_text(
+                "已设置轮播文本内容\n\n"
+                "点击「继续」进行下一步",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return True
+            
+        elif waiting_for == 'broadcast_media':
+            # 保存媒体信息
+            media_type = get_media_type(update.message)
+            if media_type:
+                file_id = get_file_id(update.message)
+                if file_id:
+                    context.user_data['broadcast_form']['media'] = {
+                        'type': media_type,
+                        'file_id': file_id
+                    }
+                    context.user_data['waiting_for'] = None
+                    
+                    # 显示继续按钮
+                    keyboard = [[InlineKeyboardButton("➡️ 继续", callback_data=f"bcform_media_received")]]
+                    await update.message.reply_text(
+                        f"已设置媒体: {media_type}\n\n"
+                        "点击「继续」进行下一步",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                    return True
+                else:
+                    await update.message.reply_text("❌ 无法获取媒体文件，请重试")
+            else:
+                await update.message.reply_text("❌ 不支持的媒体类型，请发送图片、视频或文件")
+            return True
+            
+        elif waiting_for == 'broadcast_buttons':
+            # 处理按钮输入
+            buttons = []
+            lines = update.message.text.strip().split('\n')
+            for line in lines:
+                if '|' in line:
+                    text, url = line.split('|', 1)
+                    if text and url and url.startswith('http'):
+                        buttons.append({'text': text.strip(), 'url': url.strip()})
+            
+            if buttons:
+                context.user_data['broadcast_form']['buttons'] = buttons
+                context.user_data['waiting_for'] = None
+                
+                # 显示继续按钮
+                keyboard = [[InlineKeyboardButton("➡️ 继续", callback_data=f"bcform_buttons_received")]]
+                await update.message.reply_text(
+                    f"已设置 {len(buttons)} 个按钮\n\n"
+                    "点击「继续」进行下一步",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            else:
+                await update.message.reply_text(
+                    "❌ 无效的按钮格式，请使用正确格式：\n"
+                    "按钮文字|https://网址\n\n"
+                    "每行一个按钮"
+                )
+            return True
+            
+        elif waiting_for in ['broadcast_start_time', 'broadcast_end_time']:
+            # 处理时间输入
+            from utils import validate_time_format
+            
+            time_type = 'start_time' if waiting_for == 'broadcast_start_time' else 'end_time'
+            datetime_obj = validate_time_format(update.message.text)
+            
+            if datetime_obj:
+                context.user_data['broadcast_form'][time_type] = datetime_obj
+                context.user_data['waiting_for'] = None
+                
+                # 显示继续按钮
+                keyboard = [[InlineKeyboardButton("➡️ 继续", callback_data=f"bcform_set_time")]]
+                await update.message.reply_text(
+                    f"已设置{('开始' if time_type == 'start_time' else '结束')}时间\n\n"
+                    "点击「继续」进行下一步",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            else:
+                await update.message.reply_text(
+                    "❌ 时间格式错误，请使用正确格式：\n"
+                    "YYYY-MM-DD HH:MM\n"
+                    "例如: 2025-03-15 14:30"
+                )
+            return True
+            
+        elif waiting_for == 'broadcast_interval':
+            # 处理间隔输入
+            try:
+                interval = int(update.message.text.strip())
+                
+                # 验证间隔
+                import config
+                min_interval = config.BROADCAST_SETTINGS['min_interval']
+                
+                if interval < min_interval:
+                    await update.message.reply_text(f"❌ 间隔不能小于 {min_interval} 秒")
+                    return True
+                    
+                context.user_data['broadcast_form']['interval'] = interval
+                context.user_data['waiting_for'] = None
+                
+                # 显示继续按钮
+                from utils import format_duration
+                keyboard = [[InlineKeyboardButton("➡️ 继续", callback_data=f"bcform_content_done")]]
+                await update.message.reply_text(
+                    f"已设置发送间隔: {format_duration(interval)}\n\n"
+                    "点击「继续」返回主菜单",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except ValueError:
+                await update.message.reply_text("❌ 请输入有效的数字")
+            return True
+    
     # 处理关键词回复
     from db import GroupPermission
     if message.text and await bot_instance.has_permission(group_id, GroupPermission.KEYWORDS):
         logger.info(f"检查关键词匹配 - 群组: {group_id}, 文本: {message.text[:20]}...")
-        keyword_id = await bot_instance.keyword_manager.match_keyword(group_id, message.text, message)
-    
-        if keyword_id:
-            await send_keyword_response(bot_instance, message, keyword_id, group_id)
+        response = await bot_instance.keyword_manager.match_keyword(group_id, message.text, message)
         
         if response:
             await send_keyword_response(bot_instance, message, response, group_id)
@@ -1743,6 +1951,940 @@ async def handle_switch_toggle_callback(update: Update, context: CallbackContext
         logger.error(f"切换功能开关失败: {e}", exc_info=True)
         await query.edit_message_text(f"❌ 切换功能开关失败，请重试")
 
+async def handle_easy_keyword(update: Update, context: CallbackContext):
+    """处理 /easykeyword 命令，启动简化的关键词添加流程"""
+    if not update.effective_user or not update.effective_chat:
+        return
+        
+    user_id = update.effective_user.id
+    group_id = update.effective_chat.id if update.effective_chat.type != 'private' else None
+    
+    bot_instance = context.application.bot_data.get('bot_instance')
+    
+    # 检查权限
+    if not await bot_instance.is_admin(user_id):
+        await update.message.reply_text("❌ 该命令仅管理员可用")
+        return
+        
+    # 如果是私聊，让用户选择要管理的群组
+    if not group_id:
+        manageable_groups = await bot_instance.db.get_manageable_groups(user_id)
+        if not manageable_groups:
+            await update.message.reply_text("❌ 你没有权限管理任何群组")
+            return
+            
+        keyboard = []
+        for group in manageable_groups:
+            try:
+                group_info = await context.bot.get_chat(group['group_id'])
+                group_name = group_info.title or f"群组 {group['group_id']}"
+            except Exception:
+                group_name = f"群组 {group['group_id']}"
+                
+            keyboard.append([InlineKeyboardButton(
+                group_name, 
+                callback_data=f"kwform_select_group_{group['group_id']}"
+            )])
+            
+        await update.message.reply_text(
+            "请选择要添加关键词的群组：", 
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+        
+    # 检查群组权限
+    from db import GroupPermission
+    if not await bot_instance.has_permission(group_id, GroupPermission.KEYWORDS):
+        await update.message.reply_text("❌ 此群组未启用关键词功能")
+        return
+        
+    # 开始关键词添加流程
+    await start_keyword_form(update, context, group_id)
+
+async def start_keyword_form(update: Update, context: CallbackContext, group_id: int):
+    """启动关键词表单流程"""
+    # 创建初始化数据保存在用户数据中
+    if not context.user_data.get('keyword_form'):
+        context.user_data['keyword_form'] = {
+            'group_id': group_id,
+            'match_type': 'exact',  # 默认精确匹配
+            'pattern': '',
+            'response': '',
+            'media': None,
+            'buttons': []
+        }
+    
+    # 显示匹配类型选择
+    keyboard = [
+        [
+            InlineKeyboardButton("精确匹配", callback_data=f"kwform_type_exact"),
+            InlineKeyboardButton("正则匹配", callback_data=f"kwform_type_regex")
+        ],
+        [InlineKeyboardButton("❌ 取消", callback_data=f"kwform_cancel")]
+    ]
+    
+    # 根据情境使用不同的发送方式
+    if update.callback_query:
+        await update.callback_query.edit_message_text(
+            "📝 关键词添加向导\n\n请选择匹配类型：\n\n"
+            "• 精确匹配：完全匹配输入的文本\n"
+            "• 正则匹配：使用正则表达式匹配模式",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    else:
+        await update.message.reply_text(
+            "📝 关键词添加向导\n\n请选择匹配类型：\n\n"
+            "• 精确匹配：完全匹配输入的文本\n"
+            "• 正则匹配：使用正则表达式匹配模式",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+async def handle_keyword_form_callback(update: Update, context: CallbackContext):
+    """处理关键词表单回调"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    parts = data.split('_')
+    
+    if len(parts) < 3:
+        await query.edit_message_text("❌ 无效的操作")
+        return
+    
+    action = parts[2]
+    
+    form_data = context.user_data.get('keyword_form', {})
+    
+    # 处理不同的表单操作
+    if action == "cancel":
+        # 取消操作
+        if 'keyword_form' in context.user_data:
+            del context.user_data['keyword_form']
+        await query.edit_message_text("✅ 已取消关键词添加")
+        
+    elif action == "type":
+        # 设置匹配类型
+        match_type = parts[3]
+        form_data['match_type'] = match_type
+        context.user_data['keyword_form'] = form_data
+        
+        # 提示输入关键词
+        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"kwform_cancel")]]
+        await query.edit_message_text(
+            f"已选择: {'精确匹配' if match_type == 'exact' else '正则匹配'}\n\n"
+            "请发送关键词内容: \n"
+            f"({'支持正则表达式' if match_type == 'regex' else '精确匹配文字'})\n\n"
+            "发送完后请点击下方出现的「继续」按钮",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        # 设置等待输入状态
+        context.user_data['waiting_for'] = 'keyword_pattern'
+        
+    elif action == "select_group":
+        # 选择群组
+        group_id = int(parts[3])
+        # 启动添加流程
+        await start_keyword_form(update, context, group_id)
+        
+    elif action == "pattern_received":
+        # 已收到关键词模式，继续设置回复
+        await show_response_options(update, context)
+        
+    elif action == "add_text":
+        # 添加文本响应
+        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"kwform_cancel")]]
+        await query.edit_message_text(
+            "请发送关键词回复的文本内容:\n\n"
+            "发送完后请点击下方出现的「继续」按钮",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        context.user_data['waiting_for'] = 'keyword_response'
+        
+    elif action == "add_media":
+        # 添加媒体响应
+        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"kwform_cancel")]]
+        await query.edit_message_text(
+            "请发送要添加的媒体:\n"
+            "• 图片\n"
+            "• 视频\n"
+            "• 文件\n\n"
+            "发送完后请点击下方出现的「继续」按钮",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        context.user_data['waiting_for'] = 'keyword_media'
+        
+    elif action == "add_button":
+        # 添加按钮
+        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"kwform_cancel")]]
+        await query.edit_message_text(
+            "请发送按钮信息，格式:\n\n"
+            "按钮文字|https://网址\n\n"
+            "每行一个按钮，例如:\n"
+            "访问官网|https://example.com\n"
+            "联系我们|https://t.me/username\n\n"
+            "发送完后请点击下方出现的「继续」按钮",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        context.user_data['waiting_for'] = 'keyword_buttons'
+        
+    elif action in ["response_received", "media_received", "buttons_received"]:
+        # 已收到各类数据，显示表单选项
+        await show_response_options(update, context)
+        
+    elif action == "preview":
+        # 预览关键词响应
+        await preview_keyword_response(update, context)
+        
+    elif action == "submit":
+        # 提交关键词
+        await submit_keyword_form(update, context)
+        
+    else:
+        await query.edit_message_text("❌ 未知操作")
+
+async def show_response_options(update: Update, context: CallbackContext):
+    """显示关键词响应选项"""
+    form_data = context.user_data.get('keyword_form', {})
+    
+    # 构建当前状态摘要
+    summary = "📝 关键词添加向导\n\n"
+    summary += f"• 匹配类型: {'精确匹配' if form_data.get('match_type') == 'exact' else '正则匹配'}\n"
+    summary += f"• 关键词: {form_data.get('pattern', '未设置')}\n"
+    summary += f"• 文本回复: {'✅ 已设置' if form_data.get('response') else '❌ 未设置'}\n"
+    summary += f"• 媒体回复: {'✅ 已设置' if form_data.get('media') else '❌ 未设置'}\n"
+    summary += f"• 按钮: {len(form_data.get('buttons', []))} 个\n\n"
+    summary += "请选择要添加或修改的内容:"
+    
+    # 构建操作按钮
+    keyboard = [
+        [InlineKeyboardButton("✏️ 修改关键词", callback_data=f"kwform_edit_pattern")],
+        [InlineKeyboardButton("📝 添加/修改文本", callback_data=f"kwform_add_text")],
+        [InlineKeyboardButton("🖼️ 添加/修改媒体", callback_data=f"kwform_add_media")],
+        [InlineKeyboardButton("🔘 添加/修改按钮", callback_data=f"kwform_add_button")],
+        [InlineKeyboardButton("👁️ 预览效果", callback_data=f"kwform_preview")],
+        [InlineKeyboardButton("✅ 提交", callback_data=f"kwform_submit")],
+        [InlineKeyboardButton("❌ 取消", callback_data=f"kwform_cancel")]
+    ]
+    
+    # 检查是否至少有一项回复内容
+    has_content = bool(form_data.get('response') or form_data.get('media') or form_data.get('buttons'))
+    if not has_content:
+        summary += "\n\n⚠️ 请至少添加一项回复内容(文本/媒体/按钮)"
+    
+    # 显示表单选项
+    await update.callback_query.edit_message_text(
+        summary,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def preview_keyword_response(update: Update, context: CallbackContext):
+    """预览关键词响应效果"""
+    form_data = context.user_data.get('keyword_form', {})
+    
+    # 获取回复数据
+    text = form_data.get('response', '')
+    media = form_data.get('media')
+    buttons = form_data.get('buttons', [])
+    
+    # 创建按钮键盘(如果有)
+    reply_markup = None
+    if buttons:
+        keyboard = []
+        for button in buttons:
+            keyboard.append([InlineKeyboardButton(button['text'], url=button['url'])])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # 发送预览消息
+    try:
+        if media and media.get('type'):
+            if media['type'] == 'photo':
+                await update.callback_query.message.reply_photo(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
+            elif media['type'] == 'video':
+                await update.callback_query.message.reply_video(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
+            elif media['type'] == 'document':
+                await update.callback_query.message.reply_document(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
+            else:
+                await update.callback_query.message.reply_document(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
+        elif text or buttons:
+            await update.callback_query.message.reply_text(
+                text or "关键词回复",
+                reply_markup=reply_markup
+            )
+        else:
+            await update.callback_query.answer("没有预览内容")
+            await show_response_options(update, context)
+            return
+    except Exception as e:
+        logger.error(f"预览生成错误: {e}")
+        await update.callback_query.answer(f"预览生成失败: {str(e)}")
+    
+    # 返回表单选项
+    keyboard = [
+        [InlineKeyboardButton("🔙 返回", callback_data=f"kwform_response_received")]
+    ]
+    await update.callback_query.edit_message_text(
+        "👆 上方为关键词触发效果预览\n\n点击「返回」继续编辑",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def submit_keyword_form(update: Update, context: CallbackContext):
+    """提交关键词表单"""
+    form_data = context.user_data.get('keyword_form', {})
+    
+    # 验证必要字段
+    pattern = form_data.get('pattern')
+    if not pattern:
+        await update.callback_query.answer("❌ 关键词不能为空")
+        await show_response_options(update, context)
+        return
+    
+    # 检查是否有回复内容
+    has_content = bool(form_data.get('response') or form_data.get('media') or form_data.get('buttons'))
+    if not has_content:
+        await update.callback_query.answer("❌ 请至少添加一项回复内容")
+        await show_response_options(update, context)
+        return
+    
+    # 构建关键词数据
+    keyword_data = {
+        'group_id': form_data['group_id'],
+        'pattern': pattern,
+        'type': form_data.get('match_type', 'exact'),
+        'response': form_data.get('response', ''),
+        'media': form_data.get('media'),
+        'buttons': form_data.get('buttons', [])
+    }
+    
+    # 添加关键词
+    bot_instance = context.application.bot_data.get('bot_instance')
+    try:
+        await bot_instance.db.add_keyword(keyword_data)
+        # 清理表单数据
+        if 'keyword_form' in context.user_data:
+            del context.user_data['keyword_form']
+        if 'waiting_for' in context.user_data:
+            del context.user_data['waiting_for']
+        
+        # 显示成功消息
+        await update.callback_query.edit_message_text(
+            "✅ 关键词添加成功！\n\n"
+            f"关键词: {pattern}\n"
+            f"匹配类型: {'精确匹配' if keyword_data['type'] == 'exact' else '正则匹配'}"
+        )
+    except Exception as e:
+        logger.error(f"添加关键词错误: {e}")
+        await update.callback_query.answer("❌ 添加关键词失败")
+        await update.callback_query.edit_message_text(
+            f"❌ 添加关键词失败: {str(e)}\n\n"
+            "请重试或联系管理员"
+        )
+
+async def handle_easy_broadcast(update: Update, context: CallbackContext):
+    """处理 /easybroadcast 命令，启动简化的广播添加流程"""
+    if not update.effective_user or not update.effective_chat:
+        return
+        
+    user_id = update.effective_user.id
+    group_id = update.effective_chat.id if update.effective_chat.type != 'private' else None
+    
+    bot_instance = context.application.bot_data.get('bot_instance')
+    
+    # 检查权限
+    if not await bot_instance.is_admin(user_id):
+        await update.message.reply_text("❌ 该命令仅管理员可用")
+        return
+        
+    # 如果是私聊，让用户选择要管理的群组
+    if not group_id:
+        manageable_groups = await bot_instance.db.get_manageable_groups(user_id)
+        if not manageable_groups:
+            await update.message.reply_text("❌ 你没有权限管理任何群组")
+            return
+            
+        keyboard = []
+        for group in manageable_groups:
+            try:
+                group_info = await context.bot.get_chat(group['group_id'])
+                group_name = group_info.title or f"群组 {group['group_id']}"
+            except Exception:
+                group_name = f"群组 {group['group_id']}"
+                
+            keyboard.append([InlineKeyboardButton(
+                group_name, 
+                callback_data=f"bcform_select_group_{group['group_id']}"
+            )])
+            
+        await update.message.reply_text(
+            "请选择要添加轮播消息的群组：", 
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+        
+    # 检查群组权限
+    from db import GroupPermission
+    if not await bot_instance.has_permission(group_id, GroupPermission.BROADCAST):
+        await update.message.reply_text("❌ 此群组未启用轮播消息功能")
+        return
+        
+    # 开始广播添加流程
+    await start_broadcast_form(update, context, group_id)
+
+async def start_broadcast_form(update: Update, context: CallbackContext, group_id: int):
+    """启动广播表单流程"""
+    # 初始化表单数据
+    from datetime import datetime, timedelta
+    import config
+    
+    # 设置默认值：开始时间为当前时间，结束时间为一周后，间隔为一小时
+    now = datetime.now(config.TIMEZONE)
+    end_time = now + timedelta(days=7)
+    
+    if not context.user_data.get('broadcast_form'):
+        context.user_data['broadcast_form'] = {
+            'group_id': group_id,
+            'text': '',
+            'media': None,
+            'buttons': [],
+            'start_time': now,
+            'end_time': end_time,
+            'interval': 3600  # 默认间隔1小时
+        }
+    
+    # 显示广播表单菜单
+    keyboard = [
+        [InlineKeyboardButton("📝 添加内容", callback_data=f"bcform_add_content")],
+        [InlineKeyboardButton("⏰ 设置时间", callback_data=f"bcform_set_time")],
+        [InlineKeyboardButton("🔄 设置间隔", callback_data=f"bcform_set_interval")],
+        [InlineKeyboardButton("👁️ 预览效果", callback_data=f"bcform_preview")],
+        [InlineKeyboardButton("✅ 提交", callback_data=f"bcform_submit")],
+        [InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]
+    ]
+    
+    # 根据情境使用不同的发送方式
+    message_text = (
+        "📢 轮播消息添加向导\n\n"
+        "轮播消息会在设定的时间范围内按照指定的间隔自动发送。\n\n"
+        "请选择要设置的项目："
+    )
+    
+    if update.callback_query:
+        await update.callback_query.edit_message_text(
+            message_text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    else:
+        await update.message.reply_text(
+            message_text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+async def handle_broadcast_form_callback(update: Update, context: CallbackContext):
+    """处理广播表单回调"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    parts = data.split('_')
+    
+    if len(parts) < 3:
+        await query.edit_message_text("❌ 无效的操作")
+        return
+    
+    action = parts[2]
+    
+    form_data = context.user_data.get('broadcast_form', {})
+    
+    # 处理不同的表单操作
+    if action == "cancel":
+        # 取消操作
+        if 'broadcast_form' in context.user_data:
+            del context.user_data['broadcast_form']
+        await query.edit_message_text("✅ 已取消轮播消息添加")
+        
+    elif action == "select_group":
+        # 选择群组
+        group_id = int(parts[3])
+        # 启动添加流程
+        await start_broadcast_form(update, context, group_id)
+        
+    elif action == "add_content":
+        # 显示内容添加选项
+        await show_content_options(update, context)
+        
+    elif action == "add_text":
+        # 添加文本内容
+        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
+        await query.edit_message_text(
+            "请发送轮播消息的文本内容:\n\n"
+            "发送完后请点击下方出现的「继续」按钮",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        context.user_data['waiting_for'] = 'broadcast_text'
+        
+    elif action == "add_media":
+        # 添加媒体内容
+        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
+        await query.edit_message_text(
+            "请发送要添加的媒体:\n"
+            "• 图片\n"
+            "• 视频\n"
+            "• 文件\n\n"
+            "发送完后请点击下方出现的「继续」按钮",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        context.user_data['waiting_for'] = 'broadcast_media'
+        
+    elif action == "add_button":
+        # 添加按钮
+        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
+        await query.edit_message_text(
+            "请发送按钮信息，格式:\n\n"
+            "按钮文字|https://网址\n\n"
+            "每行一个按钮，例如:\n"
+            "访问官网|https://example.com\n"
+            "联系我们|https://t.me/username\n\n"
+            "发送完后请点击下方出现的「继续」按钮",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        context.user_data['waiting_for'] = 'broadcast_buttons'
+        
+    elif action in ["text_received", "media_received", "buttons_received"]:
+        # 已收到各类数据，返回内容选项
+        await show_content_options(update, context)
+        
+    elif action == "content_done":
+        # 内容设置完成，返回主菜单
+        await show_broadcast_summary(update, context)
+        
+    elif action == "set_time":
+        # 显示时间设置选项
+        await show_time_options(update, context)
+        
+    elif action == "set_start_time":
+        # 设置开始时间
+        await show_time_preset_options(update, context, "start")
+        
+    elif action == "set_end_time":
+        # 设置结束时间
+        await show_time_preset_options(update, context, "end")
+        
+    elif action == "time_preset":
+        # 处理预设时间选择
+        time_type = parts[3]  # start 或 end
+        preset = parts[4]
+        
+        from datetime import datetime, timedelta
+        import config
+        
+        now = datetime.now(config.TIMEZONE)
+        
+        # 根据预设计算时间
+        if preset == "now":
+            selected_time = now
+        elif preset == "today":
+            # 今天结束
+            selected_time = now.replace(hour=23, minute=59, second=59)
+        elif preset == "tomorrow":
+            # 明天结束
+            selected_time = (now + timedelta(days=1)).replace(hour=23, minute=59, second=59)
+        elif preset == "week":
+            # 一周后
+            selected_time = now + timedelta(days=7)
+        elif preset == "month":
+            # 一个月后
+            selected_time = now + timedelta(days=30)
+        else:
+            await query.answer("无效的时间预设")
+            return
+        
+        # 更新表单数据
+        if time_type == "start":
+            form_data['start_time'] = selected_time
+        else:
+            form_data['end_time'] = selected_time
+            
+        context.user_data['broadcast_form'] = form_data
+        
+        # 返回时间设置菜单
+        await show_time_options(update, context)
+        
+    elif action == "time_custom":
+        # 自定义时间输入
+        time_type = parts[3]  # start 或 end
+        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
+        
+        await query.edit_message_text(
+            f"请输入{'开始' if time_type == 'start' else '结束'}时间\n\n"
+            "格式: YYYY-MM-DD HH:MM\n"
+            "例如: 2025-03-15 14:30\n\n"
+            "发送完后请点击下方出现的「继续」按钮",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        context.user_data['waiting_for'] = f'broadcast_{time_type}_time'
+        
+    elif action == "time_done":
+        # 时间设置完成
+        await show_broadcast_summary(update, context)
+        
+    elif action == "set_interval":
+        # 设置发送间隔
+        await show_interval_options(update, context)
+        
+    elif action == "interval_preset":
+        # 处理预设间隔
+        preset = parts[3]
+        
+        # 根据预设设置间隔（秒）
+        if preset == "hourly":
+            interval = 3600  # 1小时
+        elif preset == "daily":
+            interval = 86400  # 24小时
+        elif preset == "twice_daily":
+            interval = 43200  # 12小时
+        else:
+            try:
+                interval = int(preset)
+            except ValueError:
+                await query.answer("无效的间隔预设")
+                return
+                
+        # 验证间隔是否符合最小要求
+        import config
+        min_interval = config.BROADCAST_SETTINGS['min_interval']
+        if interval < min_interval:
+            await query.answer(f"间隔不能小于 {min_interval} 秒")
+            return
+            
+        # 更新表单数据
+        form_data['interval'] = interval
+        context.user_data['broadcast_form'] = form_data
+        
+        # 返回主菜单
+        await show_broadcast_summary(update, context)
+        
+    elif action == "interval_custom":
+        # 自定义间隔输入
+        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
+        
+        import config
+        min_interval = config.BROADCAST_SETTINGS['min_interval']
+        
+        await query.edit_message_text(
+            "请输入轮播消息发送间隔（秒）\n\n"
+            f"最小间隔: {min_interval} 秒\n"
+            "常用间隔:\n"
+            "- 1小时: 3600秒\n"
+            "- 6小时: 21600秒\n"
+            "- 12小时: 43200秒\n"
+            "- 24小时: 86400秒\n\n"
+            "发送完后请点击下方出现的「继续」按钮",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        context.user_data['waiting_for'] = 'broadcast_interval'
+        
+    elif action == "preview":
+        # 预览广播效果
+        await preview_broadcast(update, context)
+        
+    elif action == "submit":
+        # 提交广播
+        await submit_broadcast_form(update, context)
+        
+    else:
+        await query.edit_message_text("❌ 未知操作")
+
+async def show_content_options(update: Update, context: CallbackContext):
+    """显示广播内容选项"""
+    form_data = context.user_data.get('broadcast_form', {})
+    
+    # 构建当前状态摘要
+    summary = "📢 轮播内容设置\n\n"
+    summary += f"• 文本: {'✅ 已设置' if form_data.get('text') else '❌ 未设置'}\n"
+    summary += f"• 媒体: {'✅ 已设置' if form_data.get('media') else '❌ 未设置'}\n"
+    summary += f"• 按钮: {len(form_data.get('buttons', []))} 个\n\n"
+    summary += "请选择要添加或修改的内容:"
+    
+    # 构建操作按钮
+    keyboard = [
+        [InlineKeyboardButton("📝 添加/修改文本", callback_data=f"bcform_add_text")],
+        [InlineKeyboardButton("🖼️ 添加/修改媒体", callback_data=f"bcform_add_media")],
+        [InlineKeyboardButton("🔘 添加/修改按钮", callback_data=f"bcform_add_button")],
+        [InlineKeyboardButton("✅ 完成", callback_data=f"bcform_content_done")],
+        [InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]
+    ]
+    
+    # 检查是否至少有一项内容
+    has_content = bool(form_data.get('text') or form_data.get('media') or form_data.get('buttons'))
+    if not has_content:
+        summary += "\n\n⚠️ 请至少添加一项内容(文本/媒体/按钮)"
+    
+    # 显示内容选项
+    await update.callback_query.edit_message_text(
+        summary,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def show_time_options(update: Update, context: CallbackContext):
+    """显示时间设置选项"""
+    form_data = context.user_data.get('broadcast_form', {})
+    
+    # 获取当前设置的时间
+    from utils import format_datetime
+    start_time = format_datetime(form_data.get('start_time'))
+    end_time = format_datetime(form_data.get('end_time'))
+    
+    # 构建当前状态摘要
+    summary = "⏰ 轮播时间设置\n\n"
+    summary += f"• 开始时间: {start_time}\n"
+    summary += f"• 结束时间: {end_time}\n\n"
+    
+    # 检查时间设置是否有效
+    is_valid = form_data.get('start_time') < form_data.get('end_time')
+    if not is_valid:
+        summary += "⚠️ 结束时间必须晚于开始时间\n\n"
+    
+    summary += "请选择要设置的项目:"
+    
+    # 构建操作按钮
+    keyboard = [
+        [InlineKeyboardButton("⏱️ 设置开始时间", callback_data=f"bcform_set_start_time")],
+        [InlineKeyboardButton("⏱️ 设置结束时间", callback_data=f"bcform_set_end_time")],
+        [InlineKeyboardButton("✅ 完成", callback_data=f"bcform_time_done")],
+        [InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]
+    ]
+    
+    # 显示时间选项
+    await update.callback_query.edit_message_text(
+        summary,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def show_time_preset_options(update: Update, context: CallbackContext, time_type):
+    """显示时间预设选项"""
+    # 构建预设选项
+    keyboard = []
+    
+    if time_type == "start":
+        keyboard.append([InlineKeyboardButton("⏱️ 立即开始", callback_data=f"bcform_time_preset_start_now")])
+    else:
+        keyboard.extend([
+            [InlineKeyboardButton("⏱️ 今天结束", callback_data=f"bcform_time_preset_end_today")],
+            [InlineKeyboardButton("⏱️ 明天结束", callback_data=f"bcform_time_preset_end_tomorrow")],
+            [InlineKeyboardButton("⏱️ 一周后结束", callback_data=f"bcform_time_preset_end_week")],
+            [InlineKeyboardButton("⏱️ 一个月后结束", callback_data=f"bcform_time_preset_end_month")]
+        ])
+    
+    # 添加自定义选项
+    keyboard.append([InlineKeyboardButton("📝 自定义时间", callback_data=f"bcform_time_custom_{time_type}")])
+    keyboard.append([InlineKeyboardButton("🔙 返回", callback_data=f"bcform_set_time")])
+    
+    # 显示预设选项
+    await update.callback_query.edit_message_text(
+        f"请选择{'开始' if time_type == 'start' else '结束'}时间:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def show_interval_options(update: Update, context: CallbackContext):
+    """显示间隔设置选项"""
+    form_data = context.user_data.get('broadcast_form', {})
+    current_interval = form_data.get('interval', 3600)
+    
+    from utils import format_duration
+    interval_display = format_duration(current_interval)
+    
+    # 构建当前状态摘要
+    summary = "🔄 轮播间隔设置\n\n"
+    summary += f"当前设置: {interval_display}\n\n"
+    summary += "请选择轮播消息的发送间隔:"
+    
+    # 构建预设选项
+    keyboard = [
+        [InlineKeyboardButton("⏱️ 每小时", callback_data=f"bcform_interval_preset_hourly")],
+        [InlineKeyboardButton("⏱️ 每12小时", callback_data=f"bcform_interval_preset_twice_daily")],
+        [InlineKeyboardButton("⏱️ 每天", callback_data=f"bcform_interval_preset_daily")],
+        [InlineKeyboardButton("📝 自定义间隔", callback_data=f"bcform_interval_custom")],
+        [InlineKeyboardButton("🔙 返回", callback_data=f"bcform_content_done")]
+    ]
+    
+    # 显示间隔选项
+    await update.callback_query.edit_message_text(
+        summary,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def show_broadcast_summary(update: Update, context: CallbackContext):
+    """显示广播设置摘要"""
+    form_data = context.user_data.get('broadcast_form', {})
+    
+    # 获取当前设置
+    from utils import format_datetime, format_duration
+    start_time = format_datetime(form_data.get('start_time'))
+    end_time = format_datetime(form_data.get('end_time'))
+    interval = format_duration(form_data.get('interval', 3600))
+    
+    # 构建摘要信息
+    summary = "📢 轮播消息摘要\n\n"
+    summary += f"• 文本: {'✅ 已设置' if form_data.get('text') else '❌ 未设置'}\n"
+    summary += f"• 媒体: {'✅ 已设置' if form_data.get('media') else '❌ 未设置'}\n"
+    summary += f"• 按钮: {len(form_data.get('buttons', []))} 个\n"
+    summary += f"• 开始时间: {start_time}\n"
+    summary += f"• 结束时间: {end_time}\n"
+    summary += f"• 发送间隔: {interval}\n\n"
+    
+    # 检查设置是否有效
+    is_valid_time = form_data.get('start_time') < form_data.get('end_time')
+    has_content = bool(form_data.get('text') or form_data.get('media') or form_data.get('buttons'))
+    
+    if not is_valid_time:
+        summary += "⚠️ 结束时间必须晚于开始时间\n"
+    if not has_content:
+        summary += "⚠️ 请至少添加一项内容(文本/媒体/按钮)\n"
+    
+    summary += "\n请选择操作:"
+    
+    # 构建操作按钮
+    keyboard = [
+        [InlineKeyboardButton("📝 编辑内容", callback_data=f"bcform_add_content")],
+        [InlineKeyboardButton("⏰ 编辑时间", callback_data=f"bcform_set_time")],
+        [InlineKeyboardButton("🔄 编辑间隔", callback_data=f"bcform_set_interval")],
+        [InlineKeyboardButton("👁️ 预览效果", callback_data=f"bcform_preview")],
+        [InlineKeyboardButton("✅ 提交", callback_data=f"bcform_submit")],
+        [InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]
+    ]
+    
+    # 显示摘要
+    await update.callback_query.edit_message_text(
+        summary,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def preview_broadcast(update: Update, context: CallbackContext):
+    """预览广播效果"""
+    form_data = context.user_data.get('broadcast_form', {})
+    
+    # 获取回复数据
+    text = form_data.get('text', '')
+    media = form_data.get('media')
+    buttons = form_data.get('buttons', [])
+    
+    # 创建按钮键盘(如果有)
+    reply_markup = None
+    if buttons:
+        keyboard = []
+        for button in buttons:
+            keyboard.append([InlineKeyboardButton(button['text'], url=button['url'])])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # 发送预览消息
+    try:
+        if media and media.get('type'):
+            if media['type'] == 'photo':
+                await update.callback_query.message.reply_photo(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
+            elif media['type'] == 'video':
+                await update.callback_query.message.reply_video(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
+            elif media['type'] == 'document':
+                await update.callback_query.message.reply_document(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
+            else:
+                await update.callback_query.message.reply_document(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
+        elif text or buttons:
+            await update.callback_query.message.reply_text(
+                text or "轮播消息",
+                reply_markup=reply_markup
+            )
+        else:
+            await update.callback_query.answer("没有预览内容")
+            await show_broadcast_summary(update, context)
+            return
+    except Exception as e:
+        logger.error(f"预览生成错误: {e}")
+        await update.callback_query.answer(f"预览生成失败: {str(e)}")
+    
+    # 返回操作菜单
+    keyboard = [
+        [InlineKeyboardButton("🔙 返回", callback_data=f"bcform_content_done")]
+    ]
+    await update.callback_query.edit_message_text(
+        "👆 上方为轮播消息预览\n\n点击「返回」继续编辑",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def submit_broadcast_form(update: Update, context: CallbackContext):
+    """提交广播表单"""
+    form_data = context.user_data.get('broadcast_form', {})
+    
+    # 检查是否有内容
+    has_content = bool(form_data.get('text') or form_data.get('media') or form_data.get('buttons'))
+    if not has_content:
+        await update.callback_query.answer("❌ 请至少添加一项内容")
+        await show_broadcast_summary(update, context)
+        return
+    
+    # 检查时间设置是否有效
+    is_valid_time = form_data.get('start_time') < form_data.get('end_time')
+    if not is_valid_time:
+        await update.callback_query.answer("❌ 结束时间必须晚于开始时间")
+        await show_broadcast_summary(update, context)
+        return
+    
+    # 构建广播数据
+    broadcast_data = {
+        'group_id': form_data['group_id'],
+        'text': form_data.get('text', ''),
+        'media': form_data.get('media'),
+        'buttons': form_data.get('buttons', []),
+        'start_time': form_data['start_time'],
+        'end_time': form_data['end_time'],
+        'interval': form_data['interval']
+    }
+    
+    # 添加广播
+    bot_instance = context.application.bot_data.get('bot_instance')
+    try:
+        await bot_instance.broadcast_manager.add_broadcast(broadcast_data)
+        
+        # 清理表单数据
+        if 'broadcast_form' in context.user_data:
+            del context.user_data['broadcast_form']
+        if 'waiting_for' in context.user_data:
+            del context.user_data['waiting_for']
+        
+        # 显示成功消息
+        from utils import format_datetime, format_duration
+        await update.callback_query.edit_message_text(
+            "✅ 轮播消息添加成功！\n\n"
+            f"开始时间: {format_datetime(broadcast_data['start_time'])}\n"
+            f"结束时间: {format_datetime(broadcast_data['end_time'])}\n"
+            f"发送间隔: {format_duration(broadcast_data['interval'])}"
+        )
+    except Exception as e:
+        logger.error(f"添加轮播消息错误: {e}")
+        await update.callback_query.answer("❌ 添加轮播消息失败")
+        await update.callback_query.edit_message_text(
+            f"❌ 添加轮播消息失败: {str(e)}\n\n"
+            "请重试或联系管理员"
+        )
+
+
+
 # 注册所有处理函数
 def register_all_handlers(application):
     """注册所有处理函数"""
@@ -1769,10 +2911,18 @@ def register_all_handlers(application):
     application.add_handler(CallbackQueryHandler(handle_stats_edit_callback, pattern=r'^stats_edit_'))
     application.add_handler(CallbackQueryHandler(handle_auto_delete_callback, pattern=r'^auto_delete_'))
     application.add_handler(CallbackQueryHandler(handle_switch_toggle_callback, pattern=r'^switch_toggle_'))
-
+    
+    # 添加简化的关键词和广播处理器
+    application.add_handler(CommandHandler("easykeyword", handle_easy_keyword))
+    application.add_handler(CommandHandler("easybroadcast", handle_easy_broadcast))
+    application.add_handler(CallbackQueryHandler(handle_keyword_form_callback, pattern=r'^kwform_'))
+    application.add_handler(CallbackQueryHandler(handle_broadcast_form_callback, pattern=r'^bcform_'))
+    
     # 注册消息处理器
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
 
     # 错误处理器会由 ErrorHandlingMiddleware 处理import logging
+
+    
 
 
