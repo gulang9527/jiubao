@@ -139,7 +139,8 @@ def handle_callback_errors(func: Callable) -> Callable:
         try:
             return await func(update, context, *args, **kwargs)
         except Exception as e:
-            logger.error(f"回调错误 {func.__name__}: {e}", exc_info=True)
+            logger.error(f"回调处理错误 {func.__name__}: {e}", exc_info=True)
+            logger.error(f"回调数据: {update.callback_query.data if update.callback_query else 'None'}")
             if update.callback_query:
                 try:
                     await update.callback_query.answer()
