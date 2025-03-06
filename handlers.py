@@ -484,7 +484,10 @@ async def handle_message(update: Update, context: CallbackContext):
     from db import GroupPermission
     if message.text and await bot_instance.has_permission(group_id, GroupPermission.KEYWORDS):
         logger.info(f"检查关键词匹配 - 群组: {group_id}, 文本: {message.text[:20]}...")
-        response = await bot_instance.keyword_manager.match_keyword(group_id, message.text, message)
+        keyword_id = await bot_instance.keyword_manager.match_keyword(group_id, message.text, message)
+    
+        if keyword_id:
+            await send_keyword_response(bot_instance, message, keyword_id, group_id)
         
         if response:
             await send_keyword_response(bot_instance, message, response, group_id)
