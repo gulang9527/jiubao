@@ -1627,10 +1627,10 @@ async def start_keyword_form(update: Update, context: CallbackContext, group_id:
             )
 
         except Exception as e:
-        logger.error(f"启动关键词表单流程出错: {e}", exc_info=True)
-        if update.callback_query:
-            await update.callback_query.edit_message_text(f"❌ 启动关键词表单出错: {str(e)[:50]}...")
-        return
+            logger.error(f"启动关键词表单流程出错: {e}", exc_info=True)
+            if update.callback_query:
+                await update.callback_query.edit_message_text(f"❌ 启动关键词表单出错: {str(e)[:50]}...")
+            return
 
 async def handle_keyword_form_callback(update: Update, context: CallbackContext):
     """处理关键词表单回调"""
