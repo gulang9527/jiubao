@@ -1570,12 +1570,14 @@ async def start_keyword_form(update: Update, context: CallbackContext, group_id:
             logger.error("获取bot实例失败")
             if update.callback_query:
                 await update.callback_query.edit_message_text("❌ 系统错误，无法获取bot实例")
+            else:
+                await update.message.reply_text("❌ 系统错误，无法获取bot实例")
             return
-
+            
         user_id = update.effective_user.id
-        logger.info(f"准备清理用户 {user_id} 的旧设置状态")
+        logger.info(f"用户ID: {user_id}, 开始处理关键词表单")
         
-        # 1. 清理旧的设置管理器状态
+        # 清理旧的设置管理器状态
         active_settings = await bot_instance.settings_manager.get_active_settings(user_id)
         logger.info(f"用户 {user_id} 的活动设置状态: {active_settings}")
     
@@ -1629,29 +1631,37 @@ async def start_keyword_form(update: Update, context: CallbackContext, group_id:
     except Exception as e:
         logger.error(f"启动关键词表单流程出错: {e}", exc_info=True)
         if update.callback_query:
-            await update.callback_query.edit_message_text(f"❌ 启动关键词表单出错: {str(e)[:50]}...")
+            await update.callback_query.edit_message_text(f"❌ 启动关键词表单出错: {str(e)}")
+        else:
+            await update.message.reply_text(f"❌ 启动关键词表单出错: {str(e)}")
         return
 
 async def handle_keyword_form_callback(update: Update, context: CallbackContext):
     """处理关键词表单回调"""
-    query = update.callback_query
-    await query.answer()
-    
-    data = query.data
-    logger.info(f"处理关键词表单回调，数据: {data}")
-    parts = data.split('_')
-    logger.info(f"解析关键词回调数据: {parts}")
-    
-    if len(parts) < 3:
-        logger.error(f"关键词回调数据格式错误: {data}")
-        await query.edit_message_text("❌ 无效的操作")
-        return
-    
-    action = parts[2]
-    logger.info(f"关键词表单操作: {action}")
-    
-    form_data = context.user_data.get('keyword_form', {})
-    logger.info(f"当前关键词表单数据: {form_data}")
+    try:
+        query = update.callback_query
+        await query.answer()
+        
+        data = query.data
+        logger.info(f"处理关键词表单回调，数据: {data}")
+        parts = data.split('_')
+        logger.info(f"解析关键词回调数据: {parts}")
+        
+        if len(parts) < 3:
+            logger.error(f"关键词回调数据格式错误: {data}")
+            await query.edit_message_text("❌ 无效的操作")
+            return
+        
+        # 特殊处理select_group的情况
+        if parts[1] == "select" and parts[2] == "group":
+            action = "select_group"
+        else:
+            action = parts[2]
+            
+        logger.info(f"关键词表单操作: {action}")
+        
+        form_data = context.user_data.get('keyword_form', {})
+        logger.info(f"当前关键词表单数据: {form_data}")
     
     # 处理不同的表单操作
     if action == "cancel":
@@ -1750,7 +1760,15 @@ async def handle_keyword_form_callback(update: Update, context: CallbackContext)
         await submit_keyword_form(update, context)
         
     else:
+        logger.warning(f"未知的关键词表单操作: {action}")
         await query.edit_message_text("❌ 未知操作")
+    except Exception as e:
+        logger.error(f"处理关键词表单回调时出错: {e}", exc_info=True)
+        if update.callback_query:
+            try:
+                await update.callback_query.edit_message_text(f"❌ 处理操作时出错: {str(e)[:50]}...")
+            except Exception as reply_error:
+                logger.error(f"无法发送错误消息: {reply_error}")
 
 async def show_response_options(update: Update, context: CallbackContext):
     """显示关键词响应选项"""
@@ -2058,7 +2076,12 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
             await query.edit_message_text("❌ 无效的操作")
             return
         
-        action = parts[2]
+        # 特殊处理select_group的情况
+        if parts[1] == "select" and parts[2] == "group":
+            action = "select_group"
+        else:
+            action = parts[2]
+            
         logger.info(f"广播表单操作: {action}")
         
         form_data = context.user_data.get('broadcast_form', {})
@@ -2262,10 +2285,10 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
             # 提交广播
             await submit_broadcast_form(update, context)
         
-        else:
-            logger.warning(f"未知的广播表单操作: {action}")
-            await query.edit_message_text("❌ 未知操作")
-            
+    else:
+        logger.warning(f"未知的广播表单操作: {action}")
+        await query.edit_message_text("❌ 未知操作")
+        
     except Exception as e:
         logger.error(f"处理广播表单回调时出错: {e}", exc_info=True)
         if update.callback_query:
