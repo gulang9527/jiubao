@@ -1562,23 +1562,22 @@ async def handle_easy_keyword(update: Update, context: CallbackContext):
 
 async def start_keyword_form(update: Update, context: CallbackContext, group_id: int):
     """启动关键词表单流程"""
-    logger.info(f"启动关键词表单流程，群组ID: {group_id}")
-    # 获取bot实例
-    bot_instance = context.application.bot_data.get('bot_instance')
-    if not bot_instance:
-        logger.error("获取bot实例失败")
-        if update.callback_query:
-            await update.callback_query.edit_message_text("❌ 系统错误，请联系管理员")
-        else:
-            await update.message.reply_text("❌ 系统错误，请联系管理员")
-        return
+    try:
+        logger.info(f"启动关键词表单流程，群组ID: {group_id}")
+        # 获取bot实例
+        bot_instance = context.application.bot_data.get('bot_instance')
+        if not bot_instance:
+            logger.error("获取bot实例失败")
+            if update.callback_query:
+                await update.callback_query.edit_message_text("❌ 系统错误，无法获取bot实例")
+            return
+
+        user_id = update.effective_user.id
+        logger.info(f"准备清理用户 {user_id} 的旧设置状态")
         
-    user_id = update.effective_user.id
-    logger.info(f"用户ID: {user_id}, 开始处理关键词表单")
-    
-    # 1. 清理旧的设置管理器状态
-    active_settings = await bot_instance.settings_manager.get_active_settings(user_id)
-    logger.info(f"用户 {user_id} 的活动设置状态: {active_settings}")
+        # 1. 清理旧的设置管理器状态
+        active_settings = await bot_instance.settings_manager.get_active_settings(user_id)
+        logger.info(f"用户 {user_id} 的活动设置状态: {active_settings}")
     
     # 清理关键词相关的所有状态
     if 'keyword' in active_settings:
@@ -1626,6 +1625,12 @@ async def start_keyword_form(update: Update, context: CallbackContext, group_id:
             "• 正则匹配：使用正则表达式匹配模式",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+
+        except Exception as e:
+        logger.error(f"启动关键词表单流程出错: {e}", exc_info=True)
+        if update.callback_query:
+            await update.callback_query.edit_message_text(f"❌ 启动关键词表单出错: {str(e)[:50]}...")
+        return
 
 async def handle_keyword_form_callback(update: Update, context: CallbackContext):
     """处理关键词表单回调"""
@@ -2029,36 +2034,38 @@ async def start_broadcast_form(update: Update, context: CallbackContext, group_i
 
 async def handle_broadcast_form_callback(update: Update, context: CallbackContext):
     """处理广播表单回调"""
-    query = update.callback_query
-    await query.answer()
-    
-    data = query.data
-    logger.info(f"处理广播表单回调，数据: {data}")
-    parts = data.split('_')
-    logger.info(f"解析回调数据: {parts}")
-    
-    if len(parts) < 3:
-        logger.error(f"回调数据格式错误: {data}")
-        await query.edit_message_text("❌ 无效的操作")
-        return
-    
-    action = parts[2]
-    logger.info(f"广播表单操作: {action}")
-    
-    form_data = context.user_data.get('broadcast_form', {})
-    
-    # 处理不同的表单操作
-    if action == "cancel":
-        # 取消操作
-        if 'broadcast_form' in context.user_data:
-            del context.user_data['broadcast_form']
-        await query.edit_message_text("✅ 已取消轮播消息添加")
+    try:
+        query = update.callback_query
+        await query.answer()
         
-    elif action == "select_group":
-        # 选择群组
-        group_id = int(parts[3])
-        # 启动添加流程
-        await start_broadcast_form(update, context, group_id)
+        data = query.data
+        logger.info(f"处理广播表单回调，数据: {data}")
+        parts = data.split('_')
+        logger.info(f"解析广播回调数据: {parts}")
+        
+        if len(parts) < 3:
+            logger.error(f"广播回调数据格式错误: {data}")
+            await query.edit_message_text("❌ 无效的操作")
+            return
+        
+        action = parts[2]
+        logger.info(f"广播表单操作: {action}")
+        
+        form_data = context.user_data.get('broadcast_form', {})
+        logger.info(f"当前广播表单数据: {form_data}")
+        
+        # 处理不同的表单操作
+        if action == "cancel":
+            # 取消操作
+            if 'broadcast_form' in context.user_data:
+                del context.user_data['broadcast_form']
+            await query.edit_message_text("✅ 已取消轮播消息添加")
+            
+        elif action == "select_group":
+            # 选择群组
+            group_id = int(parts[3])
+            # 启动添加流程
+            await start_broadcast_form(update, context, group_id)
         
     elif action == "add_content":
         # 显示内容添加选项
@@ -2245,8 +2252,16 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
         # 提交广播
         await submit_broadcast_form(update, context)
         
-    else:
-        await query.edit_message_text("❌ 未知操作")
+        else:
+            logger.warning(f"未知的广播表单操作: {action}")
+            await query.edit_message_text("❌ 未知操作")
+    except Exception as e:
+        logger.error(f"处理广播表单回调时出错: {e}", exc_info=True)
+        if update.callback_query:
+            try:
+                await update.callback_query.edit_message_text(f"❌ 处理操作时出错: {str(e)[:50]}...")
+            except Exception as reply_error:
+                logger.error(f"无法发送错误消息: {reply_error}")
 
 async def show_content_options(update: Update, context: CallbackContext):
     """显示广播内容选项"""
