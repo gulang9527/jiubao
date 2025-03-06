@@ -356,6 +356,16 @@ class Database:
         """添加关键词"""
         await self.ensure_connected()
         try:
+            # 验证必要字段
+            required_fields = ['group_id', 'pattern', 'type']
+            for field in required_fields:
+                if field not in keyword_data:
+                    raise ValueError(f"缺少必要字段 '{field}'")
+                
+            # 确保至少有回复文本、媒体或按钮中的一项
+            if not (keyword_data.get('response') or keyword_data.get('media') or keyword_data.get('buttons')):
+                raise ValueError("关键词回复必须包含文本、媒体或按钮中的至少一项")
+            
             await self.db.keywords.update_one(
                 {
                     'group_id': keyword_data['group_id'],
@@ -489,6 +499,16 @@ class Database:
         """添加轮播消息"""
         await self.ensure_connected()
         try:
+            # 确保必要字段存在
+            required_fields = ['group_id', 'start_time', 'end_time', 'interval']
+            for field in required_fields:
+                if field not in broadcast_data:
+                    raise ValueError(f"缺少必要字段 '{field}'")
+                
+            # 确保至少有文本、媒体或按钮之一
+            if not (broadcast_data.get('text') or broadcast_data.get('media') or broadcast_data.get('buttons')):
+                raise ValueError("轮播消息必须包含文本、媒体或按钮中的至少一项")
+            
             await self.db.broadcasts.insert_one(broadcast_data)
         except Exception as e:
             logger.error(f"添加轮播消息失败: {e}")
