@@ -1981,60 +1981,60 @@ async def start_broadcast_form(update: Update, context: CallbackContext, group_i
             await bot_instance.settings_manager.clear_setting_state(user_id, 'broadcast')
             logger.info(f"已清理用户 {user_id} 的旧广播设置状态")
     
-    # 清理context.user_data中的旧表单数据
-    for key in list(context.user_data.keys()):
-        if key.startswith('broadcast_') or key == 'waiting_for':
-            del context.user_data[key]
-            logger.info(f"已清理用户数据中的键: {key}")
+        # 清理context.user_data中的旧表单数据
+        for key in list(context.user_data.keys()):
+            if key.startswith('broadcast_') or key == 'waiting_for':
+                del context.user_data[key]
+                logger.info(f"已清理用户数据中的键: {key}")
     
-    # 初始化表单数据
-    from datetime import datetime, timedelta
-    import config
+        # 初始化表单数据
+        from datetime import datetime, timedelta
+        import config
     
-    # 设置默认值：开始时间为当前时间，结束时间为一周后，间隔为一小时
-    now = datetime.now(config.TIMEZONE)
-    end_time = now + timedelta(days=7)
+        # 设置默认值：开始时间为当前时间，结束时间为一周后，间隔为一小时
+        now = datetime.now(config.TIMEZONE)
+        end_time = now + timedelta(days=7)
     
-    context.user_data['broadcast_form'] = {
-        'group_id': group_id,
-        'text': '',
-        'media': None,
-        'buttons': [],
-        'start_time': now,
-        'end_time': end_time,
-        'interval': 3600  # 默认间隔1小时
-    }
-    logger.info(f"已为用户 {user_id} 初始化新的广播表单数据")
+        context.user_data['broadcast_form'] = {
+            'group_id': group_id,
+            'text': '',
+            'media': None,
+            'buttons': [],
+            'start_time': now,
+            'end_time': end_time,
+            'interval': 3600  # 默认间隔1小时
+        }
+        logger.info(f"已为用户 {user_id} 初始化新的广播表单数据")
     
-    # 显示广播表单菜单
-    keyboard = [
-        [InlineKeyboardButton("📝 添加内容", callback_data=f"bcform_add_content")],
-        [InlineKeyboardButton("⏰ 设置时间", callback_data=f"bcform_set_time")],
-        [InlineKeyboardButton("🔄 设置间隔", callback_data=f"bcform_set_interval")],
-        [InlineKeyboardButton("👁️ 预览效果", callback_data=f"bcform_preview")],
-        [InlineKeyboardButton("✅ 提交", callback_data=f"bcform_submit")],
-        [InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]
-    ]
+        # 显示广播表单菜单
+        keyboard = [
+            [InlineKeyboardButton("📝 添加内容", callback_data=f"bcform_add_content")],
+            [InlineKeyboardButton("⏰ 设置时间", callback_data=f"bcform_set_time")],
+            [InlineKeyboardButton("🔄 设置间隔", callback_data=f"bcform_set_interval")],
+            [InlineKeyboardButton("👁️ 预览效果", callback_data=f"bcform_preview")],
+            [InlineKeyboardButton("✅ 提交", callback_data=f"bcform_submit")],
+            [InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]
+        ]
     
-    # 根据情境使用不同的发送方式
-    message_text = (
-        "📢 轮播消息添加向导\n\n"
-        "轮播消息会在设定的时间范围内按照指定的间隔自动发送。\n\n"
-        "请选择要设置的项目："
-    )
-    
-    if update.callback_query:
-        await update.callback_query.edit_message_text(
-            message_text,
-            reply_markup=InlineKeyboardMarkup(keyboard)
+        # 根据情境使用不同的发送方式
+        message_text = (
+            "📢 轮播消息添加向导\n\n"
+            "轮播消息会在设定的时间范围内按照指定的间隔自动发送。\n\n"
+            "请选择要设置的项目："
         )
-    else:
-        await update.message.reply_text(
-            message_text,
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+    
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                message_text,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            await update.message.reply_text(
+                message_text,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
 
-        except Exception as e:
+    except Exception as e:
         logger.error(f"启动广播表单流程出错: {e}", exc_info=True)
         if update.callback_query:
             await update.callback_query.edit_message_text(f"❌ 启动广播表单出错: {str(e)[:50]}...")
