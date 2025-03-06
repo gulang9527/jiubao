@@ -514,10 +514,15 @@ async def handle_message(update: Update, context: CallbackContext):
     from db import GroupPermission
     if message.text and await bot_instance.has_permission(group_id, GroupPermission.KEYWORDS):
         logger.info(f"检查关键词匹配 - 群组: {group_id}, 文本: {message.text[:20]}...")
-        response = await bot_instance.keyword_manager.match_keyword(group_id, message.text, message)
-        
-        if response:
-            await send_keyword_response(bot_instance, message, response, group_id)
+        try:
+            response = await bot_instance.keyword_manager.match_keyword(group_id, message.text, message)
+            logger.info(f"关键词匹配结果: {response}")
+            
+            if response:
+                logger.info(f"发送关键词回复: {response}")
+                await send_keyword_response(bot_instance, message, response, group_id)
+        except Exception as e:
+            logger.error(f"关键词匹配过程出错: {e}", exc_info=True)
     
     # 处理消息统计
     if await bot_instance.has_permission(group_id, GroupPermission.STATS):
@@ -1503,11 +1508,15 @@ async def handle_switch_toggle_callback(update: Update, context: CallbackContext
 
 async def handle_easy_keyword(update: Update, context: CallbackContext):
     """处理 /easykeyword 命令，启动简化的关键词添加流程"""
+    """处理 /easykeyword 命令，启动简化的关键词添加流程"""
+    logger.info(f"进入 handle_easy_keyword 函数，处理用户 {update.effective_user.id if update.effective_user else 'unknown'} 的请求")
     if not update.effective_user or not update.effective_chat:
+        logger.warning("无法获取用户或聊天信息")
         return
         
     user_id = update.effective_user.id
     group_id = update.effective_chat.id if update.effective_chat.type != 'private' else None
+    logger.info(f"用户ID: {user_id}, 群组ID: {group_id}")
     
     bot_instance = context.application.bot_data.get('bot_instance')
     
@@ -1553,9 +1562,19 @@ async def handle_easy_keyword(update: Update, context: CallbackContext):
 
 async def start_keyword_form(update: Update, context: CallbackContext, group_id: int):
     """启动关键词表单流程"""
+    logger.info(f"启动关键词表单流程，群组ID: {group_id}")
     # 获取bot实例
     bot_instance = context.application.bot_data.get('bot_instance')
+    if not bot_instance:
+        logger.error("获取bot实例失败")
+        if update.callback_query:
+            await update.callback_query.edit_message_text("❌ 系统错误，请联系管理员")
+        else:
+            await update.message.reply_text("❌ 系统错误，请联系管理员")
+        return
+        
     user_id = update.effective_user.id
+    logger.info(f"用户ID: {user_id}, 开始处理关键词表单")
     
     # 1. 清理旧的设置管理器状态
     active_settings = await bot_instance.settings_manager.get_active_settings(user_id)
@@ -1614,15 +1633,20 @@ async def handle_keyword_form_callback(update: Update, context: CallbackContext)
     await query.answer()
     
     data = query.data
+    logger.info(f"处理关键词表单回调，数据: {data}")
     parts = data.split('_')
+    logger.info(f"解析关键词回调数据: {parts}")
     
     if len(parts) < 3:
+        logger.error(f"关键词回调数据格式错误: {data}")
         await query.edit_message_text("❌ 无效的操作")
         return
     
     action = parts[2]
+    logger.info(f"关键词表单操作: {action}")
     
     form_data = context.user_data.get('keyword_form', {})
+    logger.info(f"当前关键词表单数据: {form_data}")
     
     # 处理不同的表单操作
     if action == "cancel":
@@ -1725,7 +1749,9 @@ async def handle_keyword_form_callback(update: Update, context: CallbackContext)
 
 async def show_response_options(update: Update, context: CallbackContext):
     """显示关键词响应选项"""
+    logger.info("显示关键词响应选项")
     form_data = context.user_data.get('keyword_form', {})
+    logger.info(f"当前关键词表单数据: {form_data}")
     
     # 构建当前状态摘要
     summary = "📝 关键词添加向导\n\n"
@@ -1760,7 +1786,9 @@ async def show_response_options(update: Update, context: CallbackContext):
 
 async def preview_keyword_response(update: Update, context: CallbackContext):
     """预览关键词响应效果"""
+    logger.info("预览关键词响应效果")
     form_data = context.user_data.get('keyword_form', {})
+    logger.info(f"预览的关键词表单数据: {form_data}")
     
     # 获取回复数据
     text = form_data.get('response', '')
@@ -1818,7 +1846,9 @@ async def preview_keyword_response(update: Update, context: CallbackContext):
 
 async def submit_keyword_form(update: Update, context: CallbackContext):
     """提交关键词表单"""
+    logger.info("提交关键词表单")
     form_data = context.user_data.get('keyword_form', {})
+    logger.info(f"提交的表单数据: {form_data}")
     
     # 验证必要字段
     pattern = form_data.get('pattern')
