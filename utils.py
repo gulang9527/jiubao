@@ -63,6 +63,27 @@ def get_media_type(message: Message) -> Optional[str]:
         return 'sticker'
     return None
 
+def get_file_id(message: Message) -> Optional[str]:
+    """获取消息中媒体的file_id"""
+    if message.photo:
+        # 照片是一个数组，取最后一个（最大尺寸）
+        return message.photo[-1].file_id
+    elif message.video:
+        return message.video.file_id
+    elif message.document:
+        return message.document.file_id
+    elif message.animation:
+        return message.animation.file_id
+    elif message.audio:
+        return message.audio.file_id
+    elif message.voice:
+        return message.voice.file_id
+    elif message.video_note:
+        return message.video_note.file_id
+    elif message.sticker:
+        return message.sticker.file_id
+    return None
+
 def format_duration(seconds: int) -> str:
     """格式化时间间隔"""
     if seconds < 60:
