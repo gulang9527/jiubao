@@ -7,6 +7,7 @@ Application, CommandHandler, MessageHandler,
 CallbackQueryHandler, filters, CallbackContext
 )
 from telegram.error import BadRequest
+from bson import ObjectId
 
 from middlewares import (
 error_handler, require_admin, require_superadmin, 
