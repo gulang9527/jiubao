@@ -103,6 +103,15 @@ def format_duration(seconds: int) -> str:
     days = days % 30
     return f"{months}月{days}天" if days else f"{months}月"
 
+def format_datetime(dt):
+    """格式化日期时间为用户友好格式"""
+    if not dt:
+        return "未设置"
+    try:
+        return dt.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return str(dt)
+
 def parse_command_args(text: str) -> Tuple[str, list]:
     """解析命令参数"""
     parts = text.split()
