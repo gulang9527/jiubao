@@ -11,17 +11,21 @@ from bson import ObjectId
 logger = logging.getLogger(__name__)
 
 class UserRole(Enum):
+    """用户角色枚举类"""
     USER = "user"
     ADMIN = "admin"
     SUPERADMIN = "superadmin"
 
 class GroupPermission(Enum):
+    """群组权限枚举类"""
     KEYWORDS = "keywords"
     STATS = "stats"
     BROADCAST = "broadcast"
 
 class Database:
+    """数据库操作类"""
     def __init__(self):
+        """初始化数据库连接"""
         self.client = None
         self.db = None
         self.uri = None
@@ -30,7 +34,16 @@ class Database:
         self.connected = asyncio.Event()
         
     async def connect(self, mongodb_uri: str, database: str) -> bool:
-        """连接到MongoDB"""
+        """
+        连接到MongoDB
+        
+        参数:
+            mongodb_uri: MongoDB连接URI
+            database: 数据库名称
+            
+        返回:
+            bool: 连接是否成功
+        """
         self.uri = mongodb_uri
         self.database = database
         
@@ -64,7 +77,7 @@ class Database:
             
             return True
         except Exception as e:
-            logger.error(f"数据库连接失败: {e}")
+            logger.error(f"数据库连接失败: {e}", exc_info=True)
             self.connected.clear()
             return False
 
@@ -72,24 +85,26 @@ class Database:
         """启动重连任务"""
         if self._reconnect_task is None or self._reconnect_task.done():
             self._reconnect_task = asyncio.create_task(self._reconnect_loop())
+            logger.info("数据库重连任务已启动")
             
     async def _reconnect_loop(self):
         """重连循环"""
         while True:
             if not self.connected.is_set():
                 try:
+                    logger.info("尝试重新连接数据库...")
                     self.client = AsyncIOMotorClient(self.uri)
                     await self.client.admin.command('ping')
                     self.db = self.client[self.database]
                     logger.info("数据库重连成功")
                     self.connected.set()
                 except Exception as e:
-                    logger.error(f"数据库重连失败: {e}")
+                    logger.error(f"数据库重连失败: {e}", exc_info=True)
                     await asyncio.sleep(5)  # 等待5秒后重试
             await asyncio.sleep(60)  # 每分钟检查一次连接状态
             
     async def ensure_connected(self):
-        """确保数据库已连接"""
+        """确保数据库已连接，如果未连接则等待连接"""
         await self.connected.wait()
 
     async def close(self):
@@ -149,29 +164,48 @@ class Database:
             
             logger.info("索引初始化完成")
         except Exception as e:
-            logger.error(f"索引初始化失败: {e}")
+            logger.error(f"索引初始化失败: {e}", exc_info=True)
             raise
 
-    # User related methods
+    #######################################
+    # 用户相关方法
+    #######################################
+    
     async def add_user(self, user_data: Dict[str, Any]):
-        """添加或更新用户"""
+        """
+        添加或更新用户
+        
+        参数:
+            user_data: 用户数据，必须包含user_id字段
+        """
         await self.ensure_connected()
         try:
+            # 验证必要字段
+            if 'user_id' not in user_data:
+                raise ValueError("用户数据必须包含user_id字段")
+                
             await self.db.users.update_one(
                 {'user_id': user_data['user_id']},
                 {'$set': user_data},
                 upsert=True
             )
+            logger.info(f"已更新/添加用户: {user_data['user_id']}")
         except Exception as e:
-            logger.error(f"添加用户失败: {e}")
+            logger.error(f"添加用户失败: {e}", exc_info=True)
             raise
 
     async def remove_user(self, user_id: int):
-        """删除用户"""
+        """
+        删除用户
+        
+        参数:
+            user_id: 用户ID
+        """
         await self.ensure_connected()
         async with await self.client.start_session() as session:
             async with session.start_transaction():
                 try:
+                    # 同时删除用户和对应的管理员群组记录
                     await self.db.users.delete_one(
                         {'user_id': user_id},
                         session=session
@@ -180,31 +214,56 @@ class Database:
                         {'admin_id': user_id},
                         session=session
                     )
+                    logger.info(f"已删除用户: {user_id}")
                 except Exception as e:
                     await session.abort_transaction()
-                    logger.error(f"删除用户失败: {e}")
+                    logger.error(f"删除用户失败: {e}", exc_info=True)
                     raise
 
     async def get_user(self, user_id: int) -> Optional[Dict[str, Any]]:
-        """获取用户信息"""
+        """
+        获取用户信息
+        
+        参数:
+            user_id: 用户ID
+            
+        返回:
+            用户信息字典或None
+        """
         await self.ensure_connected()
         try:
             return await self.db.users.find_one({'user_id': user_id})
         except Exception as e:
-            logger.error(f"获取用户失败: {e}")
+            logger.error(f"获取用户失败: {e}", exc_info=True)
             return None
 
     async def get_users_by_role(self, role: str) -> List[Dict[str, Any]]:
-        """获取指定角色的所有用户"""
+        """
+        获取指定角色的所有用户
+        
+        参数:
+            role: 用户角色
+            
+        返回:
+            用户列表
+        """
         await self.ensure_connected()
         try:
             return await self.db.users.find({'role': role}).to_list(None)
         except Exception as e:
-            logger.error(f"获取用户列表失败: {e}")
+            logger.error(f"获取用户列表失败: {e}", exc_info=True)
             return []
 
     async def is_user_banned(self, user_id: int) -> bool:
-        """检查用户是否被封禁"""
+        """
+        检查用户是否被封禁
+        
+        参数:
+            user_id: 用户ID
+            
+        返回:
+            是否被封禁
+        """
         await self.ensure_connected()
         try:
             user = await self.db.users.find_one({
@@ -213,29 +272,48 @@ class Database:
             })
             return bool(user)
         except Exception as e:
-            logger.error(f"检查用户封禁状态失败: {e}")
+            logger.error(f"检查用户封禁状态失败: {e}", exc_info=True)
             return False
 
-    # Group related methods
+    #######################################
+    # 群组相关方法
+    #######################################
+    
     async def add_group(self, group_data: Dict[str, Any]):
-        """添加或更新群组"""
+        """
+        添加或更新群组
+        
+        参数:
+            group_data: 群组数据，必须包含group_id字段
+        """
         await self.ensure_connected()
         try:
+            # 验证必要字段
+            if 'group_id' not in group_data:
+                raise ValueError("群组数据必须包含group_id字段")
+                
             await self.db.groups.update_one(
                 {'group_id': group_data['group_id']},
                 {'$set': group_data},
                 upsert=True
             )
+            logger.info(f"已更新/添加群组: {group_data['group_id']}")
         except Exception as e:
-            logger.error(f"添加群组失败: {e}")
+            logger.error(f"添加群组失败: {e}", exc_info=True)
             raise
 
     async def remove_group(self, group_id: int):
-        """删除群组"""
+        """
+        删除群组
+        
+        参数:
+            group_id: 群组ID
+        """
         await self.ensure_connected()
         async with await self.client.start_session() as session:
             async with session.start_transaction():
                 try:
+                    # 删除群组及相关的所有数据
                     await self.db.groups.delete_one(
                         {'group_id': group_id},
                         session=session
@@ -252,41 +330,69 @@ class Database:
                         {'group_id': group_id},
                         session=session
                     )
+                    logger.info(f"已删除群组: {group_id}")
                 except Exception as e:
                     await session.abort_transaction()
-                    logger.error(f"删除群组失败: {e}")
+                    logger.error(f"删除群组失败: {e}", exc_info=True)
                     raise
 
     async def get_group(self, group_id: int) -> Optional[Dict[str, Any]]:
-        """获取群组信息"""
+        """
+        获取群组信息
+        
+        参数:
+            group_id: 群组ID
+            
+        返回:
+            群组信息字典或None
+        """
         await self.ensure_connected()
         try:
             return await self.db.groups.find_one({'group_id': group_id})
         except Exception as e:
-            logger.error(f"获取群组失败: {e}")
+            logger.error(f"获取群组失败: {e}", exc_info=True)
             return None
 
     async def find_all_groups(self) -> List[Dict[str, Any]]:
-        """获取所有群组"""
+        """
+        获取所有群组
+        
+        返回:
+            群组列表
+        """
         await self.ensure_connected()
         try:
             return await self.db.groups.find().to_list(None)
         except Exception as e:
-            logger.error(f"获取群组列表失败: {e}")
+            logger.error(f"获取群组列表失败: {e}", exc_info=True)
             return []
 
     async def get_group_settings(self, group_id: int) -> Dict[str, Any]:
-        """获取群组设置"""
+        """
+        获取群组设置
+        
+        参数:
+            group_id: 群组ID
+            
+        返回:
+            群组设置字典
+        """
         await self.ensure_connected()
         try:
             group = await self.get_group(group_id)
             return group.get('settings', {}) if group else {}
         except Exception as e:
-            logger.error(f"获取群组设置失败: {e}")
+            logger.error(f"获取群组设置失败: {e}", exc_info=True)
             return {}
 
     async def update_group_settings(self, group_id: int, settings: Dict[str, Any]):
-        """更新群组设置"""
+        """
+        更新群组设置
+        
+        参数:
+            group_id: 群组ID
+            settings: 新的设置字典
+        """
         await self.ensure_connected()
         try:
             await self.db.groups.update_one(
@@ -294,13 +400,26 @@ class Database:
                 {'$set': {'settings': settings}},
                 upsert=True
             )
+            logger.info(f"已更新群组 {group_id} 的设置")
         except Exception as e:
-            logger.error(f"更新群组设置失败: {e}")
+            logger.error(f"更新群组设置失败: {e}", exc_info=True)
             raise
 
-    # Admin groups management
+    #######################################
+    # 管理员群组关系方法
+    #######################################
+    
     async def can_manage_group(self, user_id: int, group_id: int) -> bool:
-        """检查用户是否可以管理指定群组"""
+        """
+        检查用户是否可以管理指定群组
+        
+        参数:
+            user_id: 用户ID
+            group_id: 群组ID
+            
+        返回:
+            是否可以管理
+        """
         await self.ensure_connected()
         try:
             user = await self.get_user(user_id)
@@ -321,11 +440,19 @@ class Database:
 
             return False
         except Exception as e:
-            logger.error(f"检查群组管理权限失败: {e}")
+            logger.error(f"检查群组管理权限失败: {e}", exc_info=True)
             return False
 
     async def get_manageable_groups(self, user_id: int) -> List[Dict[str, Any]]:
-        """获取用户可管理的群组列表"""
+        """
+        获取用户可管理的群组列表
+        
+        参数:
+            user_id: 用户ID
+            
+        返回:
+            可管理的群组列表
+        """
         await self.ensure_connected()
         try:
             user = await self.get_user(user_id)
@@ -348,12 +475,20 @@ class Database:
 
             return []
         except Exception as e:
-            logger.error(f"获取可管理群组列表失败: {e}")
+            logger.error(f"获取可管理群组列表失败: {e}", exc_info=True)
             return []
 
-    # Keywords management
+    #######################################
+    # 关键词管理方法
+    #######################################
+    
     async def add_keyword(self, keyword_data: Dict[str, Any]):
-        """添加关键词"""
+        """
+        添加关键词
+        
+        参数:
+            keyword_data: 关键词数据
+        """
         await self.ensure_connected()
         try:
             # 验证必要字段
@@ -374,57 +509,99 @@ class Database:
                 {'$set': keyword_data},
                 upsert=True
             )
+            logger.info(f"已添加关键词: {keyword_data['pattern']}")
         except Exception as e:
-            logger.error(f"添加关键词失败: {e}")
+            logger.error(f"添加关键词失败: {e}", exc_info=True)
             raise
 
     async def remove_keyword(self, group_id: int, keyword_id: str):
-        """删除关键词"""
+        """
+        删除关键词
+        
+        参数:
+            group_id: 群组ID
+            keyword_id: 关键词ID
+        """
         await self.ensure_connected()
         try:
             # 验证 keyword_id 是否为有效的 ObjectId
             try:
-                from bson import ObjectId
                 obj_id = ObjectId(keyword_id)
             except Exception as e:
                 logger.error(f"无效的关键词ID: {keyword_id}, 错误: {e}")
                 raise ValueError(f"无效的关键词ID: {keyword_id}")
         
             # 删除关键词
-            await self.db.keywords.delete_one({
+            result = await self.db.keywords.delete_one({
                 'group_id': group_id,
                 '_id': obj_id
             })
+            
+            if result.deleted_count == 0:
+                logger.warning(f"未找到要删除的关键词: group_id={group_id}, keyword_id={keyword_id}")
+            else:
+                logger.info(f"已删除关键词: {keyword_id}")
         except Exception as e:
-            logger.error(f"删除关键词失败: {e}")
+            logger.error(f"删除关键词失败: {e}", exc_info=True)
             raise
 
     async def get_keywords(self, group_id: int) -> List[Dict[str, Any]]:
-        """获取群组的关键词列表"""
+        """
+        获取群组的关键词列表
+        
+        参数:
+            group_id: 群组ID
+            
+        返回:
+            关键词列表
+        """
         await self.ensure_connected()
         try:
             return await self.db.keywords.find({
                 'group_id': group_id
             }).to_list(None)
         except Exception as e:
-            logger.error(f"获取关键词列表失败: {e}")
+            logger.error(f"获取关键词列表失败: {e}", exc_info=True)
             return []
 
-    # Message stats management
+    #######################################
+    # 消息统计方法
+    #######################################
+    
     async def add_message_stat(self, stat_data: Dict[str, Any]):
-        """添加消息统计"""
+        """
+        添加消息统计
+        
+        参数:
+            stat_data: 统计数据
+        """
         await self.ensure_connected()
         try:
+            # 确保包含必要字段
+            required_fields = ['group_id', 'user_id', 'date']
+            for field in required_fields:
+                if field not in stat_data:
+                    raise ValueError(f"缺少必要字段 '{field}'")
+                    
             await self.db.message_stats.insert_one({
                 **stat_data,
                 'created_at': datetime.now().isoformat()
             })
         except Exception as e:
-            logger.error(f"添加消息统计失败: {e}")
+            logger.error(f"添加消息统计失败: {e}", exc_info=True)
             raise
 
     async def get_recent_message_count(self, user_id: int, seconds: int = 60) -> int:
-        """获取用户最近的消息数量"""
+        """
+        获取用户最近的消息数量
+        
+        参数:
+            user_id: 用户ID
+            seconds: 时间范围（秒）
+            
+        返回:
+            消息数量
+        """
         await self.ensure_connected()
         try:
             since = datetime.now() - timedelta(seconds=seconds)
@@ -434,11 +611,16 @@ class Database:
             })
             return count
         except Exception as e:
-            logger.error(f"获取最近消息数量失败: {e}")
+            logger.error(f"获取最近消息数量失败: {e}", exc_info=True)
             return 0
 
     async def add_message_with_transaction(self, message_data: dict):
-        """使用事务添加消息"""
+        """
+        使用事务添加消息
+        
+        参数:
+            message_data: 消息数据
+        """
         await self.ensure_connected()
         async with await self.client.start_session() as session:
             async with session.start_transaction():
@@ -455,22 +637,29 @@ class Database:
                         {'$inc': {'total_messages': 1}},
                         session=session
                     )
+                    
+                    logger.info(f"已添加消息统计: user_id={message_data['user_id']}")
                 except Exception as e:
                     await session.abort_transaction()
-                    logger.error(f"消息事务添加失败: {e}")
+                    logger.error(f"消息事务添加失败: {e}", exc_info=True)
                     raise
 
     async def cleanup_old_stats(self, days: int = 30):
-        """清理旧的统计数据"""
+        """
+        清理旧的统计数据
+        
+        参数:
+            days: 保留天数
+        """
         await self.ensure_connected()
         try:
             cutoff_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
-            await self.db.message_stats.delete_many({
+            result = await self.db.message_stats.delete_many({
                 'date': {'$lt': cutoff_date}
             })
-            logger.info(f"已清理 {days} 天前的统计数据")
+            logger.info(f"已清理 {days} 天前的统计数据，共 {result.deleted_count} 条")
         except Exception as e:
-            logger.error(f"清理统计数据失败: {e}")
+            logger.error(f"清理统计数据失败: {e}", exc_info=True)
             raise
 
     async def cleanup_old_data(self):
@@ -479,92 +668,36 @@ class Database:
         try:
             # 清理过期的统计数据
             cutoff_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
-            await self.db.message_stats.delete_many({
+            stats_result = await self.db.message_stats.delete_many({
                 'date': {'$lt': cutoff_date}
             })
             
             # 清理过期的轮播消息
             now = datetime.now()
-            await self.db.broadcasts.delete_many({
+            broadcast_result = await self.db.broadcasts.delete_many({
                 'end_time': {'$lt': now}
             })
             
-            logger.info("已完成数据清理")
+            logger.info(f"数据清理完成: 删除了 {stats_result.deleted_count} 条统计数据和 {broadcast_result.deleted_count} 条过期轮播消息")
         except Exception as e:
-            logger.error(f"数据清理失败: {e}")
+            logger.error(f"数据清理失败: {e}", exc_info=True)
             raise
 
-    # Broadcast management
-    async def add_broadcast(self, broadcast_data: Dict[str, Any]):
-        """添加轮播消息"""
-        await self.ensure_connected()
-        try:
-            # 确保必要字段存在
-            required_fields = ['group_id', 'start_time', 'end_time', 'interval']
-            for field in required_fields:
-                if field not in broadcast_data:
-                    raise ValueError(f"缺少必要字段 '{field}'")
-                
-            # 确保至少有文本、媒体或按钮之一
-            if not (broadcast_data.get('text') or broadcast_data.get('media') or broadcast_data.get('buttons')):
-                raise ValueError("轮播消息必须包含文本、媒体或按钮中的至少一项")
-            
-            await self.db.broadcasts.insert_one(broadcast_data)
-        except Exception as e:
-            logger.error(f"添加轮播消息失败: {e}")
-            raise
-
-    async def remove_broadcast(self, group_id: int, broadcast_id: str):
-        """删除轮播消息"""
-        await self.ensure_connected()
-        try:
-            await self.db.broadcasts.delete_one({
-                'group_id': group_id,
-                '_id': ObjectId(broadcast_id)
-            })
-        except Exception as e:
-            logger.error(f"删除轮播消息失败: {e}")
-            raise
-
-    async def get_broadcasts(self, group_id: int) -> List[Dict[str, Any]]:
-        """获取群组的轮播消息列表"""
-        await self.ensure_connected()
-        try:
-            return await self.db.broadcasts.find({
-                'group_id': group_id
-            }).to_list(None)
-        except Exception as e:
-            logger.error(f"获取轮播消息列表失败: {e}")
-            return []
-
-    async def get_active_broadcasts(self) -> List[Dict[str, Any]]:
-        """获取所有活动的轮播消息"""
-        await self.ensure_connected()
-        now = datetime.now()
-        try:
-            return await self.db.broadcasts.find({
-                'start_time': {'$lte': now},
-                'end_time': {'$gt': now}
-            }).to_list(None)
-        except Exception as e:
-            logger.error(f"获取活动轮播消息失败: {e}")
-            return []
-
-    async def update_broadcast_time(self, broadcast_id: str, last_broadcast: datetime):
-        """更新轮播消息的最后发送时间"""
-        await self.ensure_connected()
-        try:
-            await self.db.broadcasts.update_one(
-                {'_id': ObjectId(broadcast_id)},
-                {'$set': {'last_broadcast': last_broadcast}}
-            )
-        except Exception as e:
-            logger.error(f"更新轮播消息时间失败: {e}")
-            raise
-
-    # Stats aggregation methods
+    #######################################
+    # 统计聚合方法
+    #######################################
+    
     async def get_daily_stats(self, group_id: int, date: str) -> List[Dict[str, Any]]:
-        """获取指定日期的统计数据"""
+        """
+        获取指定日期的统计数据
+        
+        参数:
+            group_id: 群组ID
+            date: 日期字符串 (YYYY-MM-DD)
+            
+        返回:
+            统计数据列表
+        """
         await self.ensure_connected()
         try:
             pipeline = [
@@ -578,11 +711,21 @@ class Database:
             ]
             return await self.db.message_stats.aggregate(pipeline).to_list(None)
         except Exception as e:
-            logger.error(f"获取日统计数据失败: {e}")
+            logger.error(f"获取日统计数据失败: {e}", exc_info=True)
             return []
 
     async def get_monthly_stats(self, group_id: int, start_date: str, end_date: str) -> List[Dict[str, Any]]:
-        """获取指定月份的统计数据"""
+        """
+        获取指定月份的统计数据
+        
+        参数:
+            group_id: 群组ID
+            start_date: 开始日期 (YYYY-MM-DD)
+            end_date: 结束日期 (YYYY-MM-DD)
+            
+        返回:
+            统计数据列表
+        """
         await self.ensure_connected()
         try:
             pipeline = [
@@ -603,5 +746,128 @@ class Database:
             ]
             return await self.db.message_stats.aggregate(pipeline).to_list(None)
         except Exception as e:
-            logger.error(f"获取月统计数据失败: {e}")
+            logger.error(f"获取月统计数据失败: {e}", exc_info=True)
             return []
+
+    #######################################
+    # 轮播消息方法
+    #######################################
+    
+    async def add_broadcast(self, broadcast_data: Dict[str, Any]):
+        """
+        添加轮播消息
+        
+        参数:
+            broadcast_data: 轮播消息数据
+        """
+        await self.ensure_connected()
+        try:
+            # 确保必要字段存在
+            required_fields = ['group_id', 'start_time', 'end_time', 'interval']
+            for field in required_fields:
+                if field not in broadcast_data:
+                    raise ValueError(f"缺少必要字段 '{field}'")
+                
+            # 确保至少有文本、媒体或按钮之一
+            if not (broadcast_data.get('text') or broadcast_data.get('media') or broadcast_data.get('buttons')):
+                raise ValueError("轮播消息必须包含文本、媒体或按钮中的至少一项")
+            
+            result = await self.db.broadcasts.insert_one(broadcast_data)
+            logger.info(f"已添加轮播消息: {result.inserted_id}")
+            return result.inserted_id
+        except Exception as e:
+            logger.error(f"添加轮播消息失败: {e}", exc_info=True)
+            raise
+
+    async def remove_broadcast(self, group_id: int, broadcast_id: str):
+        """
+        删除轮播消息
+        
+        参数:
+            group_id: 群组ID
+            broadcast_id: 轮播消息ID
+        """
+        await self.ensure_connected()
+        try:
+            # 验证 broadcast_id 是否为有效的 ObjectId
+            try:
+                obj_id = ObjectId(broadcast_id)
+            except Exception as e:
+                logger.error(f"无效的轮播消息ID: {broadcast_id}, 错误: {e}")
+                raise ValueError(f"无效的轮播消息ID: {broadcast_id}")
+                
+            result = await self.db.broadcasts.delete_one({
+                'group_id': group_id,
+                '_id': obj_id
+            })
+            
+            if result.deleted_count == 0:
+                logger.warning(f"未找到要删除的轮播消息: group_id={group_id}, broadcast_id={broadcast_id}")
+            else:
+                logger.info(f"已删除轮播消息: {broadcast_id}")
+        except Exception as e:
+            logger.error(f"删除轮播消息失败: {e}", exc_info=True)
+            raise
+
+    async def get_broadcasts(self, group_id: int) -> List[Dict[str, Any]]:
+        """
+        获取群组的轮播消息列表
+        
+        参数:
+            group_id: 群组ID
+            
+        返回:
+            轮播消息列表
+        """
+        await self.ensure_connected()
+        try:
+            return await self.db.broadcasts.find({
+                'group_id': group_id
+            }).to_list(None)
+        except Exception as e:
+            logger.error(f"获取轮播消息列表失败: {e}", exc_info=True)
+            return []
+
+    async def get_active_broadcasts(self) -> List[Dict[str, Any]]:
+        """
+        获取所有活动的轮播消息
+        
+        返回:
+            活动轮播消息列表
+        """
+        await self.ensure_connected()
+        now = datetime.now()
+        try:
+            return await self.db.broadcasts.find({
+                'start_time': {'$lte': now},
+                'end_time': {'$gt': now}
+            }).to_list(None)
+        except Exception as e:
+            logger.error(f"获取活动轮播消息失败: {e}", exc_info=True)
+            return []
+
+    async def update_broadcast_time(self, broadcast_id: str, last_broadcast: datetime):
+        """
+        更新轮播消息的最后发送时间
+        
+        参数:
+            broadcast_id: 轮播消息ID
+            last_broadcast: 最后发送时间
+        """
+        await self.ensure_connected()
+        try:
+            # 验证 broadcast_id 是否为有效的 ObjectId
+            try:
+                obj_id = ObjectId(broadcast_id)
+            except Exception as e:
+                logger.error(f"无效的轮播消息ID: {broadcast_id}, 错误: {e}")
+                raise ValueError(f"无效的轮播消息ID: {broadcast_id}")
+                
+            await self.db.broadcasts.update_one(
+                {'_id': obj_id},
+                {'$set': {'last_broadcast': last_broadcast}}
+            )
+            logger.info(f"已更新轮播消息时间: {broadcast_id}")
+        except Exception as e:
+            logger.error(f"更新轮播消息时间失败: {e}", exc_info=True)
+            raise
