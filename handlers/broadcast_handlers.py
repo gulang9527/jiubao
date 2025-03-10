@@ -234,10 +234,6 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
         # 提交轮播消息
         await submit_broadcast_form(update, context)
         
-    else:
-        logger.warning(f"未知的轮播消息表单操作: {action}")
-        await query.edit_message_text("❌ 未知操作")
-
     elif action == "set_end_time":
         logger.info("执行设置结束时间操作")
         # 设置结束时间
@@ -255,6 +251,10 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
         )
         context.user_data['waiting_for'] = 'broadcast_end_time'
     
+    else:
+        logger.warning(f"未知的轮播消息表单操作: {action}")
+        await query.edit_message_text("❌ 未知操作")
+        
 async def submit_broadcast_form(update: Update, context: CallbackContext):
     """
     提交轮播消息表单
