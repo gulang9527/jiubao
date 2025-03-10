@@ -71,13 +71,15 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
         if parts[1] == "add" and parts[2] in ["text", "media", "button", "content"]:
             action = f"add_{parts[2]}"
             logger.info(f"检测到添加操作: {action}")
-        elif parts[1] == "set" and parts[2] in ["schedule", "repeat", "start"]:
+        elif parts[1] == "set" and parts[2] in ["schedule", "repeat", "start", "end"]:
             if parts[2] == "start" and len(parts) > 3 and parts[3] == "time":
                 action = "set_start_time"
+            elif parts[2] == "end" and len(parts) > 3 and parts[3] == "time":
+                action = "set_end_time"
             else:
                 action = f"set_{parts[2]}"
             logger.info(f"检测到设置操作: {action}")
-        elif parts[1] in ["content", "media", "buttons", "interval", "time"] and parts[2] == "received":
+        elif parts[1] in ["content", "media", "buttons", "interval", "time", "end_time"] and parts[2] == "received":
             action = f"{parts[1]}_received"
             logger.info(f"检测到接收操作: {action}")
         else:
@@ -235,6 +237,24 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
     else:
         logger.warning(f"未知的轮播消息表单操作: {action}")
         await query.edit_message_text("❌ 未知操作")
+
+    elif action == "set_end_time":
+        logger.info("执行设置结束时间操作")
+        # 设置结束时间
+        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
+        await query.edit_message_text(
+            "请设置轮播消息的结束时间:\n\n"
+            "支持多种格式:\n"
+            "• YYYY-MM-DD HH:MM:SS (例如: 2023-12-31 12:30:00)\n"
+            "• YYYY/MM/DD HH:MM (例如: 2023/12/31 12:30)\n"
+            "• MM-DD HH:MM (例如: 12-31 12:30, 使用当前年份)\n"
+            "• HH:MM (例如: 12:30, 使用当天)\n"
+            "• +天数 (例如: +30, 表示30天后)\n\n"
+            "发送完后请点击下方出现的「继续」按钮",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        context.user_data['waiting_for'] = 'broadcast_end_time'
+    
 async def submit_broadcast_form(update: Update, context: CallbackContext):
     """
     提交轮播消息表单
@@ -285,15 +305,26 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
         # 立即开始
         broadcast_data['start_time'] = datetime.now()
 
-    # 添加结束时间字段
-    if broadcast_data['repeat_type'] == 'once':
+    # 处理结束时间
+    if form_data.get('repeat_type') == 'once':
         # 单次发送时，结束时间与开始时间相同
         broadcast_data['end_time'] = broadcast_data['start_time']
     else:
-        # 重复发送时，设定默认的结束时间（例如30天后）
-        end_time = broadcast_data['start_time'] + timedelta(days=30)
-        broadcast_data['end_time'] = end_time
-        logger.info(f"设置默认结束时间: {end_time}")
+        # 重复发送时，使用设置的结束时间或者默认30天
+        if form_data.get('end_time'):
+            try:
+                end_time = datetime.strptime(form_data.get('end_time'), '%Y-%m-%d %H:%M:%S')
+                broadcast_data['end_time'] = end_time
+            except ValueError:
+                # 如果结束时间格式错误，使用默认的30天
+                end_time = broadcast_data['start_time'] + timedelta(days=30)
+                broadcast_data['end_time'] = end_time
+                logger.info(f"结束时间格式错误，设置默认结束时间: {end_time}")
+        else:
+            # 如果未设置结束时间，使用默认的30天
+            end_time = broadcast_data['start_time'] + timedelta(days=30)
+            broadcast_data['end_time'] = end_time
+            logger.info(f"设置默认结束时间: {end_time}")
     
     # 添加轮播消息
     bot_instance = context.application.bot_data.get('bot_instance')
@@ -319,7 +350,8 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
         await update.callback_query.edit_message_text(
             "✅ 轮播消息添加成功！\n\n"
             f"重复类型: {repeat_text}\n"
-            f"开始时间: {format_datetime(broadcast_data['start_time'])}"
+            f"开始时间: {format_datetime(broadcast_data['start_time'])}\n"
+            f"结束时间: {format_datetime(broadcast_data['end_time'])}"
         )
     except Exception as e:
         logger.error(f"添加轮播消息错误: {e}")
@@ -586,6 +618,100 @@ async def handle_broadcast_form_input(update: Update, context: CallbackContext, 
             await message.reply_text("❌ 无法解析时间，请检查格式")
             return True
 
+    elif input_type == 'broadcast_end_time':
+        # 接收结束时间
+        end_time_str = message.text.strip()
+        now = datetime.now()
+        start_time_str = form_data.get('start_time')
+        
+        # 如果start_time存在且不是'now'，则解析开始时间
+        if start_time_str and start_time_str.lower() != 'now':
+            try:
+                start_time = datetime.strptime(start_time_str, '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                start_time = datetime.now()
+        else:
+            start_time = datetime.now()
+    
+        # 处理相对时间（+天数）
+        if end_time_str.startswith('+'):
+            try:
+                days = int(end_time_str[1:])
+                if days <= 0:
+                    await message.reply_text("❌ 天数必须大于0")
+                    return True
+                
+                end_time = start_time + timedelta(days=days)
+                form_data['end_time'] = end_time.strftime('%Y-%m-%d %H:%M:%S')
+                context.user_data['broadcast_form'] = form_data
+                context.user_data.pop('waiting_for', None)
+                
+                keyboard = [[InlineKeyboardButton("继续", callback_data="bcform_end_time_received")]]
+                await message.reply_text(
+                    f"✅ 已设置结束时间: {format_datetime(end_time)}（开始后{days}天）\n\n点击「继续」进行下一步",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                return True
+            except ValueError:
+                await message.reply_text("❌ +后面必须是有效的天数")
+                return True
+    
+        # 尝试多种时间格式
+        try:
+            # 尝试完整格式 YYYY-MM-DD HH:MM:SS
+            if re.match(r'^\d{4}-\d{1,2}-\d{1,2} \d{1,2}:\d{1,2}:\d{1,2}$', end_time_str):
+                end_time = datetime.strptime(end_time_str, '%Y-%m-%d %H:%M:%S')
+            # 尝试 YYYY-MM-DD HH:MM 格式
+            elif re.match(r'^\d{4}-\d{1,2}-\d{1,2} \d{1,2}:\d{1,2}$', end_time_str):
+                end_time = datetime.strptime(end_time_str, '%Y-%m-%d %H:%M')
+            # 尝试 YYYY/MM/DD HH:MM 格式
+            elif re.match(r'^\d{4}/\d{1,2}/\d{1,2} \d{1,2}:\d{1,2}$', end_time_str):
+                end_time = datetime.strptime(end_time_str, '%Y/%m/%d %H:%M')
+            # 尝试 MM-DD HH:MM 格式（使用当前年份）
+            elif re.match(r'^\d{1,2}-\d{1,2} \d{1,2}:\d{1,2}$', end_time_str):
+                end_time = datetime.strptime(f"{now.year}-{end_time_str}", '%Y-%m-%d %H:%M')
+            # 尝试 HH:MM 格式（使用当天）
+            elif re.match(r'^\d{1,2}:\d{1,2}$', end_time_str):
+                hour, minute = map(int, end_time_str.split(':'))
+                end_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                # 如果时间已过，则设为明天
+                if end_time <= now:
+                    end_time = end_time + timedelta(days=1)
+            else:
+                await message.reply_text(
+                    "❌ 时间格式不正确，请使用以下格式之一:\n"
+                    "• YYYY-MM-DD HH:MM:SS (例如: 2023-12-31 12:30:00)\n"
+                    "• YYYY-MM-DD HH:MM (例如: 2023-12-31 12:30)\n"
+                    "• YYYY/MM/DD HH:MM (例如: 2023/12/31 12:30)\n"
+                    "• MM-DD HH:MM (例如: 12-31 12:30, 使用当前年份)\n"
+                    "• HH:MM (例如: 12:30, 使用当天或明天)\n"
+                    "• +天数 (例如: +30, 表示30天后)"
+                )
+                return True
+            
+            # 检查是否晚于开始时间
+            if end_time <= start_time:
+                await message.reply_text("❌ 结束时间必须晚于开始时间")
+                return True
+            
+            # 存储结束时间
+            form_data['end_time'] = end_time.strftime('%Y-%m-%d %H:%M:%S')
+            context.user_data['broadcast_form'] = form_data
+            context.user_data.pop('waiting_for', None)
+            
+            # 提供继续按钮
+            keyboard = [[InlineKeyboardButton("继续", callback_data="bcform_end_time_received")]]
+            await message.reply_text(
+                f"✅ 已设置结束时间: {format_datetime(end_time)}\n\n点击「继续」进行下一步",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return True
+        
+        except ValueError as e:
+            logger.error(f"时间解析错误: {str(e)}")
+            await message.reply_text("❌ 无法解析时间，请检查格式")
+            return True
+
 #######################################
 # 表单功能函数
 #######################################
@@ -637,7 +763,8 @@ async def start_broadcast_form(update: Update, context: CallbackContext, group_i
             'buttons': [],
             'repeat_type': 'once',    # 默认只发送一次
             'repeat_interval': 0,     # 默认间隔（分钟）
-            'start_time': None        # 开始时间
+            'start_time': None,       # 开始时间
+            'end_time': None          # 结束时间
         }
         logger.info(f"已为用户 {user_id} 初始化新的轮播消息表单数据")
     
@@ -724,7 +851,19 @@ async def show_broadcast_options(update: Update, context: CallbackContext):
                 summary += f"• 开始时间: {start_time}\n"
     else:
         summary += "• 开始时间: ❌ 未设置\n"
-            
+
+    # 显示结束时间
+    if form_data.get('end_time'):
+        end_time = form_data.get('end_time')
+        try:
+            dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+            summary += f"• 结束时间: {format_datetime(dt)}\n"
+        except ValueError:
+            summary += f"• 结束时间: {end_time}\n"
+    else:
+        if form_data.get('repeat_type') != 'once':
+            summary += "• 结束时间: ❌ 未设置（将使用默认的30天）\n"
+    
     summary += "\n请选择要添加或修改的内容:"
     
     # 构建操作按钮
@@ -733,11 +872,17 @@ async def show_broadcast_options(update: Update, context: CallbackContext):
         [InlineKeyboardButton("🖼️ 添加/修改媒体", callback_data=f"bcform_add_media")],
         [InlineKeyboardButton("🔘 添加/修改按钮", callback_data=f"bcform_add_button")],
         [InlineKeyboardButton("⏰ 设置计划", callback_data=f"bcform_set_schedule")],
+    ]
+    
+    # 如果不是单次发送，添加结束时间设置按钮
+    if form_data.get('repeat_type') and form_data.get('repeat_type') != 'once':
+        keyboard.append([InlineKeyboardButton("🏁 设置结束时间", callback_data=f"bcform_set_end_time")])
+    
+    keyboard.extend([
         [InlineKeyboardButton("👁️ 预览效果", callback_data=f"bcform_preview")],
         [InlineKeyboardButton("✅ 提交", callback_data=f"bcform_submit")],
         [InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]
-    ]
-    
+    ])
     # 检查是否至少有一项内容和计划设置
     has_content = bool(form_data.get('text') or form_data.get('media') or form_data.get('buttons'))
     has_schedule = bool(form_data.get('start_time'))
