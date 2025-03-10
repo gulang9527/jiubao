@@ -32,6 +32,9 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
     """
     query = update.callback_query
     bot_instance = context.application.bot_data.get('bot_instance')
+
+    # 获取用户ID，在整个函数中使用
+    user_id = update.effective_user.id
     
     # 立即应答回调查询
     await query.answer()
