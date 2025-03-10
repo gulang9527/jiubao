@@ -224,6 +224,8 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
             "发送完后请点击下方出现的「继续」按钮",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+        context.user_data['waiting_for'] = 'broadcast_start_time'
+        logger.info(f"收到消息，用户 {user_id} 的等待状态是: {context.user_data.get('waiting_for')}")
         
     elif action in ["content_received", "media_received", "buttons_received", "time_received", "end_time_received"]:
         logger.info(f"执行数据接收操作: {action}")
@@ -247,6 +249,7 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
         
     elif action == "set_end_time":
         logger.info("执行设置结束时间操作")
+        
         # 设置结束时间
         keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
         await query.edit_message_text(
@@ -261,6 +264,7 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         context.user_data['waiting_for'] = 'broadcast_end_time'
+        logger.info(f"收到消息，用户 {user_id} 的等待状态是: {context.user_data.get('waiting_for')}")
     
     else:
         logger.warning(f"未知的轮播消息表单操作: {action}")
