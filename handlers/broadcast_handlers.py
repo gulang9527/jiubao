@@ -79,9 +79,11 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
             else:
                 action = f"set_{parts[2]}"
             logger.info(f"检测到设置操作: {action}")
-        elif parts[1] in ["content", "media", "buttons", "interval", "time", "end_time"] and parts[2] == "received":
-            action = f"{parts[1]}_received"
-            logger.info(f"检测到接收操作: {action}")
+else:
+    # 只有在前面的条件都没有匹配时才设置默认action
+    if len(parts) >= 3 and parts[1] not in ["content", "media", "buttons", "interval", "time", "end_time"]:
+        action = parts[2]
+        logger.info(f"检测到其他操作: {action}")
         else:
             action = parts[2]
             logger.info(f"检测到其他操作: {action}")
