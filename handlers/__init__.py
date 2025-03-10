@@ -50,20 +50,29 @@ def register_all_handlers(application, callback_handler):
     # 注册回调查询处理器
     application.add_handler(CallbackQueryHandler(handle_callback))
     
-    # 注册消息处理器 - 处理所有非命令消息
-    application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
-
     # 设置回调处理器
     # 注册各种回调前缀
     from handlers.settings_handlers import handle_settings_callback
     from handlers.keyword_handlers import handle_keyword_form_callback
-    from handlers.broadcast_handlers import handle_broadcast_form_callback
+    from handlers.broadcast_handlers import (
+        handle_broadcast_form_callback,
+        handle_broadcast_detail_callback,
+        handle_broadcast_preview_callback,
+        handle_broadcast_delete_callback,
+        handle_broadcast_confirm_delete_callback
+    )
     
     callback_handler.register("settings_", handle_settings_callback)
     callback_handler.register("kwform_", handle_keyword_form_callback)
     callback_handler.register("bcform_", handle_broadcast_form_callback)
     callback_handler.register("auto_delete_", handle_settings_callback)
     callback_handler.register("switch_toggle_", handle_settings_callback)
+    
+    # 注册轮播消息详情相关回调
+    callback_handler.register("broadcast_detail_", handle_broadcast_detail_callback)
+    callback_handler.register("bc_preview_", handle_broadcast_preview_callback)
+    callback_handler.register("bc_delete_", handle_broadcast_delete_callback)
+    callback_handler.register("bc_confirm_delete_", handle_broadcast_confirm_delete_callback)
     
     logger.info("所有处理函数注册完成")
 
