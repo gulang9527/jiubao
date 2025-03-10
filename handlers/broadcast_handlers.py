@@ -65,15 +65,14 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
     elif len(parts) == 2:
         action = parts[1]
         logger.info(f"检测到基本操作: {action}")
-    # 处理更复杂的操作
     elif len(parts) >= 3:
         # 首先检查接收类型操作，避免被后续逻辑覆盖
-        elif parts[1] in ["content", "media", "buttons", "interval", "time"] and parts[2] == "received":
+        if parts[1] in ["content", "media", "buttons", "interval", "time"] and parts[2] == "received":
             action = f"{parts[1]}_received"
             logger.info(f"检测到接收操作: {action}")
         elif parts[1] == "end" and parts[2] == "time" and parts[3] == "received":
             action = "end_time_received"
-            logger.info(f"检测到接收操作: {action}")
+            logger.info(f"检测到接收操作: end_time_received")
         # 然后检查添加操作
         elif parts[1] == "add" and parts[2] in ["text", "media", "button", "content"]:
             action = f"add_{parts[2]}"
