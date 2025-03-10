@@ -38,17 +38,43 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
     # 解析回调数据
     parts = data.split('_')
     logger.info(f"处理轮播消息表单回调: {parts}")
-    
-    if len(parts) < 3:
+
+    if len(parts) < 2:
         logger.error(f"轮播消息回调数据格式错误: {data}")
         await query.edit_message_text("❌ 无效的操作")
         return
-    
-    # 特殊处理select_group的情况
-    if parts[1] == "select" and parts[2] == "group":
+
+    # 根据前缀判断
+    prefix = parts[0]
+    if prefix != "bcform":
+        logger.error(f"非轮播消息回调数据: {data}")
+        await query.edit_message_text("❌ 无效的操作")
+        return
+
+    # 特殊处理
+    if len(parts) >= 4 and parts[1] == "select" and parts[2] == "group":
         action = "select_group"
+        group_id = int(parts[3])
+    elif len(parts) >= 3:
+        # 获取动作类型
+        if parts[1] in ["add", "set", "content", "media", "buttons", "interval", "time"]:
+            if parts[1] == "add" and parts[2] in ["text", "media", "button", "content"]:
+                action = f"add_{parts[2]}"
+            elif parts[1] == "set" and parts[2] in ["schedule", "repeat", "start"]:
+                if parts[2] == "start" and len(parts) > 3 and parts[3] == "time":
+                    action = "set_start_time"
+                else:
+                    action = f"set_{parts[2]}"
+            elif parts[1] in ["content", "media", "buttons", "interval", "time"] and parts[2] == "received":
+                action = f"{parts[1]}_received"
+            else:
+                action = parts[2]
+        else:
+            action = parts[1]
     else:
-        action = parts[2]
+        logger.error(f"轮播消息回调数据格式错误: {data}")
+        await query.edit_message_text("❌ 无效的操作")
+        return
         
     logger.info(f"轮播消息表单操作: {action}")
     
