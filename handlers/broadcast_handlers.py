@@ -365,7 +365,7 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
         elif broadcast_data['repeat_type'] == 'daily':
             repeat_text = "每天发送"
         elif broadcast_data['repeat_type'] == 'custom':
-            repeat_text = f"每 {broadcast_data['repeat_interval']} 分钟发送"
+            repeat_text = f"每 {broadcast_data['interval']} 分钟发送" 
         
         # 显示成功消息
         await update.callback_query.edit_message_text(
