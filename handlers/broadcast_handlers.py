@@ -291,13 +291,15 @@ async def handle_broadcast_detail_callback(update: Update, context: CallbackCont
     
     # 解析回调数据获取轮播消息ID和群组ID
     parts = data.split('_')
-    if len(parts) < 3:
+    logger.info(f"轮播消息详情回调数据: {parts}")
+    
+    if len(parts) < 4:  # 应该有4部分: broadcast, detail, broadcast_id, group_id
         logger.error(f"轮播消息详情回调数据格式错误: {data}")
         await query.edit_message_text("❌ 无效的回调数据")
         return
         
-    broadcast_id = parts[1]
-    group_id = int(parts[2])
+    broadcast_id = parts[2]  # 第三部分是broadcast_id
+    group_id = int(parts[3])  # 第四部分是group_id
     
     logger.info(f"查看轮播消息详情: {broadcast_id}, 群组ID: {group_id}")
     
@@ -386,12 +388,12 @@ async def handle_broadcast_preview_callback(update: Update, context: CallbackCon
     
     # 解析回调数据
     parts = data.split('_')
-    if len(parts) < 3:
+    if len(parts) < 4:  # bc, preview, broadcast_id, group_id
         await query.edit_message_text("❌ 无效的回调数据")
         return
         
-    broadcast_id = parts[1]
-    group_id = int(parts[2])
+    broadcast_id = parts[2]
+    group_id = int(parts[3])
     
     # 获取轮播消息
     broadcast = await bot_instance.db.get_broadcast_by_id(broadcast_id)
@@ -471,12 +473,12 @@ async def handle_broadcast_delete_callback(update: Update, context: CallbackCont
     
     # 解析回调数据
     parts = data.split('_')
-    if len(parts) < 3:
+    if len(parts) < 4:  # bc, delete, broadcast_id, group_id
         await query.edit_message_text("❌ 无效的回调数据")
         return
         
-    broadcast_id = parts[1]
-    group_id = int(parts[2])
+    broadcast_id = parts[2]
+    group_id = int(parts[3])
     
     # 确认删除
     keyboard = [
@@ -509,12 +511,12 @@ async def handle_broadcast_confirm_delete_callback(update: Update, context: Call
     
     # 解析回调数据
     parts = data.split('_')
-    if len(parts) < 4:
+    if len(parts) < 5:  # bc, confirm, delete, broadcast_id, group_id
         await query.edit_message_text("❌ 无效的回调数据")
         return
         
-    broadcast_id = parts[2]
-    group_id = int(parts[3])
+    broadcast_id = parts[3]
+    group_id = int(parts[4])
     
     # 删除轮播消息
     try:
