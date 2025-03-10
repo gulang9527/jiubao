@@ -71,11 +71,9 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
         if parts[1] == "add" and parts[2] in ["text", "media", "button", "content"]:
             action = f"add_{parts[2]}"
             logger.info(f"检测到添加操作: {action}")
-        elif parts[1] == "set" and parts[2] in ["schedule", "repeat", "start", "end"]:
+        elif parts[1] == "set" and parts[2] in ["schedule", "repeat", "start"]:
             if parts[2] == "start" and len(parts) > 3 and parts[3] == "time":
                 action = "set_start_time"
-            elif parts[2] == "end" and len(parts) > 3 and parts[3] == "time":
-                action = "set_end_time"
             else:
                 action = f"set_{parts[2]}"
             logger.info(f"检测到设置操作: {action}")
@@ -200,7 +198,10 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
         else:
             logger.warning("无效的重复类型设置")
             await query.edit_message_text("❌ 无效的重复类型")
-            
+
+        context.user_data['waiting_for'] = 'broadcast_start_time'
+
+                
     elif action == "set_start_time":
         logger.info("执行设置开始时间操作")
         # 设置开始时间
@@ -217,7 +218,6 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
             "发送完后请点击下方出现的「继续」按钮",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-        context.user_data['waiting_for'] = 'broadcast_start_time'
         
     elif action in ["content_received", "media_received", "buttons_received", "interval_received", "time_received"]:
         logger.info(f"执行数据接收操作: {action}")
