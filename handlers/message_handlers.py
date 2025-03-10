@@ -29,6 +29,10 @@ async def handle_message(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     group_id = update.effective_chat.id
     
+    logger.info(f"处理消息 - 用户ID: {user_id}, 消息内容: {message.text}")
+    if update.effective_user:
+        logger.info(f"用户 {user_id} 的上下文数据: {context.user_data}")
+    
     logger.debug(f"处理消息 - 用户ID: {user_id}, 群组ID: {group_id}, 消息类型: {get_media_type(message) or 'text'}")
     
     # 处理表单输入
