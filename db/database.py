@@ -907,6 +907,38 @@ class Database:
             logger.error(f"删除轮播消息失败: {e}", exc_info=True)
             raise
 
+    async def delete_broadcast(self, broadcast_id: str) -> bool:
+        """
+        仅通过ID删除轮播消息
+        
+        参数:
+            broadcast_id: 轮播消息ID
+            
+        返回:
+            bool: 是否成功删除
+        """
+        await self.ensure_connected()
+        try:
+            # 验证 broadcast_id 是否为有效的 ObjectId
+            try:
+                obj_id = ObjectId(broadcast_id)
+            except Exception as e:
+                logger.error(f"无效的轮播消息ID: {broadcast_id}, 错误: {e}")
+                return False
+                
+            # 删除轮播消息
+            result = await self.db.broadcasts.delete_one({'_id': obj_id})
+            
+            if result.deleted_count == 0:
+                logger.warning(f"未找到要删除的轮播消息: broadcast_id={broadcast_id}")
+                return False
+            else:
+                logger.info(f"已删除轮播消息: {broadcast_id}")
+                return True
+        except Exception as e:
+            logger.error(f"删除轮播消息失败: {e}", exc_info=True)
+            return False
+
     async def get_broadcasts(self, group_id: int) -> List[Dict[str, Any]]:
         """
         获取群组的轮播消息列表
