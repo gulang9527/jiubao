@@ -67,10 +67,15 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
         logger.info(f"检测到基本操作: {action}")
     # 处理更复杂的操作
     elif len(parts) >= 3:
-        # 获取动作类型
-        if parts[1] == "add" and parts[2] in ["text", "media", "button", "content"]:
+        # 首先检查接收类型操作，避免被后续逻辑覆盖
+        if parts[1] in ["content", "media", "buttons", "interval", "time", "end_time"] and parts[2] == "received":
+            action = f"{parts[1]}_received"
+            logger.info(f"检测到接收操作: {action}")
+        # 然后检查添加操作
+        elif parts[1] == "add" and parts[2] in ["text", "media", "button", "content"]:
             action = f"add_{parts[2]}"
             logger.info(f"检测到添加操作: {action}")
+        # 再检查设置操作
         elif parts[1] == "set" and parts[2] in ["schedule", "repeat", "start", "end"]:
             if parts[2] == "start" and len(parts) > 3 and parts[3] == "time":
                 action = "set_start_time"
@@ -79,14 +84,9 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
             else:
                 action = f"set_{parts[2]}"
             logger.info(f"检测到设置操作: {action}")
-else:
-    # 只有在前面的条件都没有匹配时才设置默认action
-    if len(parts) >= 3 and parts[1] not in ["content", "media", "buttons", "interval", "time", "end_time"]:
-        action = parts[2]
-        logger.info(f"检测到其他操作: {action}")
+        # 最后，如果以上条件都不满足，才考虑使用默认的 parts[2]
         else:
             action = parts[2]
-            logger.info(f"检测到其他操作: {action}")
     else:
         logger.error(f"轮播消息回调数据格式错误: {data}")
         await query.edit_message_text("❌ 无效的操作")
@@ -223,7 +223,7 @@ else:
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         
-    elif action in ["content_received", "media_received", "buttons_received", "interval_received", "time_received"]:
+    elif action in ["content_received", "media_received", "buttons_received", "interval_received", "time_received", "end_time_received"]:
         logger.info(f"执行数据接收操作: {action}")
         # 已收到各类数据，显示表单选项
         await show_broadcast_options(update, context)
