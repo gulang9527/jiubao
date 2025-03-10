@@ -1,3 +1,6 @@
+"""
+机器人主程序入口文件，处理初始化、启动、停止等操作
+"""
 import os
 import signal
 import asyncio
@@ -6,18 +9,19 @@ from aiohttp import web
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
-from telegram import Update, Bot
+from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application
 from telegram.error import BadRequest
 
-from db import Database, UserRole, GroupPermission
-from handlers import register_all_handlers
-from managers import (
-    SettingsManager, StatsManager, BroadcastManager, 
-    KeywordManager, ErrorHandler, CallbackDataHandler
-)
-from middlewares import MessageMiddleware, ErrorHandlingMiddleware
-from utils import validate_delete_timeout
+from db.database import Database
+from db.models import UserRole, GroupPermission
+from core.callback_handler import CallbackHandler
+from core.error_handler import ErrorHandler
+from managers.settings_manager import SettingsManager
+from managers.stats_manager import StatsManager
+from managers.broadcast_manager import BroadcastManager
+from managers.keyword_manager import KeywordManager
+from utils.message_utils import validate_delete_timeout
 
 # 配置日志
 logging.basicConfig(
@@ -31,7 +35,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class TelegramBot:
+    """
+    Telegram机器人核心类，负责机器人的生命周期管理
+    """
     def __init__(self):
+        """初始化机器人实例"""
         self.db = None
         self.application = None
         self.web_app = None
@@ -39,6 +47,8 @@ class TelegramBot:
         self.running = False
         self.shutdown_event = asyncio.Event()
         self.cleanup_task = None
+        
+        # 各种管理器
         self.settings_manager = None
         self.keyword_manager = None
         self.broadcast_manager = None
@@ -78,12 +88,14 @@ class TelegramBot:
                 
             # 初始化各个管理器
             self.error_handler = ErrorHandler(logger)
+            self.callback_handler = CallbackHandler()
+            
             self.settings_manager = SettingsManager(self.db)
             await self.settings_manager.start()
+            
             self.keyword_manager = KeywordManager(self.db)
-            self.broadcast_manager = BroadcastManager(self.db, self)
             self.stats_manager = StatsManager(self.db)
-            self.callback_handler = CallbackDataHandler()
+            self.broadcast_manager = BroadcastManager(self.db, self)
             
             # 设置超级管理员
             for admin_id in DEFAULT_SUPERADMINS:
@@ -114,7 +126,8 @@ class TelegramBot:
             self.application.bot_data['bot_instance'] = self
             
             # 注册处理函数
-            register_all_handlers(self.application)
+            from handlers import register_all_handlers
+            register_all_handlers(self.application, self.callback_handler)
             
             # 设置Web应用
             self.web_app = web.Application()
@@ -153,7 +166,7 @@ class TelegramBot:
         except Exception as e:
             logger.error(f"机器人初始化失败: {e}", exc_info=True)
             return False
-            
+    
     async def verify_initialization(self):
         """验证初始化是否成功"""
         from config import DEFAULT_SUPERADMINS
@@ -175,7 +188,7 @@ class TelegramBot:
         logger.info(f"超级管理员: {DEFAULT_SUPERADMINS}")
         logger.info(f"已授权群组: {[g['group_id'] for g in groups]}")
         return True
-
+        
     @classmethod
     async def main(cls):
         """主入口方法"""
@@ -254,88 +267,9 @@ class TelegramBot:
         """启动广播任务"""
         while self.running:
             try:
-                now = datetime.now()
-            
-                # 获取应该发送的广播
-                broadcasts = await self.db.db.broadcasts.find({
-                    'start_time': {'$lte': now},
-                    'end_time': {'$gt': now},
-                }).to_list(None)
-            
-                # 过滤出需要发送的广播
-                filtered_broadcasts = []
-                for broadcast in broadcasts:
-                    if 'last_broadcast' not in broadcast or broadcast['last_broadcast'] <= now - timedelta(seconds=broadcast['interval']):
-                        filtered_broadcasts.append(broadcast)
-                    
-                # 发送广播
-                for broadcast in filtered_broadcasts:
-                    group_id = broadcast['group_id']
-                
-                    # 检查权限
-                    if not await self.has_permission(group_id, GroupPermission.BROADCAST):
-                        continue
-                    
-                    try:
-                        # 准备消息内容
-                        text = broadcast.get('text', '')
-                        media = broadcast.get('media')
-                        buttons = broadcast.get('buttons', [])
-                    
-                        # 创建内联键盘（如果有按钮）
-                        reply_markup = None
-                        if buttons:
-                            keyboard = []
-                            for button in buttons:
-                                keyboard.append([InlineKeyboardButton(button['text'], url=button['url'])])
-                            reply_markup = InlineKeyboardMarkup(keyboard)
-                    
-                        # 根据内容组合发送不同类型的消息
-                        if media and media.get('type'):
-                            if media['type'] == 'photo':
-                                msg = await self.application.bot.send_photo(
-                                    group_id, media['file_id'], caption=text, reply_markup=reply_markup
-                                )
-                            elif media['type'] == 'video':
-                                msg = await self.application.bot.send_video(
-                                    group_id, media['file_id'], caption=text, reply_markup=reply_markup
-                                )
-                            elif media['type'] == 'document':
-                                msg = await self.application.bot.send_document(
-                                    group_id, media['file_id'], caption=text, reply_markup=reply_markup
-                                )
-                            elif media['type'] == 'animation':
-                                msg = await self.application.bot.send_animation(
-                                    group_id, media['file_id'], caption=text, reply_markup=reply_markup
-                                )
-                            else:
-                                # 默认作为文档发送
-                                msg = await self.application.bot.send_document(
-                                    group_id, media['file_id'], caption=text, reply_markup=reply_markup
-                                )
-                        else:
-                            # 纯文本消息或者只有按钮的消息
-                            msg = await self.application.bot.send_message(
-                                group_id, text or "轮播消息", reply_markup=reply_markup
-                            )
-                        
-                        # 处理自动删除
-                        settings = await self.db.get_group_settings(group_id)
-                        if settings.get('auto_delete', False):
-                            timeout = validate_delete_timeout(message_type='broadcast')
-                            asyncio.create_task(self._schedule_delete(msg, timeout))
-                        
-                        # 更新最后广播时间
-                        await self.db.db.broadcasts.update_one(
-                            {'_id': broadcast['_id']},
-                            {'$set': {'last_broadcast': now}}
-                        )
-                    except Exception as e:
-                        logger.error(f"发送轮播消息时出错: {e}")
-                    
-                # 等待一分钟再检查
+                await self.broadcast_manager.process_broadcasts()
+                # 每分钟检查一次
                 await asyncio.sleep(60)
-            
             except Exception as e:
                 logger.error(f"轮播任务出错: {e}")
                 await asyncio.sleep(60)
@@ -415,7 +349,8 @@ class TelegramBot:
         group = await self.db.get_group(group_id)
         if group:
             switches = group.get('feature_switches', {'keywords': True, 'stats': True, 'broadcast': True})
-            return permission.value in group.get('permissions', []) and switches.get(permission.value, True)
+            feature_name = permission.value
+            return permission.value in group.get('permissions', []) and switches.get(feature_name, True)
         return False
 
     async def _schedule_delete(self, message, timeout: int):
