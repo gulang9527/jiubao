@@ -1,6 +1,7 @@
 """
 轮播消息处理函数，处理轮播消息相关操作
 """
+import re
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
@@ -51,26 +52,37 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
         await query.edit_message_text("❌ 无效的操作")
         return
 
-    # 特殊处理
-    if len(parts) >= 4 and parts[1] == "select" and parts[2] == "group":
+    # 首先直接检查常见的简单操作
+    if len(parts) == 2 and parts[1] in ["submit", "cancel", "preview"]:
+        action = parts[1]
+        logger.info(f"检测到简单操作: {action}")
+    # 特殊处理select_group的情况
+    elif len(parts) >= 4 and parts[1] == "select" and parts[2] == "group":
         action = "select_group"
         group_id = int(parts[3])
+        logger.info(f"检测到选择群组操作，群组ID: {group_id}")
+    # 处理两部分的回调数据
+    elif len(parts) == 2:
+        action = parts[1]
+        logger.info(f"检测到基本操作: {action}")
+    # 处理更复杂的操作
     elif len(parts) >= 3:
         # 获取动作类型
-        if parts[1] in ["add", "set", "content", "media", "buttons", "interval", "time"]:
-            if parts[1] == "add" and parts[2] in ["text", "media", "button", "content"]:
-                action = f"add_{parts[2]}"
-            elif parts[1] == "set" and parts[2] in ["schedule", "repeat", "start"]:
-                if parts[2] == "start" and len(parts) > 3 and parts[3] == "time":
-                    action = "set_start_time"
-                else:
-                    action = f"set_{parts[2]}"
-            elif parts[1] in ["content", "media", "buttons", "interval", "time"] and parts[2] == "received":
-                action = f"{parts[1]}_received"
+        if parts[1] == "add" and parts[2] in ["text", "media", "button", "content"]:
+            action = f"add_{parts[2]}"
+            logger.info(f"检测到添加操作: {action}")
+        elif parts[1] == "set" and parts[2] in ["schedule", "repeat", "start"]:
+            if parts[2] == "start" and len(parts) > 3 and parts[3] == "time":
+                action = "set_start_time"
             else:
-                action = parts[2]
+                action = f"set_{parts[2]}"
+            logger.info(f"检测到设置操作: {action}")
+        elif parts[1] in ["content", "media", "buttons", "interval", "time"] and parts[2] == "received":
+            action = f"{parts[1]}_received"
+            logger.info(f"检测到接收操作: {action}")
         else:
-            action = parts[1]
+            action = parts[2]
+            logger.info(f"检测到其他操作: {action}")
     else:
         logger.error(f"轮播消息回调数据格式错误: {data}")
         await query.edit_message_text("❌ 无效的操作")
@@ -82,7 +94,10 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
     logger.info(f"当前轮播消息表单数据: {form_data}")
     
     # 处理不同的表单操作
+    logger.info(f"开始处理操作: {action}")
+    
     if action == "cancel":
+        logger.info("执行取消操作")
         # 取消操作
         if 'broadcast_form' in context.user_data:
             del context.user_data['broadcast_form']
@@ -91,16 +106,18 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
         await query.edit_message_text("✅ 已取消轮播消息添加")
         
     elif action == "select_group":
+        logger.info(f"执行选择群组操作，群组ID: {group_id}")
         # 选择群组
-        group_id = int(parts[3])
         # 启动添加流程
         await start_broadcast_form(update, context, group_id)
         
     elif action == "add_content":
+        logger.info("执行添加内容操作")
         # 显示内容添加选项
         await show_broadcast_content_options(update, context)
         
     elif action == "add_text":
+        logger.info("执行添加文本操作")
         # 添加文本内容
         keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
         await query.edit_message_text(
@@ -111,6 +128,7 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
         context.user_data['waiting_for'] = 'broadcast_text'
         
     elif action == "add_media":
+        logger.info("执行添加媒体操作")
         # 添加媒体内容
         keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
         await query.edit_message_text(
@@ -124,27 +142,34 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
         context.user_data['waiting_for'] = 'broadcast_media'
         
     elif action == "add_button":
+        logger.info("执行添加按钮操作")
         # 添加按钮
         keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
         await query.edit_message_text(
-            "请发送按钮信息，格式:\n\n"
-            "按钮文字|https://网址\n\n"
-            "每行一个按钮，例如:\n"
-            "访问官网|https://example.com\n"
-            "联系我们|https://t.me/username\n\n"
+            "请发送按钮信息，每行一个按钮，格式灵活:\n\n"
+            "文字 网址\n"
+            "文字-网址\n"
+            "文字,网址\n"
+            "文字|网址\n\n"
+            "例如:\n"
+            "访问官网 https://example.com\n"
+            "联系我们 https://t.me/username\n\n"
             "发送完后请点击下方出现的「继续」按钮",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         context.user_data['waiting_for'] = 'broadcast_buttons'
         
     elif action == "set_schedule":
+        logger.info("执行设置计划操作")
         # 设置轮播计划
         await show_schedule_options(update, context)
         
     elif action == "set_repeat":
+        logger.info("执行设置重复操作")
         # 设置重复选项
         if len(parts) >= 4:
             repeat_type = parts[3]
+            logger.info(f"设置重复类型: {repeat_type}")
             form_data['repeat_type'] = repeat_type
             context.user_data['broadcast_form'] = form_data
             
@@ -165,43 +190,51 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
                 context.user_data['waiting_for'] = 'broadcast_interval'
+                logger.info("等待用户输入自定义重复间隔")
                 return
                 
             # 显示发送时间选项
             await show_start_time_options(update, context)
         else:
+            logger.warning("无效的重复类型设置")
             await query.edit_message_text("❌ 无效的重复类型")
             
     elif action == "set_start_time":
+        logger.info("执行设置开始时间操作")
         # 设置开始时间
         keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
         await query.edit_message_text(
-            "请设置轮播消息的首次发送时间:\n"
-            "格式: YYYY-MM-DD HH:MM:SS\n"
-            "例如: 2023-12-31 12:30:00\n\n"
-            "或者发送 now 表示立即开始\n\n"
+            "请设置轮播消息的首次发送时间:\n\n"
+            "支持多种格式:\n"
+            "• YYYY-MM-DD HH:MM:SS (例如: 2023-12-31 12:30:00)\n"
+            "• YYYY/MM/DD HH:MM (例如: 2023/12/31 12:30)\n"
+            "• MM-DD HH:MM (例如: 12-31 12:30, 使用当前年份)\n"
+            "• HH:MM (例如: 12:30, 使用当天)\n"
+            "• +分钟 (例如: +30, 表示30分钟后)\n"
+            "• now 或 立即 (表示立即开始)\n\n"
             "发送完后请点击下方出现的「继续」按钮",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         context.user_data['waiting_for'] = 'broadcast_start_time'
         
     elif action in ["content_received", "media_received", "buttons_received", "interval_received", "time_received"]:
+        logger.info(f"执行数据接收操作: {action}")
         # 已收到各类数据，显示表单选项
         await show_broadcast_options(update, context)
         
     elif action == "preview":
+        logger.info("执行预览操作")
         # 预览轮播消息
         await preview_broadcast_content(update, context)
         
     elif action == "submit":
+        logger.info("执行提交操作")
         # 提交轮播消息
         await submit_broadcast_form(update, context)
         
     else:
         logger.warning(f"未知的轮播消息表单操作: {action}")
         await query.edit_message_text("❌ 未知操作")
-
-
 async def submit_broadcast_form(update: Update, context: CallbackContext):
     """
     提交轮播消息表单
@@ -363,43 +396,52 @@ async def handle_broadcast_form_input(update: Update, context: CallbackContext, 
         lines = message.text.strip().split('\n')
         buttons = []
         error_lines = []
-        
+    
         for i, line in enumerate(lines, 1):
             if not line.strip():
                 continue
-                
-            parts = line.split('|')
-            if len(parts) != 2:
-                error_lines.append(i)
-                continue
-                
-            text, url = parts[0].strip(), parts[1].strip()
-            if not text or not url or not url.startswith(('http://', 'https://', 't.me/')):
-                error_lines.append(i)
-                continue
-                
-            buttons.append({'text': text, 'url': url})
         
+            # 尝试多种分隔符
+            button_found = False
+            for separator in ['|', ' ', '-', ',']:
+                if separator in line:
+                    parts = line.split(separator, 1)  # 只分割一次，以防URL中包含分隔符
+                    text, url = parts[0].strip(), parts[1].strip()
+                
+                    # 检查URL格式
+                    if text and url and (url.startswith(('http://', 'https://', 't.me/'))):
+                        buttons.append({'text': text, 'url': url})
+                        button_found = True
+                        break
+        
+            if not button_found:
+                error_lines.append(i)
+    
         if error_lines:
             await message.reply_text(
                 f"❌ 第 {', '.join(map(str, error_lines))} 行格式不正确\n"
-                "请使用「按钮文字|网址」格式，每行一个按钮"
+                "请使用以下格式之一，每行一个按钮:\n"
+                "• 按钮文字|网址\n"
+                "• 按钮文字 网址\n"
+                "• 按钮文字-网址\n"
+                "• 按钮文字,网址\n"
+                "例如: 访问官网 https://example.com"
             )
             return True
-            
+        
         if not buttons:
             await message.reply_text("❌ 未能解析任何有效按钮")
             return True
-            
+        
         if len(buttons) > 10:
             await message.reply_text("❌ 按钮数量不能超过10个")
             return True
-            
+        
         # 存储按钮配置
         form_data['buttons'] = buttons
         context.user_data['broadcast_form'] = form_data
         context.user_data.pop('waiting_for', None)
-        
+    
         # 提供继续按钮
         keyboard = [[InlineKeyboardButton("继续", callback_data="bcform_buttons_received")]]
         await message.reply_text(
@@ -436,15 +478,16 @@ async def handle_broadcast_form_input(update: Update, context: CallbackContext, 
     elif input_type == 'broadcast_start_time':
         # 接收开始时间
         start_time_str = message.text.strip()
-        
+        now = datetime.now()
+    
         # 处理现在开始的情况
-        if start_time_str.lower() == 'now':
+        if start_time_str.lower() in ['now', '立即', '现在']:
             # 设置为当前时间
-            start_time = datetime.now()
+            start_time = now
             form_data['start_time'] = start_time.strftime('%Y-%m-%d %H:%M:%S')
             context.user_data['broadcast_form'] = form_data
             context.user_data.pop('waiting_for', None)
-            
+        
             # 提供继续按钮
             keyboard = [[InlineKeyboardButton("继续", callback_data="bcform_time_received")]]
             await message.reply_text(
@@ -452,43 +495,86 @@ async def handle_broadcast_form_input(update: Update, context: CallbackContext, 
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return True
-            
-        # 验证时间格式
-        if validate_time_format(start_time_str):
+    
+        # 处理相对时间（+分钟）
+        if start_time_str.startswith('+'):
             try:
-                # 将字符串转换为datetime对象进行验证
-                start_time = datetime.strptime(start_time_str, '%Y-%m-%d %H:%M:%S')
-                
-                # 检查是否是未来时间
-                if start_time <= datetime.now():
-                    await message.reply_text("❌ 开始时间必须是未来时间")
+                minutes = int(start_time_str[1:])
+                if minutes <= 0:
+                    await message.reply_text("❌ 分钟数必须大于0")
                     return True
-                    
-                # 存储开始时间
-                form_data['start_time'] = start_time_str
+            
+                start_time = now + timedelta(minutes=minutes)
+                form_data['start_time'] = start_time.strftime('%Y-%m-%d %H:%M:%S')
                 context.user_data['broadcast_form'] = form_data
                 context.user_data.pop('waiting_for', None)
-                
-                # 提供继续按钮
+            
                 keyboard = [[InlineKeyboardButton("继续", callback_data="bcform_time_received")]]
                 await message.reply_text(
-                    f"✅ 已设置开始时间: {format_datetime(start_time)}\n\n点击「继续」进行下一步",
+                    f"✅ 已设置开始时间: {format_datetime(start_time)}（{minutes}分钟后）\n\n点击「继续」进行下一步",
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
                 return True
-                
             except ValueError:
-                await message.reply_text("❌ 无法解析时间，请检查格式")
+                await message.reply_text("❌ +后面必须是有效的分钟数")
                 return True
-        else:
+    
+        # 尝试多种时间格式
+        try:
+            # 尝试完整格式 YYYY-MM-DD HH:MM:SS
+            if re.match(r'^\d{4}-\d{1,2}-\d{1,2} \d{1,2}:\d{1,2}:\d{1,2}$', start_time_str):
+                start_time = datetime.strptime(start_time_str, '%Y-%m-%d %H:%M:%S')
+            # 尝试 YYYY-MM-DD HH:MM 格式
+            elif re.match(r'^\d{4}-\d{1,2}-\d{1,2} \d{1,2}:\d{1,2}$', start_time_str):
+                start_time = datetime.strptime(start_time_str, '%Y-%m-%d %H:%M')
+            # 尝试 YYYY/MM/DD HH:MM 格式
+            elif re.match(r'^\d{4}/\d{1,2}/\d{1,2} \d{1,2}:\d{1,2}$', start_time_str):
+                start_time = datetime.strptime(start_time_str, '%Y/%m/%d %H:%M')
+            # 尝试 MM-DD HH:MM 格式（使用当前年份）
+            elif re.match(r'^\d{1,2}-\d{1,2} \d{1,2}:\d{1,2}$', start_time_str):
+                start_time = datetime.strptime(f"{now.year}-{start_time_str}", '%Y-%m-%d %H:%M')
+            # 尝试 HH:MM 格式（使用当天）
+            elif re.match(r'^\d{1,2}:\d{1,2}$', start_time_str):
+                hour, minute = map(int, start_time_str.split(':'))
+                start_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                # 如果时间已过，则设为明天
+                if start_time <= now:
+                    start_time = start_time + timedelta(days=1)
+            else:
+                await message.reply_text(
+                    "❌ 时间格式不正确，请使用以下格式之一:\n"
+                    "• YYYY-MM-DD HH:MM:SS (例如: 2023-12-31 12:30:00)\n"
+                    "• YYYY-MM-DD HH:MM (例如: 2023-12-31 12:30)\n"
+                    "• YYYY/MM/DD HH:MM (例如: 2023/12/31 12:30)\n"
+                    "• MM-DD HH:MM (例如: 12-31 12:30, 使用当前年份)\n"
+                    "• HH:MM (例如: 12:30, 使用当天或明天)\n"
+                    "• +分钟 (例如: +30, 表示30分钟后)\n"
+                    "• now 或 立即 (表示立即开始)"
+                )
+                return True
+        
+            # 检查是否是未来时间
+            if start_time <= now and not (re.match(r'^\d{1,2}:\d{1,2}$', start_time_str)):
+                await message.reply_text("❌ 开始时间必须是未来时间")
+                return True
+        
+            # 存储开始时间
+            form_data['start_time'] = start_time.strftime('%Y-%m-%d %H:%M:%S')
+            context.user_data['broadcast_form'] = form_data
+            context.user_data.pop('waiting_for', None)
+        
+            # 提供继续按钮
+            keyboard = [[InlineKeyboardButton("继续", callback_data="bcform_time_received")]]
             await message.reply_text(
-                "❌ 时间格式不正确\n"
-                "请使用格式: YYYY-MM-DD HH:MM:SS\n"
-                "例如: 2023-12-31 12:30:00"
+                f"✅ 已设置开始时间: {format_datetime(start_time)}\n\n点击「继续」进行下一步",
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return True
-            
-    return False
+    
+        except ValueError as e:
+            logger.error(f"时间解析错误: {str(e)}")
+            await message.reply_text("❌ 无法解析时间，请检查格式")
+            return True
 
 #######################################
 # 表单功能函数
