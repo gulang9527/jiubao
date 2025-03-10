@@ -42,11 +42,16 @@ async def handle_keyword_form_callback(update: Update, context: CallbackContext,
         await query.edit_message_text("❌ 无效的操作")
         return
     
-    # 特殊处理select_group的情况
+    # 更健壮的动作解析
     if parts[1] == "select" and parts[2] == "group":
         action = "select_group"
+        action_param = parts[3] if len(parts) > 3 else None
+    elif parts[1] == "type":
+        action = "type"
+        action_param = parts[3] if len(parts) > 3 else None
     else:
         action = parts[2]
+        action_param = parts[3] if len(parts) > 3 else None
         
     logger.info(f"关键词表单操作: {action}")
     
