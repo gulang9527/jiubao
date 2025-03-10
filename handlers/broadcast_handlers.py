@@ -32,7 +32,7 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
     """
     query = update.callback_query
     bot_instance = context.application.bot_data.get('bot_instance')
-
+    
     # 获取用户ID，在整个函数中使用
     user_id = update.effective_user.id
     
@@ -285,6 +285,9 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
     form_data = context.user_data.get('broadcast_form', {})
     logger.info(f"提交的表单数据: {form_data}")
     
+    # 获取用户ID
+    user_id = update.effective_user.id
+    
     # 验证必要字段
     has_content = bool(form_data.get('text') or form_data.get('media') or form_data.get('buttons'))
     if not has_content:
@@ -305,7 +308,7 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
         'media': form_data.get('media'),
         'buttons': form_data.get('buttons', []),
         'repeat_type': form_data.get('repeat_type', 'once'),
-        'repeat_interval': form_data.get('repeat_interval', 0)
+        'interval': form_data.get('repeat_interval', 0)  # 这里将 repeat_interval 映射为 interval
     }
     
     # 处理开始时间
