@@ -284,6 +284,16 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
     else:
         # 立即开始
         broadcast_data['start_time'] = datetime.now()
+
+    # 添加结束时间字段
+    if broadcast_data['repeat_type'] == 'once':
+        # 单次发送时，结束时间与开始时间相同
+        broadcast_data['end_time'] = broadcast_data['start_time']
+    else:
+        # 重复发送时，设定默认的结束时间（例如30天后）
+        end_time = broadcast_data['start_time'] + timedelta(days=30)
+        broadcast_data['end_time'] = end_time
+        logger.info(f"设置默认结束时间: {end_time}")
     
     # 添加轮播消息
     bot_instance = context.application.bot_data.get('bot_instance')
