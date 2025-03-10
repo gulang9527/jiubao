@@ -272,6 +272,275 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
     else:
         logger.warning(f"未知的轮播消息表单操作: {action}")
         await query.edit_message_text("❌ 未知操作")
+
+@handle_callback_errors
+async def handle_broadcast_detail_callback(update: Update, context: CallbackContext, data: str):
+    """
+    处理查看轮播消息详情的回调
+    
+    参数:
+        update: 更新对象
+        context: 上下文对象
+        data: 回调数据
+    """
+    query = update.callback_query
+    bot_instance = context.application.bot_data.get('bot_instance')
+    
+    # 立即应答回调查询
+    await query.answer()
+    
+    # 解析回调数据获取轮播消息ID和群组ID
+    parts = data.split('_')
+    if len(parts) < 3:
+        logger.error(f"轮播消息详情回调数据格式错误: {data}")
+        await query.edit_message_text("❌ 无效的回调数据")
+        return
+        
+    broadcast_id = parts[1]
+    group_id = int(parts[2])
+    
+    logger.info(f"查看轮播消息详情: {broadcast_id}, 群组ID: {group_id}")
+    
+    # 获取轮播消息详情
+    try:
+        broadcast = await bot_instance.db.get_broadcast_by_id(broadcast_id)
+        if not broadcast:
+            logger.warning(f"找不到轮播消息: {broadcast_id}")
+            await query.edit_message_text("❌ 找不到轮播消息")
+            return
+        
+        # 获取媒体类型和文本内容
+        media_type = broadcast.get('media', {}).get('type', '无')
+        media_info = f"📎 媒体类型: {media_type}" if media_type else "📝 仅文本消息"
+        text = broadcast.get('text', '无文本内容')
+        
+        # 获取计划信息
+        repeat_type = broadcast.get('repeat_type', 'once')
+        interval = broadcast.get('interval', 0)
+        
+        repeat_info = "单次发送"
+        if repeat_type == 'hourly':
+            repeat_info = "每小时发送"
+        elif repeat_type == 'daily':
+            repeat_info = "每天发送"
+        elif repeat_type == 'custom':
+            repeat_info = f"每 {interval} 分钟发送"
+        
+        # 获取时间信息
+        start_time = format_datetime(broadcast.get('start_time')) if broadcast.get('start_time') else "未设置"
+        end_time = format_datetime(broadcast.get('end_time')) if broadcast.get('end_time') else "未设置"
+        
+        # 获取按钮数量
+        buttons_count = len(broadcast.get('buttons', []))
+        buttons_info = f"🔘 {buttons_count} 个按钮" if buttons_count > 0 else "无按钮"
+        
+        # 构建详情文本
+        detail_text = (
+            f"📢 轮播消息详情\n\n"
+            f"{media_info}\n\n"
+            f"📝 文本内容:\n{text[:200]}{'...' if len(text) > 200 else ''}\n\n"
+            f"⏰ 发送计划: {repeat_info}\n"
+            f"🕒 开始时间: {start_time}\n"
+            f"🏁 结束时间: {end_time}\n"
+            f"{buttons_info}\n"
+        )
+        
+        # 构建操作按钮
+        keyboard = [
+            [InlineKeyboardButton("👁️ 预览", callback_data=f"bc_preview_{broadcast_id}_{group_id}")],
+            [InlineKeyboardButton("❌ 删除", callback_data=f"bc_delete_{broadcast_id}_{group_id}")],
+            [InlineKeyboardButton("🔙 返回", callback_data=f"settings_broadcast_{group_id}")]
+        ]
+        
+        # 显示轮播消息详情
+        await query.edit_message_text(
+            detail_text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+    except Exception as e:
+        logger.error(f"查看轮播消息详情出错: {str(e)}", exc_info=True)
+        await query.edit_message_text(
+            f"❌ 查看轮播消息详情出错: {str(e)}\n\n"
+            f"请返回并重试",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔙 返回", callback_data=f"settings_broadcast_{group_id}")
+            ]])
+        )
+
+@handle_callback_errors
+async def handle_broadcast_preview_callback(update: Update, context: CallbackContext, data: str):
+    """
+    处理预览轮播消息的回调
+    
+    参数:
+        update: 更新对象
+        context: 上下文对象
+        data: 回调数据
+    """
+    query = update.callback_query
+    bot_instance = context.application.bot_data.get('bot_instance')
+    
+    # 立即应答回调查询
+    await query.answer()
+    
+    # 解析回调数据
+    parts = data.split('_')
+    if len(parts) < 3:
+        await query.edit_message_text("❌ 无效的回调数据")
+        return
+        
+    broadcast_id = parts[1]
+    group_id = int(parts[2])
+    
+    # 获取轮播消息
+    broadcast = await bot_instance.db.get_broadcast_by_id(broadcast_id)
+    if not broadcast:
+        await query.edit_message_text("❌ 找不到轮播消息")
+        return
+    
+    # 获取内容数据
+    text = broadcast.get('text', '')
+    media = broadcast.get('media')
+    buttons = broadcast.get('buttons', [])
+    
+    # 创建按钮键盘(如果有)
+    reply_markup = None
+    if buttons:
+        keyboard = []
+        for button in buttons:
+            keyboard.append([InlineKeyboardButton(button['text'], url=button['url'])])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # 发送预览消息
+    try:
+        if media and media.get('type'):
+            if media['type'] == 'photo':
+                await query.message.reply_photo(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
+            elif media['type'] == 'video':
+                await query.message.reply_video(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
+            elif media['type'] == 'document':
+                await query.message.reply_document(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
+            else:
+                await query.message.reply_document(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
+        elif text or buttons:
+            await query.message.reply_text(
+                text or "轮播消息内容",
+                reply_markup=reply_markup
+            )
+        else:
+            await query.answer("没有预览内容")
+            return
+    except Exception as e:
+        logger.error(f"预览生成错误: {e}")
+        await query.answer(f"预览生成失败: {str(e)}")
+        return
+    
+    # 显示返回按钮
+    keyboard = [
+        [InlineKeyboardButton("🔙 返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")]
+    ]
+    await query.edit_message_text(
+        "👆 上方为轮播消息预览\n\n点击「返回详情」继续查看",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+@handle_callback_errors
+async def handle_broadcast_delete_callback(update: Update, context: CallbackContext, data: str):
+    """
+    处理删除轮播消息的回调
+    
+    参数:
+        update: 更新对象
+        context: 上下文对象
+        data: 回调数据
+    """
+    query = update.callback_query
+    bot_instance = context.application.bot_data.get('bot_instance')
+    
+    # 立即应答回调查询
+    await query.answer()
+    
+    # 解析回调数据
+    parts = data.split('_')
+    if len(parts) < 3:
+        await query.edit_message_text("❌ 无效的回调数据")
+        return
+        
+    broadcast_id = parts[1]
+    group_id = int(parts[2])
+    
+    # 确认删除
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ 确认删除", callback_data=f"bc_confirm_delete_{broadcast_id}_{group_id}"),
+            InlineKeyboardButton("❌ 取消", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
+        ]
+    ]
+    
+    await query.edit_message_text(
+        "⚠️ 确定要删除这条轮播消息吗？\n\n此操作不可撤销。",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+@handle_callback_errors
+async def handle_broadcast_confirm_delete_callback(update: Update, context: CallbackContext, data: str):
+    """
+    处理确认删除轮播消息的回调
+    
+    参数:
+        update: 更新对象
+        context: 上下文对象
+        data: 回调数据
+    """
+    query = update.callback_query
+    bot_instance = context.application.bot_data.get('bot_instance')
+    
+    # 立即应答回调查询
+    await query.answer()
+    
+    # 解析回调数据
+    parts = data.split('_')
+    if len(parts) < 4:
+        await query.edit_message_text("❌ 无效的回调数据")
+        return
+        
+    broadcast_id = parts[2]
+    group_id = int(parts[3])
+    
+    # 删除轮播消息
+    try:
+        result = await bot_instance.db.delete_broadcast(broadcast_id)
+        if result:
+            await query.edit_message_text(
+                "✅ 轮播消息已删除",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("返回轮播列表", callback_data=f"settings_broadcast_{group_id}")
+                ]])
+            )
+        else:
+            await query.edit_message_text(
+                "❌ 删除轮播消息失败",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("返回轮播详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
+                ]])
+            )
+    except Exception as e:
+        logger.error(f"删除轮播消息出错: {e}")
+        await query.edit_message_text(
+            f"❌ 删除轮播消息出错: {str(e)}",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("返回轮播详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
+            ]])
+        )
         
 async def submit_broadcast_form(update: Update, context: CallbackContext):
     """
