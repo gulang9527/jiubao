@@ -68,8 +68,11 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
     # 处理更复杂的操作
     elif len(parts) >= 3:
         # 首先检查接收类型操作，避免被后续逻辑覆盖
-        if parts[1] in ["content", "media", "buttons", "interval", "time", "end_time"] and parts[2] == "received":
+        elif parts[1] in ["content", "media", "buttons", "interval", "time"] and parts[2] == "received":
             action = f"{parts[1]}_received"
+            logger.info(f"检测到接收操作: {action}")
+        elif parts[1] == "end" and parts[2] == "time" and parts[3] == "received":
+            action = "end_time_received"
             logger.info(f"检测到接收操作: {action}")
         # 然后检查添加操作
         elif parts[1] == "add" and parts[2] in ["text", "media", "button", "content"]:
@@ -223,10 +226,15 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         
-    elif action in ["content_received", "media_received", "buttons_received", "interval_received", "time_received", "end_time_received"]:
+    elif action in ["content_received", "media_received", "buttons_received", "time_received", "end_time_received"]:
         logger.info(f"执行数据接收操作: {action}")
         # 已收到各类数据，显示表单选项
         await show_broadcast_options(update, context)
+
+    elif action == "interval_received":
+        logger.info("执行接收间隔操作，显示开始时间选项")
+        # 显示开始时间选项
+        await show_start_time_options(update, context)
         
     elif action == "preview":
         logger.info("执行预览操作")
