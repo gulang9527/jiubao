@@ -43,14 +43,14 @@ async def handle_keyword_form_callback(update: Update, context: CallbackContext,
         return
     
     # 更健壮的动作解析
-    if parts[1] == "select" and parts[2] == "group":
+    if parts[1] == "select" and len(parts) > 2 and parts[2] == "group":
         action = "select_group"
         action_param = parts[3] if len(parts) > 3 else None
     elif parts[1] == "type":
         action = "type"
-        action_param = parts[3] if len(parts) > 3 else None
+        action_param = parts[2] if len(parts) > 2 else None
     else:
-        action = parts[2]
+        action = parts[2] if len(parts) > 2 else "unknown"
         action_param = parts[3] if len(parts) > 3 else None
         
     logger.info(f"关键词表单操作: {action}")
@@ -69,13 +69,26 @@ async def handle_keyword_form_callback(update: Update, context: CallbackContext,
         
     elif action == "select_group":
         # 选择群组
-        group_id = int(parts[3])
-        # 启动添加流程
-        await start_keyword_form(update, context, group_id)
+        if not action_param:
+            logger.error(f"未提供群组ID: {data}")
+            await query.edit_message_text("❌ 无效的群组选择")
+            return
+            
+        try:
+            group_id = int(action_param)
+            await start_keyword_form(update, context, group_id)
+        except ValueError:
+            logger.error(f"无效的群组ID格式: {action_param}")
+            await query.edit_message_text("❌ 无效的群组ID")
         
     elif action == "type":
         # 选择匹配类型
-        match_type = parts[3]
+        match_type = action_param  # 使用之前解析的 action_param
+        if not match_type:
+            logger.error(f"未提供匹配类型: {data}")
+            await query.edit_message_text("❌ 无效的匹配类型")
+            return
+            
         form_data['match_type'] = match_type
         context.user_data['keyword_form'] = form_data
         
