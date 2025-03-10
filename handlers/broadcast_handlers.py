@@ -82,90 +82,6 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
             "发送完后请点击下方出现的「继续」按钮",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-
-async def submit_broadcast_form(update: Update, context: CallbackContext):
-    """
-    提交轮播消息表单
-    
-    参数:
-        update: 更新对象
-        context: 上下文对象
-    """
-    logger.info("提交轮播消息表单")
-    form_data = context.user_data.get('broadcast_form', {})
-    logger.info(f"提交的表单数据: {form_data}")
-    
-    # 验证必要字段
-    has_content = bool(form_data.get('text') or form_data.get('media') or form_data.get('buttons'))
-    if not has_content:
-        await update.callback_query.answer("❌ 请至少添加一项内容")
-        await show_broadcast_options(update, context)
-        return
-    
-    # 验证计划设置
-    if not form_data.get('start_time'):
-        await update.callback_query.answer("❌ 请设置发送计划")
-        await show_broadcast_options(update, context)
-        return
-    
-    # 构建轮播消息数据
-    broadcast_data = {
-        'group_id': form_data['group_id'],
-        'text': form_data.get('text', ''),
-        'media': form_data.get('media'),
-        'buttons': form_data.get('buttons', []),
-        'repeat_type': form_data.get('repeat_type', 'once'),
-        'repeat_interval': form_data.get('repeat_interval', 0)
-    }
-    
-    # 处理开始时间
-    start_time_str = form_data.get('start_time')
-    if start_time_str and start_time_str.lower() != 'now':
-        try:
-            # 验证时间格式
-            start_time = datetime.strptime(start_time_str, '%Y-%m-%d %H:%M:%S')
-            broadcast_data['start_time'] = start_time
-        except ValueError:
-            await update.callback_query.answer("❌ 时间格式不正确")
-            await show_broadcast_options(update, context)
-            return
-    else:
-        # 立即开始
-        broadcast_data['start_time'] = datetime.now()
-    
-    # 添加轮播消息
-    bot_instance = context.application.bot_data.get('bot_instance')
-    try:
-        await bot_instance.db.add_broadcast(broadcast_data)
-        
-        # 清理表单数据
-        if 'broadcast_form' in context.user_data:
-            del context.user_data['broadcast_form']
-        if 'waiting_for' in context.user_data:
-            del context.user_data['waiting_for']
-        
-        # 确定重复类型文本
-        repeat_text = "单次发送"
-        if broadcast_data['repeat_type'] == 'hourly':
-            repeat_text = "每小时发送"
-        elif broadcast_data['repeat_type'] == 'daily':
-            repeat_text = "每天发送"
-        elif broadcast_data['repeat_type'] == 'custom':
-            repeat_text = f"每 {broadcast_data['repeat_interval']} 分钟发送"
-        
-        # 显示成功消息
-        await update.callback_query.edit_message_text(
-            "✅ 轮播消息添加成功！\n\n"
-            f"重复类型: {repeat_text}\n"
-            f"开始时间: {format_datetime(broadcast_data['start_time'])}"
-        )
-    except Exception as e:
-        logger.error(f"添加轮播消息错误: {e}")
-        await update.callback_query.answer("❌ 添加轮播消息失败")
-        await update.callback_query.edit_message_text(
-            f"❌ 添加轮播消息失败: {str(e)}\n\n"
-            "请重试或联系管理员"
-        )
         context.user_data['waiting_for'] = 'broadcast_text'
         
     elif action == "add_media":
@@ -258,6 +174,91 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
     else:
         logger.warning(f"未知的轮播消息表单操作: {action}")
         await query.edit_message_text("❌ 未知操作")
+
+
+async def submit_broadcast_form(update: Update, context: CallbackContext):
+    """
+    提交轮播消息表单
+    
+    参数:
+        update: 更新对象
+        context: 上下文对象
+    """
+    logger.info("提交轮播消息表单")
+    form_data = context.user_data.get('broadcast_form', {})
+    logger.info(f"提交的表单数据: {form_data}")
+    
+    # 验证必要字段
+    has_content = bool(form_data.get('text') or form_data.get('media') or form_data.get('buttons'))
+    if not has_content:
+        await update.callback_query.answer("❌ 请至少添加一项内容")
+        await show_broadcast_options(update, context)
+        return
+    
+    # 验证计划设置
+    if not form_data.get('start_time'):
+        await update.callback_query.answer("❌ 请设置发送计划")
+        await show_broadcast_options(update, context)
+        return
+    
+    # 构建轮播消息数据
+    broadcast_data = {
+        'group_id': form_data['group_id'],
+        'text': form_data.get('text', ''),
+        'media': form_data.get('media'),
+        'buttons': form_data.get('buttons', []),
+        'repeat_type': form_data.get('repeat_type', 'once'),
+        'repeat_interval': form_data.get('repeat_interval', 0)
+    }
+    
+    # 处理开始时间
+    start_time_str = form_data.get('start_time')
+    if start_time_str and start_time_str.lower() != 'now':
+        try:
+            # 验证时间格式
+            start_time = datetime.strptime(start_time_str, '%Y-%m-%d %H:%M:%S')
+            broadcast_data['start_time'] = start_time
+        except ValueError:
+            await update.callback_query.answer("❌ 时间格式不正确")
+            await show_broadcast_options(update, context)
+            return
+    else:
+        # 立即开始
+        broadcast_data['start_time'] = datetime.now()
+    
+    # 添加轮播消息
+    bot_instance = context.application.bot_data.get('bot_instance')
+    try:
+        await bot_instance.db.add_broadcast(broadcast_data)
+        
+        # 清理表单数据
+        if 'broadcast_form' in context.user_data:
+            del context.user_data['broadcast_form']
+        if 'waiting_for' in context.user_data:
+            del context.user_data['waiting_for']
+        
+        # 确定重复类型文本
+        repeat_text = "单次发送"
+        if broadcast_data['repeat_type'] == 'hourly':
+            repeat_text = "每小时发送"
+        elif broadcast_data['repeat_type'] == 'daily':
+            repeat_text = "每天发送"
+        elif broadcast_data['repeat_type'] == 'custom':
+            repeat_text = f"每 {broadcast_data['repeat_interval']} 分钟发送"
+        
+        # 显示成功消息
+        await update.callback_query.edit_message_text(
+            "✅ 轮播消息添加成功！\n\n"
+            f"重复类型: {repeat_text}\n"
+            f"开始时间: {format_datetime(broadcast_data['start_time'])}"
+        )
+    except Exception as e:
+        logger.error(f"添加轮播消息错误: {e}")
+        await update.callback_query.answer("❌ 添加轮播消息失败")
+        await update.callback_query.edit_message_text(
+            f"❌ 添加轮播消息失败: {str(e)}\n\n"
+            "请重试或联系管理员"
+        )
 
 #######################################
 # 表单输入处理
