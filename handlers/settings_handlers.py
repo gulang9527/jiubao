@@ -511,6 +511,7 @@ async def show_timeout_settings(bot_instance, query, group_id: int, settings: Di
 #######################################
 
 async def handle_stats_edit_callback(update: Update, context: CallbackContext, parts: List[str]):
+    logger.info(f"统计设置编辑回调数据部分: {parts}")
     """
     处理统计设置编辑的回调
     
@@ -522,11 +523,17 @@ async def handle_stats_edit_callback(update: Update, context: CallbackContext, p
     query = update.callback_query
     bot_instance = context.application.bot_data.get('bot_instance')
     
-    if len(parts) < 2:
-        await query.edit_message_text("❌ 无效的回调数据")
-        return
-        
-    action = parts[0]
+    logger.info(f"统计设置编辑回调数据部分: {parts}")
+    
+    # 处理可能的特殊情况
+    if len(parts) >= 2 and parts[0] == "min" and parts[1].startswith("bytes"):
+        action = "min_bytes"
+        group_id_part = parts[1].split("_", 1)[1] if "_" in parts[1] else parts[-1]
+    else:
+        if len(parts) < 2:
+            await query.edit_message_text("❌ 无效的回调数据")
+            return
+        action = parts[0]
     
     # 获取群组ID
     try:
