@@ -133,7 +133,7 @@ async def handle_rank_command(update: Update, context: CallbackContext):
         
     # 检查是否有统计数据
     if not stats:
-        await update.effective_user.send_message("📊 暂无统计数据")
+        await update.message.reply_text("📊 暂无统计数据")
         return
         
     # 构建排行文本
@@ -141,19 +141,19 @@ async def handle_rank_command(update: Update, context: CallbackContext):
     for i, stat in enumerate(stats, start=(page-1)*15+1):
         try:
             user = await context.bot.get_chat_member(group_id, stat['_id'])
-            name = user.user.full_name or user.user.username or f"用户{stat['_id']}"
+            user_mention = f"[{user.user.full_name}](tg://user?id={stat['_id']})"
         except Exception:
-            name = f"用户{stat['_id']}"
+            user_mention = f"用户{stat['_id']}"
             
-        text += f"{i}. {name}\n   消息数: {stat['total_messages']}\n\n"
+        text += f"{i}. {user_mention} - 消息数: {stat['total_messages']}\n"
         
     # 添加分页信息
-    text += f"\n\n第 {page}/{total_pages} 页"
+    text += f"\n第 {page}/{total_pages} 页"
     if total_pages > 1:
         text += f"\n使用 /{command} <页码> 查看其他页"
         
-    # 发送排行消息
-    msg = await update.effective_user.send_message(text)
+    # 发送排行消息到群组
+    msg = await update.message.reply_text(text, parse_mode="Markdown")
     
     # 处理自动删除
     settings = await bot_instance.db.get_group_settings(group_id)
