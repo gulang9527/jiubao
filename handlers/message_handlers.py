@@ -158,13 +158,32 @@ async def handle_private_message(update: Update, context: CallbackContext):
         logger.warning(f"已封禁用户 {user_id} 尝试使用机器人")
         await message.reply_text("❌ 你已被封禁，无法使用此机器人")
         return
+    
+    # 检查用户是否有等待中的表单输入
+    waiting_for = context.user_data.get('waiting_for')
+    if waiting_for:
+        logger.info(f"用户 {user_id} 在私聊中有等待输入: {waiting_for}")
         
+        # 关键词表单处理
+        if waiting_for.startswith('keyword_'):
+            from handlers.keyword_handlers import handle_keyword_form_input
+            handled = await handle_keyword_form_input(update, context, waiting_for)
+            if handled:
+                return
+        
+        # 轮播消息表单处理
+        elif waiting_for.startswith('broadcast_'):
+            from handlers.broadcast_handlers import handle_broadcast_form_input
+            handled = await handle_broadcast_form_input(update, context, waiting_for)
+            if handled:
+                return
+    
     # 如果非管理员，提示使用/start
     is_admin = await bot_instance.is_admin(user_id)
     if not is_admin:
         await message.reply_text("请使用 /start 命令获取帮助信息")
         return
-        
+    
     # 管理员处理
     if message.text:
         # 可以在这里添加管理员私聊处理的逻辑
