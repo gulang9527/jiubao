@@ -42,8 +42,13 @@ def register_all_handlers(application, callback_handler):
     application.add_handler(CommandHandler("authgroup", handle_auth_group))
     application.add_handler(CommandHandler("deauthgroup", handle_deauth_group))
     application.add_handler(CommandHandler("checkconfig", handle_check_config))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(CommandHandler("adddefaultkeywords", handle_add_default_keywords))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(MessageHandler(
+    filters.TEXT | filters.PHOTO | filters.VIDEO | filters.DOCUMENT | filters.ANIMATION, 
+    handle_message
+))
+    
     
     # 添加简化的关键词和广播处理器
     application.add_handler(CommandHandler("easykeyword", handle_easy_keyword))
