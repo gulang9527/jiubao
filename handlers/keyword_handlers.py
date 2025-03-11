@@ -411,21 +411,21 @@ async def handle_keyword_confirm_delete_callback(update: Update, context: Callba
     
     # 删除关键词
     try:
-        result = await bot_instance.db.delete_keyword(keyword_id)
-        if result:
-            await query.edit_message_text(
-                "✅ 关键词已删除",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("返回关键词列表", callback_data=f"settings_keywords_{group_id}")
-                ]])
-            )
-        else:
-            await query.edit_message_text(
-                "❌ 删除关键词失败",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("返回关键词详情", callback_data=f"keyword_detail_{keyword_id}_{group_id}")
-                ]])
-            )
+        await bot_instance.db.remove_keyword(group_id, keyword_id)
+        await query.edit_message_text(
+            "✅ 关键词已删除",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("返回关键词列表", callback_data=f"settings_keywords_{group_id}")
+            ]])
+        )
+    except Exception as e:
+        logger.error(f"删除关键词出错: {e}")
+        await query.edit_message_text(
+            f"❌ 删除关键词出错: {str(e)}",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("返回关键词详情", callback_data=f"keyword_detail_{keyword_id}_{group_id}")
+            ]])
+        )
     except Exception as e:
         logger.error(f"删除关键词出错: {e}")
         await query.edit_message_text(
