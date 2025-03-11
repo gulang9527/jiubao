@@ -173,17 +173,30 @@ async def handle_private_message(update: Update, context: CallbackContext):
         
         # 关键词表单处理
         if waiting_for.startswith('keyword_'):
+            logger.info(f"尝试处理关键词表单输入: {waiting_for}")
             from handlers.keyword_handlers import handle_keyword_form_input
-            handled = await handle_keyword_form_input(update, context, waiting_for)
-            if handled:
-                return
+            try:
+                handled = await handle_keyword_form_input(update, context, waiting_for)
+                logger.info(f"关键词表单处理结果: {handled}")
+                if handled:
+                    return
+            except Exception as e:
+                logger.error(f"处理关键词表单输入出错: {e}", exc_info=True)
         
         # 轮播消息表单处理
         elif waiting_for.startswith('broadcast_'):
+            logger.info(f"尝试处理轮播消息表单输入: {waiting_for}, 消息类型: {message.content_type}")
             from handlers.broadcast_handlers import handle_broadcast_form_input
-            handled = await handle_broadcast_form_input(update, context, waiting_for)
-            if handled:
-                return
+            try:
+                logger.info(f"调用 handle_broadcast_form_input 之前, 消息有photo: {bool(message.photo)}")
+                handled = await handle_broadcast_form_input(update, context, waiting_for)
+                logger.info(f"轮播消息表单处理结果: {handled}")
+                if handled:
+                    return
+                else:
+                    logger.warning(f"轮播消息表单未处理成功, 继续执行后续代码")
+            except Exception as e:
+                logger.error(f"处理轮播消息表单输入出错: {e}", exc_info=True)
     
     # 检查管理员状态
     is_admin = await bot_instance.is_admin(user_id)
