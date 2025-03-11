@@ -152,11 +152,14 @@ async def handle_private_message(update: Update, context: CallbackContext):
     bot_instance = context.application.bot_data.get('bot_instance')
     user_id = update.effective_user.id
     message = update.effective_message
+    
     logger.info(f"处理私聊消息 - 用户ID: {user_id}, 消息: {message.text}")
     
     # 检查用户是否被封禁
-    if await bot_instance.db.is_user_banned(user_id):
+    is_banned = await bot_instance.db.is_user_banned(user_id)
     logger.info(f"用户 {user_id} 封禁状态: {is_banned}")
+    
+    if is_banned:
         logger.warning(f"已封禁用户 {user_id} 尝试使用机器人")
         await message.reply_text("❌ 你已被封禁，无法使用此机器人")
         return
@@ -164,6 +167,7 @@ async def handle_private_message(update: Update, context: CallbackContext):
     # 检查用户是否有等待中的表单输入
     waiting_for = context.user_data.get('waiting_for')
     logger.info(f"用户 {user_id} 的等待状态: {waiting_for}")
+    
     if waiting_for:
         logger.info(f"用户 {user_id} 在私聊中有等待输入: {waiting_for}")
         
