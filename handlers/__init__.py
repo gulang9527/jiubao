@@ -52,9 +52,15 @@ def register_all_handlers(application, callback_handler):
     application.add_handler(CallbackQueryHandler(handle_callback))
     
     # 设置回调处理器
-    # 注册各种回调前缀
+    # 导入各种回调处理函数
     from handlers.settings_handlers import handle_settings_callback
-    from handlers.keyword_handlers import handle_keyword_form_callback
+    from handlers.keyword_handlers import (
+        handle_keyword_form_callback,
+        handle_keyword_detail_callback,
+        handle_keyword_preview_callback,
+        handle_keyword_delete_callback,
+        handle_keyword_confirm_delete_callback
+    )
     from handlers.broadcast_handlers import (
         handle_broadcast_form_callback,
         handle_broadcast_detail_callback,
@@ -63,18 +69,22 @@ def register_all_handlers(application, callback_handler):
         handle_broadcast_confirm_delete_callback
     )
     
+    # 注册设置相关回调前缀
     callback_handler.register("settings_", handle_settings_callback)
-    callback_handler.register("kwform_", handle_keyword_form_callback)
-    callback_handler.register("bcform_", handle_broadcast_form_callback)
     callback_handler.register("auto_delete_", handle_settings_callback)
     callback_handler.register("switch_toggle_", handle_settings_callback)
-    from handlers.keyword_handlers import handle_keyword_detail_callback, handle_keyword_preview_callback, handle_keyword_delete_callback, handle_keyword_confirm_delete_callback
+    callback_handler.register("stats_edit_", handle_settings_callback)
+    
+    # 注册关键词相关回调前缀
+    callback_handler.register("kwform_", handle_keyword_form_callback)
     callback_handler.register("keyword_detail_", handle_keyword_detail_callback)
     callback_handler.register("keyword_preview_", handle_keyword_preview_callback)
     callback_handler.register("keyword_delete_", handle_keyword_delete_callback)
     callback_handler.register("keyword_confirm_delete_", handle_keyword_confirm_delete_callback)
+    callback_handler.register("keyword_list_page_", handle_keyword_detail_callback)  # 假设列表分页由detail处理
     
-    # 注册轮播消息详情相关回调
+    # 注册轮播消息相关回调前缀
+    callback_handler.register("bcform_", handle_broadcast_form_callback)
     callback_handler.register("broadcast_detail_", handle_broadcast_detail_callback)
     callback_handler.register("bc_preview_", handle_broadcast_preview_callback)
     callback_handler.register("bc_delete_", handle_broadcast_delete_callback)
