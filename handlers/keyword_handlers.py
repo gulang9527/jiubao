@@ -170,6 +170,192 @@ async def handle_keyword_form_callback(update: Update, context: CallbackContext,
         logger.warning(f"未知的关键词表单操作: {action}, 参数: {params}")
         await query.edit_message_text("❌ 未知操作")
 
+@handle_callback_errors
+async def handle_keyword_detail_callback(update: Update, context: CallbackContext, data: str):
+    """
+    处理查看关键词详情的回调
+    
+    参数:
+        update: 更新对象
+        context: 上下文对象
+        data: 回调数据
+    """
+    # 此处添加前面提供的函数内容
+    
+@handle_callback_errors
+async def handle_keyword_preview_callback(update: Update, context: CallbackContext, data: str):
+    """
+    处理预览关键词的回调
+    
+    参数:
+        update: 更新对象
+        context: 上下文对象
+        data: 回调数据
+    """
+    query = update.callback_query
+    bot_instance = context.application.bot_data.get('bot_instance')
+    
+    # 立即应答回调查询
+    await query.answer()
+    
+    # 解析回调数据
+    parts = data.split('_')
+    if len(parts) < 4:  # keyword, preview, keyword_id, group_id
+        await query.edit_message_text("❌ 无效的回调数据")
+        return
+        
+    keyword_id = parts[2]
+    group_id = int(parts[3])
+    
+    # 获取关键词
+    keyword = await bot_instance.db.get_keyword_by_id(keyword_id)
+    if not keyword:
+        await query.edit_message_text("❌ 找不到关键词")
+        return
+    
+    # 获取内容数据
+    text = keyword.get('response', '')
+    media = keyword.get('media')
+    buttons = keyword.get('buttons', [])
+    
+    # 创建按钮键盘(如果有)
+    reply_markup = None
+    if buttons:
+        keyboard = []
+        for button in buttons:
+            keyboard.append([InlineKeyboardButton(button['text'], url=button['url'])])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # 发送预览消息
+    try:
+        if media and media.get('type'):
+            if media['type'] == 'photo':
+                await query.message.reply_photo(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
+            elif media['type'] == 'video':
+                await query.message.reply_video(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
+            elif media['type'] == 'document':
+                await query.message.reply_document(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
+            else:
+                await query.message.reply_document(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
+        elif text or buttons:
+            await query.message.reply_text(
+                text or "关键词回复内容",
+                reply_markup=reply_markup
+            )
+        else:
+            await query.answer("没有预览内容")
+            return
+    except Exception as e:
+        logger.error(f"预览生成错误: {e}")
+        await query.answer(f"预览生成失败: {str(e)}")
+        return
+    
+    # 显示返回按钮
+    keyboard = [
+        [InlineKeyboardButton("🔙 返回详情", callback_data=f"keyword_detail_{keyword_id}_{group_id}")]
+    ]
+    await query.edit_message_text(
+        "👆 上方为关键词回复预览\n\n点击「返回详情」继续查看",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+@handle_callback_errors
+async def handle_keyword_delete_callback(update: Update, context: CallbackContext, data: str):
+    """
+    处理删除关键词的回调
+    
+    参数:
+        update: 更新对象
+        context: 上下文对象
+        data: 回调数据
+    """
+    query = update.callback_query
+    bot_instance = context.application.bot_data.get('bot_instance')
+    
+    # 立即应答回调查询
+    await query.answer()
+    
+    # 解析回调数据
+    parts = data.split('_')
+    if len(parts) < 4:  # keyword, delete, keyword_id, group_id
+        await query.edit_message_text("❌ 无效的回调数据")
+        return
+        
+    keyword_id = parts[2]
+    group_id = int(parts[3])
+    
+    # 确认删除
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ 确认删除", callback_data=f"keyword_confirm_delete_{keyword_id}_{group_id}"),
+            InlineKeyboardButton("❌ 取消", callback_data=f"keyword_detail_{keyword_id}_{group_id}")
+        ]
+    ]
+    
+    await query.edit_message_text(
+        "⚠️ 确定要删除这个关键词吗？\n\n此操作不可撤销。",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+@handle_callback_errors
+async def handle_keyword_confirm_delete_callback(update: Update, context: CallbackContext, data: str):
+    """
+    处理确认删除关键词的回调
+    
+    参数:
+        update: 更新对象
+        context: 上下文对象
+        data: 回调数据
+    """
+    query = update.callback_query
+    bot_instance = context.application.bot_data.get('bot_instance')
+    
+    # 立即应答回调查询
+    await query.answer()
+    
+    # 解析回调数据
+    parts = data.split('_')
+    if len(parts) < 5:  # keyword, confirm, delete, keyword_id, group_id
+        await query.edit_message_text("❌ 无效的回调数据")
+        return
+        
+    keyword_id = parts[3]
+    group_id = int(parts[4])
+    
+    # 删除关键词
+    try:
+        result = await bot_instance.db.delete_keyword(keyword_id)
+        if result:
+            await query.edit_message_text(
+                "✅ 关键词已删除",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("返回关键词列表", callback_data=f"settings_keywords_{group_id}")
+                ]])
+            )
+        else:
+            await query.edit_message_text(
+                "❌ 删除关键词失败",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("返回关键词详情", callback_data=f"keyword_detail_{keyword_id}_{group_id}")
+                ]])
+            )
+    except Exception as e:
+        logger.error(f"删除关键词出错: {e}")
+        await query.edit_message_text(
+            f"❌ 删除关键词出错: {str(e)}",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("返回关键词详情", callback_data=f"keyword_detail_{keyword_id}_{group_id}")
+            ]])
+        )
+        
 #######################################
 # 表单输入处理
 #######################################
