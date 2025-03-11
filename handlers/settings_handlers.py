@@ -532,6 +532,12 @@ async def handle_stats_edit_callback(update: Update, context: CallbackContext, p
     # 处理 toggle_media 特殊情况
     elif len(parts) >= 2 and parts[0] == "toggle" and parts[1] == "media":
         action = "toggle_media"
+    # 处理 daily_rank 特殊情况
+    elif len(parts) >= 2 and parts[0] == "daily" and parts[1] == "rank":
+        action = "daily_rank"
+    # 处理 monthly_rank 特殊情况（预防性添加）
+    elif len(parts) >= 2 and parts[0] == "monthly" and parts[1] == "rank":
+        action = "monthly_rank"
     else:
         if len(parts) < 2:
             await query.edit_message_text("❌ 无效的回调数据")
