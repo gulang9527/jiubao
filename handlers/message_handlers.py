@@ -286,6 +286,31 @@ async def send_keyword_response(bot_instance, original_message: Message, keyword
             logger.error(f"关键词 {keyword_id} 不存在")
             return
             
+        # 检查是否为命令关键词
+        if keyword.get('is_command', False) and keyword.get('command'):
+            command = keyword.get('command')
+            logger.info(f"执行命令关键词: {command}")
+            
+            # 创建一个模拟的命令更新对象
+            from telegram.ext import ContextTypes
+            context = ContextTypes.DEFAULT_TYPE.context.copy_with(bot_instance.application)
+            context.args = []  # 默认无参数
+            
+            # 创建假的Update对象,模拟命令调用
+            fake_update = Update(
+                update_id=original_message.message_id,
+                message=original_message
+            )
+            
+            # 执行对应的命令
+            if command == '/tongji' or command == '/tongji30':
+                from handlers.command_handlers import handle_rank_command
+                # 发送"正在查询"的消息
+                await original_message.reply_text(keyword.get('response', '正在查询...'))
+                # 执行命令
+                await handle_rank_command(fake_update, context)
+                return
+                
         # 准备消息内容
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         
