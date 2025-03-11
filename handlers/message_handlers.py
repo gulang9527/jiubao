@@ -152,15 +152,18 @@ async def handle_private_message(update: Update, context: CallbackContext):
     bot_instance = context.application.bot_data.get('bot_instance')
     user_id = update.effective_user.id
     message = update.effective_message
+    logger.info(f"处理私聊消息 - 用户ID: {user_id}, 消息: {message.text}")
     
     # 检查用户是否被封禁
     if await bot_instance.db.is_user_banned(user_id):
+    logger.info(f"用户 {user_id} 封禁状态: {is_banned}")
         logger.warning(f"已封禁用户 {user_id} 尝试使用机器人")
         await message.reply_text("❌ 你已被封禁，无法使用此机器人")
         return
     
     # 检查用户是否有等待中的表单输入
     waiting_for = context.user_data.get('waiting_for')
+    logger.info(f"用户 {user_id} 的等待状态: {waiting_for}")
     if waiting_for:
         logger.info(f"用户 {user_id} 在私聊中有等待输入: {waiting_for}")
         
@@ -178,17 +181,26 @@ async def handle_private_message(update: Update, context: CallbackContext):
             if handled:
                 return
     
-    # 如果非管理员，提示使用/start
+    # 检查管理员状态
     is_admin = await bot_instance.is_admin(user_id)
+    logger.info(f"用户 {user_id} 的管理员状态: {is_admin}")
+    
+    # 如果非管理员，提示使用/start
     if not is_admin:
-        await message.reply_text("请使用 /start 命令获取帮助信息")
+        try:
+            await message.reply_text("请使用 /start 命令获取帮助信息")
+            logger.info(f"已向用户 {user_id} 发送使用/start的提示")
+        except Exception as e:
+            logger.error(f"向用户 {user_id} 发送提示时出错: {e}")
         return
     
     # 管理员处理
     if message.text:
-        # 可以在这里添加管理员私聊处理的逻辑
-        await message.reply_text("请使用 /settings 或 /admingroups 管理您的群组")
-
+        try:
+            await message.reply_text("请使用 /settings 或 /admingroups 管理您的群组")
+            logger.info(f"已向管理员 {user_id} 发送操作提示")
+        except Exception as e:
+            logger.error(f"向管理员 {user_id} 发送提示时出错: {e}")
 async def handle_group_message(update: Update, context: CallbackContext):
     """
     处理群组消息
