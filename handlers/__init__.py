@@ -11,7 +11,7 @@ from handlers.command_handlers import (
     handle_admin_groups, handle_add_admin, handle_del_admin,
     handle_add_superadmin, handle_del_superadmin, handle_auth_group,
     handle_deauth_group, handle_check_config, handle_cancel,
-    handle_easy_keyword, handle_easy_broadcast
+    handle_easy_keyword, handle_easy_broadcast, handle_add_default_keywords
 )
 from handlers.message_handlers import handle_message
 from handlers.callback_handlers import handle_callback
