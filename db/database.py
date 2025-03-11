@@ -1009,12 +1009,7 @@ class Database:
             return []
 
     async def get_due_broadcasts(self) -> List[Dict[str, Any]]:
-        """
-        获取所有应该发送的轮播消息
-        
-        返回:
-            应该发送的轮播消息列表
-        """
+        """获取所有应该发送的轮播消息"""
         await self.ensure_connected()
         now = datetime.now()
         try:
@@ -1032,7 +1027,7 @@ class Database:
                                 {'$eq': [{'$ifNull': ['$last_broadcast', None]}, None]},
                                 {'$gte': [
                                     {'$subtract': [now, '$last_broadcast']},
-                                    {'$multiply': ['$interval', 1000]}  # 转换为毫秒
+                                    {'$multiply': ['$interval', 60000]}  # 分钟转换为毫秒
                                 ]}
                             ]
                         }
