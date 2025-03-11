@@ -183,7 +183,80 @@ async def handle_keyword_detail_callback(update: Update, context: CallbackContex
         context: 上下文对象
         data: 回调数据
     """
-    # 此处添加前面提供的函数内容
+    query = update.callback_query
+    bot_instance = context.application.bot_data.get('bot_instance')
+    
+    # 立即应答回调查询
+    await query.answer()
+    
+    # 解析回调数据获取关键词ID和群组ID
+    parts = data.split('_')
+    logger.info(f"关键词详情回调数据: {parts}")
+    
+    if len(parts) < 3:  # 应该有至少3部分: keyword, detail, keyword_id, (可能还有group_id)
+        logger.error(f"关键词详情回调数据格式错误: {data}")
+        await query.edit_message_text("❌ 无效的回调数据")
+        return
+        
+    keyword_id = parts[2]  # 第三部分是keyword_id
+    group_id = int(parts[3]) if len(parts) > 3 else None  # 第四部分是group_id (如果存在)
+    
+    logger.info(f"查看关键词详情: {keyword_id}, 群组ID: {group_id}")
+    
+    # 获取关键词详情
+    try:
+        keyword = await bot_instance.db.get_keyword_by_id(keyword_id)
+        if not keyword:
+            logger.warning(f"找不到关键词: {keyword_id}")
+            await query.edit_message_text("❌ 找不到关键词")
+            return
+        
+        # 获取匹配类型和模式
+        match_type = keyword.get('type', 'exact')
+        pattern = keyword.get('pattern', '无')
+        match_type_text = '精确匹配' if match_type == 'exact' else '正则匹配'
+        
+        # 获取媒体类型和文本内容
+        media_type = keyword.get('media', {}).get('type', '无')
+        media_info = f"📎 媒体类型: {media_type}" if media_type else "📝 仅文本回复"
+        text = keyword.get('response', '无文本内容')
+        
+        # 获取按钮数量
+        buttons_count = len(keyword.get('buttons', []))
+        buttons_info = f"🔘 {buttons_count} 个按钮" if buttons_count > 0 else "无按钮"
+        
+        # 构建详情文本
+        detail_text = (
+            f"🔑 关键词详情\n\n"
+            f"📋 关键词: {pattern}\n"
+            f"🔍 匹配方式: {match_type_text}\n\n"
+            f"{media_info}\n\n"
+            f"📝 回复内容:\n{text[:200]}{'...' if len(text) > 200 else ''}\n\n"
+            f"{buttons_info}\n"
+        )
+        
+        # 构建操作按钮
+        keyboard = [
+            [InlineKeyboardButton("👁️ 预览", callback_data=f"keyword_preview_{keyword_id}_{group_id}")],
+            [InlineKeyboardButton("❌ 删除", callback_data=f"keyword_delete_{keyword_id}_{group_id}")],
+            [InlineKeyboardButton("🔙 返回", callback_data=f"settings_keywords_{group_id}")]
+        ]
+        
+        # 显示关键词详情
+        await query.edit_message_text(
+            detail_text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+    except Exception as e:
+        logger.error(f"查看关键词详情出错: {str(e)}", exc_info=True)
+        await query.edit_message_text(
+            f"❌ 查看关键词详情出错: {str(e)}\n\n"
+            f"请返回并重试",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔙 返回", callback_data=f"settings_keywords_{group_id}")
+            ]])
+        )
     
 @handle_callback_errors
 async def handle_keyword_preview_callback(update: Update, context: CallbackContext, data: str):
