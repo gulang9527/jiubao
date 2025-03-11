@@ -44,6 +44,9 @@ async def handle_settings_callback(update: Update, context: CallbackContext, dat
     elif data.startswith("switch_toggle_"):
         parts = data[14:].split('_')  # 去掉"switch_toggle_"前缀
         return await handle_switch_toggle_callback(update, context, parts)
+    elif data.startswith("stats_edit_"):
+        parts = data[11:].split('_')  # 去掉"stats_edit_"前缀
+        return await handle_stats_edit_callback(update, context, parts)
     else:
         logger.warning(f"未知的设置回调前缀: {data}")
         await query.edit_message_text("❌ 未知的设置操作")
@@ -507,6 +510,87 @@ async def show_timeout_settings(bot_instance, query, group_id: int, settings: Di
 # 设置处理器
 #######################################
 
+async def handle_stats_edit_callback(update: Update, context: CallbackContext, parts: List[str]):
+    """
+    处理统计设置编辑的回调
+    
+    参数:
+        update: 更新对象
+        context: 上下文对象
+        parts: 回调数据部分
+    """
+    query = update.callback_query
+    bot_instance = context.application.bot_data.get('bot_instance')
+    
+    if len(parts) < 2:
+        await query.edit_message_text("❌ 无效的回调数据")
+        return
+        
+    action = parts[0]
+    
+    # 获取群组ID
+    try:
+        group_id = int(parts[-1])
+    except ValueError:
+        await query.edit_message_text("❌ 无效的群组ID")
+        return
+    
+    # 验证用户权限
+    if not await bot_instance.db.can_manage_group(update.effective_user.id, group_id):
+        await query.edit_message_text("❌ 你没有权限管理此群组")
+        return
+    
+    # 处理不同的设置编辑
+    if action == "min_bytes":
+        # 启动最小字节数设置
+        await bot_instance.settings_manager.start_setting(
+            update.effective_user.id, 
+            'stats_min_bytes', 
+            group_id
+        )
+        await query.edit_message_text(
+            "请输入最小统计字节数：\n"
+            "• 设置为0表示统计所有消息\n"
+            "• 建议设置为10-100之间的数值\n\n"
+            "发送 /cancel 取消"
+        )
+    elif action == "toggle_media":
+        # 切换媒体统计开关
+        settings = await bot_instance.db.get_group_settings(group_id)
+        count_media = not settings.get('count_media', False)
+        settings['count_media'] = count_media
+        await bot_instance.db.update_group_settings(group_id, settings)
+        await show_stats_settings(bot_instance, query, group_id)
+    elif action == "daily_rank":
+        # 设置日排行显示数量
+        await bot_instance.settings_manager.start_setting(
+            update.effective_user.id, 
+            'stats_daily_rank', 
+            group_id
+        )
+        await query.edit_message_text(
+            "请输入日排行显示数量：\n"
+            "• 最小值: 5\n"
+            "• 最大值: 50\n\n"
+            "发送 /cancel 取消"
+        )
+    elif action == "monthly_rank":
+        # 设置月排行显示数量
+        await bot_instance.settings_manager.start_setting(
+            update.effective_user.id, 
+            'stats_monthly_rank', 
+            group_id
+        )
+        await query.edit_message_text(
+            "请输入月排行显示数量：\n"
+            "• 最小值: 5\n"
+            "• 最大值: 50\n\n"
+            "发送 /cancel 取消"
+        )
+    else:
+        logger.warning(f"未知的统计设置编辑操作: {action}")
+        await query.edit_message_text(f"❌ 未知的设置操作: {action}")
+        
 async def process_min_bytes_setting(bot_instance, state, message):
     """
     处理最小字节数设置
