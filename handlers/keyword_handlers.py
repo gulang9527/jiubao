@@ -85,16 +85,16 @@ async def handle_keyword_form_callback(update: Update, context: CallbackContext,
         
     elif action == "select_group":
         # 选择群组
-        if not action_param:
+        if not group_id:  # 修改这里，使用已经解析出来的 group_id 变量
             logger.error(f"未提供群组ID: {data}")
             await query.edit_message_text("❌ 无效的群组选择")
             return
             
         try:
-            group_id = int(action_param)
+            # group_id 已经在前面解析并转换为整数了，不需要再次转换
             await start_keyword_form(update, context, group_id)
         except ValueError:
-            logger.error(f"无效的群组ID格式: {action_param}")
+            logger.error(f"无效的群组ID格式: {group_id}")
             await query.edit_message_text("❌ 无效的群组ID")
         
     elif action == "type":
