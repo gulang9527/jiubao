@@ -328,17 +328,24 @@ async def show_broadcast_settings(bot_instance, query, group_id: int):
     
     # 显示现有的轮播消息
     for bc in broadcasts:
-        broadcast_type = '图片' if bc.get('media', {}).get('type') == 'photo' else \
-                        '视频' if bc.get('media', {}).get('type') == 'video' else \
-                        '文件' if bc.get('media', {}).get('type') == 'document' else '文本'
-                        
-        content_preview = bc.get('text', '')[:20] + '...' if len(bc.get('text', '')) > 20 else bc.get('text', '无内容')   
-        keyboard.append([
-            InlineKeyboardButton(
-                f"📢 {broadcast_type}: {content_preview}", 
-                callback_data=f"broadcast_detail_{bc['_id']}_{group_id}"
-            )
-        ])
+        if bc is None:
+            continue  # 跳过None值
+        
+        try:
+            broadcast_type = '图片' if bc.get('media', {}).get('type') == 'photo' else \
+                            '视频' if bc.get('media', {}).get('type') == 'video' else \
+                            '文件' if bc.get('media', {}).get('type') == 'document' else '文本'
+                            
+            content_preview = bc.get('text', '')[:20] + '...' if len(bc.get('text', '')) > 20 else bc.get('text', '无内容')   
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"📢 {broadcast_type}: {content_preview}", 
+                    callback_data=f"broadcast_detail_{bc['_id']}_{group_id}"
+                )
+            ])
+        except Exception as e:
+            logger.error(f"处理轮播消息时出错: {e}, 消息数据: {bc}")
+            continue  # 跳过有问题的消息
         
     # 添加功能按钮
     keyboard.append([InlineKeyboardButton("➕ 添加轮播消息", callback_data=f"bcform_select_group_{group_id}")])
