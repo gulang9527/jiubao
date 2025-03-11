@@ -529,6 +529,9 @@ async def handle_stats_edit_callback(update: Update, context: CallbackContext, p
     if len(parts) >= 2 and parts[0] == "min" and parts[1].startswith("bytes"):
         action = "min_bytes"
         group_id_part = parts[1].split("_", 1)[1] if "_" in parts[1] else parts[-1]
+    # 处理 toggle_media 特殊情况
+    elif len(parts) >= 2 and parts[0] == "toggle" and parts[1] == "media":
+        action = "toggle_media"
     else:
         if len(parts) < 2:
             await query.edit_message_text("❌ 无效的回调数据")
