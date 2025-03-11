@@ -68,6 +68,11 @@ def register_all_handlers(application, callback_handler):
     callback_handler.register("bcform_", handle_broadcast_form_callback)
     callback_handler.register("auto_delete_", handle_settings_callback)
     callback_handler.register("switch_toggle_", handle_settings_callback)
+    from handlers.keyword_handlers import handle_keyword_detail_callback, handle_keyword_preview_callback, handle_keyword_delete_callback, handle_keyword_confirm_delete_callback
+    callback_handler.register("keyword_detail_", handle_keyword_detail_callback)
+    callback_handler.register("keyword_preview_", handle_keyword_preview_callback)
+    callback_handler.register("keyword_delete_", handle_keyword_delete_callback)
+    callback_handler.register("keyword_confirm_delete_", handle_keyword_confirm_delete_callback)
     
     # 注册轮播消息详情相关回调
     callback_handler.register("broadcast_detail_", handle_broadcast_detail_callback)
