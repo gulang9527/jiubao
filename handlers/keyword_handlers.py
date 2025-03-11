@@ -206,6 +206,7 @@ async def handle_keyword_detail_callback(update: Update, context: CallbackContex
     # 获取关键词详情
     try:
         keyword = await bot_instance.db.get_keyword_by_id(group_id, keyword_id)
+        logger.info(f"关键词数据类型: {type(keyword)}, 内容: {keyword}")
         if not keyword:
             logger.warning(f"找不到关键词: {keyword_id}")
             await query.edit_message_text("❌ 找不到关键词")
