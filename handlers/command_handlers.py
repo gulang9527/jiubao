@@ -518,6 +518,9 @@ async def handle_auth_group(update: Update, context: CallbackContext):
             'feature_switches': {'keywords': True, 'stats': True, 'broadcast': True}
         })
         
+        # 添加默认关键词
+        await bot_instance.add_default_keywords(group_id)
+        
         await update.message.reply_text(f"✅ 已授权群组\n群组：{group_name}\nID：{group_id}\n已启用全部功能")
         
     except ValueError:
@@ -525,7 +528,7 @@ async def handle_auth_group(update: Update, context: CallbackContext):
     except Exception as e:
         logger.error(f"授权群组错误: {e}")
         await update.message.reply_text("❌ 授权群组时出错")
-
+        
 @check_command_usage
 @require_superadmin
 async def handle_deauth_group(update: Update, context: CallbackContext):
@@ -556,3 +559,20 @@ async def handle_deauth_group(update: Update, context: CallbackContext):
     except Exception as e:
         logger.error(f"解除群组授权错误: {e}")
         await update.message.reply_text("❌ 解除群组授权时出错")
+
+    @check_command_usage
+    @require_superadmin
+    async def handle_add_default_keywords(update: Update, context: CallbackContext):
+        """处理/adddefaultkeywords命令 - 为所有群组添加默认关键词"""
+        bot_instance = context.application.bot_data.get('bot_instance')
+        
+        # 获取所有群组
+        groups = await bot_instance.db.find_all_groups()
+        count = 0
+        
+        for group in groups:
+            group_id = group['group_id']
+            await bot_instance.add_default_keywords(group_id)
+            count += 1
+        
+        await update.message.reply_text(f"✅ 已为 {count} 个群组添加默认关键词")
