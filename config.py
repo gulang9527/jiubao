@@ -53,9 +53,9 @@ DEFAULT_SETTINGS = {
 
 # 轮播消息设置
 BROADCAST_SETTINGS = {
-    'min_interval': 300,         # 最小轮播间隔（秒）
+    'min_interval': 5,           # 最小轮播间隔（分钟）
     'max_broadcasts': 10,        # 每个群组最大轮播消息数
-    'check_interval': 60,        # 轮播检查间隔（秒）
+    'check_interval': 1,         # 轮播检查间隔（分钟）
 }
 
 # 关键词设置
