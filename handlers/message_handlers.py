@@ -169,7 +169,7 @@ async def handle_private_message(update: Update, context: CallbackContext):
     logger.info(f"用户 {user_id} 的等待状态: {waiting_for}")
     
     if waiting_for:
-        logger.info(f"用户 {user_id} 在私聊中有等待输入: {waiting_for}")
+    logger.info(f"用户 {user_id} 在私聊中有等待输入: {waiting_for}")
         
         # 关键词表单处理
         if waiting_for.startswith('keyword_'):
