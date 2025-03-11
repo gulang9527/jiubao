@@ -37,43 +37,18 @@ async def handle_keyword_form_callback(update: Update, context: CallbackContext,
     parts = data.split('_')
     logger.info(f"处理关键词表单回调: {parts}")
 
-    if len(parts) < 2:
+    # 验证基本格式
+    if len(parts) < 2 or parts[0] != "kwform":
         logger.error(f"关键词回调数据格式错误: {data}")
         await query.edit_message_text("❌ 无效的操作")
         return
 
-    # 根据前缀判断
-    prefix = parts[0]
-    if prefix != "kwform":
-        logger.error(f"非关键词回调数据: {data}")
-        await query.edit_message_text("❌ 无效的操作")
-        return
-
-    # 初始化 action 和 action_param
-    action = ""
-    action_param = None
+    # 提取操作和参数
+    # 格式: kwform_操作_参数1_参数2...
+    action = parts[1]
+    params = parts[2:] if len(parts) > 2 else []
     
-    # 特殊处理
-    if len(parts) >= 4 and parts[1] == "select" and parts[2] == "group":
-        action = "select_group"
-        group_id = int(parts[3])
-    elif len(parts) >= 3:
-        # 获取动作类型和参数
-        action = parts[1]
-        action_param = parts[2]
-        
-        # 特殊处理一些复合动作
-        if action == "add" and action_param in ["text", "media", "button"]:
-            action = f"add_{action_param}"
-        elif action == "edit" and action_param == "pattern":
-            action = "edit_pattern"
-        elif action in ["pattern", "response", "media", "buttons"] and action_param == "received":
-            action = f"{action}_received"
-    else:
-        action = parts[1]  # 对于简单的情况如 kwform_cancel
-        
-    logger.info(f"关键词表单操作: {action}")
-    
+    logger.info(f"关键词表单操作: {action}, 参数: {params}")
     form_data = context.user_data.get('keyword_form', {})
     logger.info(f"当前关键词表单数据: {form_data}")
 
@@ -86,32 +61,28 @@ async def handle_keyword_form_callback(update: Update, context: CallbackContext,
             del context.user_data['waiting_for']
         await query.edit_message_text("✅ 已取消关键词添加")
         
-    elif action == "select_group":
-        # 选择群组
-        if not group_id:
-            logger.error(f"未提供群组ID: {data}")
-            await query.edit_message_text("❌ 无效的群组选择")
-            return
-            
+    elif action == "select" and len(params) >= 2 and params[0] == "group":
+        # 选择群组: kwform_select_group_123
         try:
+            group_id = int(params[1])
             await start_keyword_form(update, context, group_id)
-        except ValueError:
-            logger.error(f"无效的群组ID格式: {group_id}")
+        except (ValueError, IndexError):
+            logger.error(f"无效的群组ID: {params[1] if len(params) > 1 else 'missing'}")
             await query.edit_message_text("❌ 无效的群组ID")
         
-    elif action == "type":
-        # 选择匹配类型
-        if not action_param or action_param not in ["exact", "regex"]:
-            logger.error(f"未提供有效的匹配类型: {data}")
+    elif action == "type" and len(params) >= 1:
+        # 选择匹配类型: kwform_type_exact 或 kwform_type_regex
+        match_type = params[0]
+        if match_type not in ["exact", "regex"]:
+            logger.error(f"未提供有效的匹配类型: {match_type}")
             await query.edit_message_text("❌ 无效的匹配类型")
             return
             
-        match_type = action_param
         form_data['match_type'] = match_type
         context.user_data['keyword_form'] = form_data
         
         # 提示输入关键词
-        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"kwform_cancel")]]
+        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data="kwform_cancel")]]
         await query.edit_message_text(
             f"已选择: {'精确匹配' if match_type == 'exact' else '正则匹配'}\n\n"
             "请发送关键词内容: \n"
@@ -123,13 +94,13 @@ async def handle_keyword_form_callback(update: Update, context: CallbackContext,
         # 设置等待输入状态
         context.user_data['waiting_for'] = 'keyword_pattern'
         
-    elif action == "pattern_received":
-        # 已收到关键词模式，显示响应选项
+    elif action == "pattern" and len(params) >= 1 and params[0] == "received":
+        # 已收到关键词模式: kwform_pattern_received
         await show_keyword_response_options(update, context)
         
-    elif action == "edit_pattern":
-        # 修改关键词模式
-        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"kwform_cancel")]]
+    elif action == "edit" and len(params) >= 1 and params[0] == "pattern":
+        # 修改关键词模式: kwform_edit_pattern
+        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data="kwform_cancel")]]
         await query.edit_message_text(
             f"当前关键词: {form_data.get('pattern', '')}\n\n"
             "请发送新的关键词内容:\n\n"
@@ -138,57 +109,65 @@ async def handle_keyword_form_callback(update: Update, context: CallbackContext,
         )
         context.user_data['waiting_for'] = 'keyword_pattern'
         
-    elif action == "add_text":
-        # 添加文本响应
-        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"kwform_cancel")]]
-        await query.edit_message_text(
-            "请发送关键词回复的文本内容:\n\n"
-            "发送完后请点击下方出现的「继续」按钮",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        context.user_data['waiting_for'] = 'keyword_response'
+    elif action == "add" and len(params) >= 1:
+        # 添加各种回复: kwform_add_text, kwform_add_media, kwform_add_button
+        add_type = params[0]
         
-    elif action == "add_media":
-        # 添加媒体响应
-        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"kwform_cancel")]]
-        await query.edit_message_text(
-            "请发送要添加的媒体:\n"
-            "• 图片\n"
-            "• 视频\n"
-            "• 文件\n\n"
-            "发送完后请点击下方出现的「继续」按钮",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        context.user_data['waiting_for'] = 'keyword_media'
+        if add_type == "text":
+            # 添加文本响应
+            keyboard = [[InlineKeyboardButton("❌ 取消", callback_data="kwform_cancel")]]
+            await query.edit_message_text(
+                "请发送关键词回复的文本内容:\n\n"
+                "发送完后请点击下方出现的「继续」按钮",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            context.user_data['waiting_for'] = 'keyword_response'
+            
+        elif add_type == "media":
+            # 添加媒体响应
+            keyboard = [[InlineKeyboardButton("❌ 取消", callback_data="kwform_cancel")]]
+            await query.edit_message_text(
+                "请发送要添加的媒体:\n"
+                "• 图片\n"
+                "• 视频\n"
+                "• 文件\n\n"
+                "发送完后请点击下方出现的「继续」按钮",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            context.user_data['waiting_for'] = 'keyword_media'
+            
+        elif add_type == "button":
+            # 添加按钮
+            keyboard = [[InlineKeyboardButton("❌ 取消", callback_data="kwform_cancel")]]
+            await query.edit_message_text(
+                "请发送按钮信息，格式:\n\n"
+                "按钮文字|https://网址\n\n"
+                "每行一个按钮，例如:\n"
+                "访问官网|https://example.com\n"
+                "联系我们|https://t.me/username\n\n"
+                "发送完后请点击下方出现的「继续」按钮",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            context.user_data['waiting_for'] = 'keyword_buttons'
+            
+        else:
+            logger.warning(f"未知的添加类型: {add_type}")
+            await query.edit_message_text("❌ 未知的添加类型")
         
-    elif action == "add_button":
-        # 添加按钮
-        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"kwform_cancel")]]
-        await query.edit_message_text(
-            "请发送按钮信息，格式:\n\n"
-            "按钮文字|https://网址\n\n"
-            "每行一个按钮，例如:\n"
-            "访问官网|https://example.com\n"
-            "联系我们|https://t.me/username\n\n"
-            "发送完后请点击下方出现的「继续」按钮",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        context.user_data['waiting_for'] = 'keyword_buttons'
-        
-    elif action in ["response_received", "media_received", "buttons_received"]:
-        # 已收到各类数据，显示表单选项
+    elif action in ["response", "media", "buttons"] and len(params) >= 1 and params[0] == "received":
+        # 已收到各类数据: kwform_response_received, kwform_media_received, kwform_buttons_received
         await show_keyword_response_options(update, context)
         
     elif action == "preview":
-        # 预览关键词响应
+        # 预览关键词响应: kwform_preview
         await preview_keyword_response(update, context)
         
     elif action == "submit":
-        # 提交关键词
+        # 提交关键词: kwform_submit
         await submit_keyword_form(update, context)
         
     else:
-        logger.warning(f"未知的关键词表单操作: {action}")
+        logger.warning(f"未知的关键词表单操作: {action}, 参数: {params}")
         await query.edit_message_text("❌ 未知操作")
 
 #######################################
