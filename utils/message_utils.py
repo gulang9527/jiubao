@@ -20,10 +20,16 @@ def get_media_type(message: Message) -> Optional[str]:
         媒体类型或None
     """
     if not message:
+        logger.warning("获取媒体类型: 消息对象为空")
         return None
         
     try:
+        logger.info(f"获取媒体类型: message.photo={bool(message.photo)}, "
+                   f"message.video={bool(message.video)}, "
+                   f"message.document={bool(message.document)}")
+        
         if message.photo:
+            logger.info(f"识别为photo类型, photo数组长度: {len(message.photo)}")
             return 'photo'
         elif message.video:
             return 'video'
@@ -39,9 +45,11 @@ def get_media_type(message: Message) -> Optional[str]:
             return 'video_note'
         elif message.sticker:
             return 'sticker'
+            
+        logger.warning("未识别到任何媒体类型")
         return None
     except Exception as e:
-        logger.error(f"获取媒体类型出错: {e}")
+        logger.error(f"获取媒体类型出错: {e}", exc_info=True)
         return None
 
 def get_file_id(message: Message) -> Optional[str]:
@@ -55,12 +63,21 @@ def get_file_id(message: Message) -> Optional[str]:
         文件ID或None
     """
     if not message:
+        logger.warning("获取文件ID: 消息对象为空")
         return None
         
     try:
         if message.photo:
             # 照片是一个数组，取最后一个（最大尺寸）
-            return message.photo[-1].file_id
+            photo_sizes = len(message.photo)
+            logger.info(f"获取photo文件ID, 共{photo_sizes}种尺寸")
+            if photo_sizes > 0:
+                file_id = message.photo[-1].file_id
+                logger.info(f"获取到photo文件ID: {file_id}")
+                return file_id
+            else:
+                logger.warning("photo数组为空")
+                return None
         elif message.video:
             return message.video.file_id
         elif message.document:
@@ -75,9 +92,11 @@ def get_file_id(message: Message) -> Optional[str]:
             return message.video_note.file_id
         elif message.sticker:
             return message.sticker.file_id
+            
+        logger.warning("未能获取到文件ID")
         return None
     except Exception as e:
-        logger.error(f"获取文件ID出错: {e}")
+        logger.error(f"获取文件ID出错: {e}", exc_info=True)
         return None
 
 def get_message_size(message: Message) -> int:
