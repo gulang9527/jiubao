@@ -68,20 +68,36 @@ async def handle_form_input(update: Update, context: CallbackContext) -> bool:
     waiting_for = context.user_data.get('waiting_for')
     
     if not waiting_for:
+        logger.debug(f"用户 {user_id} 没有等待中的表单输入")
         return False
         
     message = update.effective_message
-    logger.info(f"处理表单输入: {waiting_for}")
+    logger.info(f"处理表单输入: {waiting_for}, 用户ID: {user_id}")
+    logger.info(f"消息类型: {type(message)}, 消息内容: text={bool(message.text)}, photo={bool(message.photo)}")
     
     # 关键词表单处理
     if waiting_for.startswith('keyword_'):
+        logger.info(f"处理关键词表单输入: {waiting_for}")
         from handlers.keyword_handlers import handle_keyword_form_input
-        return await handle_keyword_form_input(update, context, waiting_for)
+        try:
+            handled = await handle_keyword_form_input(update, context, waiting_for)
+            logger.info(f"关键词表单处理结果: {handled}")
+            return handled
+        except Exception as e:
+            logger.error(f"处理关键词表单输入出错: {e}", exc_info=True)
+            return False
     
     # 轮播消息表单处理
     elif waiting_for.startswith('broadcast_'):
+        logger.info(f"处理轮播消息表单输入: {waiting_for}")
         from handlers.broadcast_handlers import handle_broadcast_form_input
-        return await handle_broadcast_form_input(update, context, waiting_for)
+        try:
+            handled = await handle_broadcast_form_input(update, context, waiting_for)
+            logger.info(f"轮播消息表单处理结果: {handled}")
+            return handled
+        except Exception as e:
+            logger.error(f"处理轮播消息表单输入出错: {e}", exc_info=True)
+            return False
         
     logger.warning(f"未知的表单输入类型: {waiting_for}")
     return False
