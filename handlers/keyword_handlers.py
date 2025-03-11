@@ -293,6 +293,7 @@ async def handle_keyword_preview_callback(update: Update, context: CallbackConte
     # 获取内容数据
     text = keyword.get('response', '')
     media = keyword.get('media')
+    media_type = media.get('type', '无') if media else '无'
     buttons = keyword.get('buttons', [])
     
     # 创建按钮键盘(如果有)
