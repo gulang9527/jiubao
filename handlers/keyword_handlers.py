@@ -205,7 +205,7 @@ async def handle_keyword_detail_callback(update: Update, context: CallbackContex
     
     # 获取关键词详情
     try:
-        keyword = await bot_instance.db.get_keyword_by_id(keyword_id)
+        keyword = await bot_instance.db.get_keyword_by_id(group_id, keyword_id)
         if not keyword:
             logger.warning(f"找不到关键词: {keyword_id}")
             await query.edit_message_text("❌ 找不到关键词")
@@ -284,7 +284,7 @@ async def handle_keyword_preview_callback(update: Update, context: CallbackConte
     group_id = int(parts[3])
     
     # 获取关键词
-    keyword = await bot_instance.db.get_keyword_by_id(keyword_id)
+    keyword = await bot_instance.db.get_keyword_by_id(group_id, keyword_id)
     if not keyword:
         await query.edit_message_text("❌ 找不到关键词")
         return
