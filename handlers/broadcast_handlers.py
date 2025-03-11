@@ -702,27 +702,41 @@ async def handle_broadcast_form_input(update: Update, context: CallbackContext, 
         
     elif input_type == 'broadcast_media':
         # 接收轮播媒体
+        logger.info(f"处理轮播媒体输入, 消息类型: {type(message)}")
+        logger.info(f"消息内容: photo={bool(message.photo)}, video={bool(message.video)}, document={bool(message.document)}")
+        
         media_type = get_media_type(message)
+        logger.info(f"获取到媒体类型: {media_type}")
+        
         if not media_type:
+            logger.warning(f"未能获取到媒体类型, message={message}")
             await message.reply_text("❌ 请发送图片、视频或文件")
             return True
             
         # 存储媒体信息
         file_id = get_file_id(message)
+        logger.info(f"获取到文件ID: {file_id}")
+        
         if not file_id:
+            logger.warning(f"未能获取到文件ID, media_type={media_type}")
             await message.reply_text("❌ 无法获取媒体文件ID")
             return True
             
         form_data['media'] = {'type': media_type, 'file_id': file_id}
         context.user_data['broadcast_form'] = form_data
         context.user_data.pop('waiting_for', None)
+        logger.info(f"成功设置媒体: type={media_type}, file_id={file_id}")
         
         # 提供继续按钮
         keyboard = [[InlineKeyboardButton("继续", callback_data="bcform_media_received")]]
-        await message.reply_text(
-            f"✅ 已设置{media_type}媒体\n\n点击「继续」进行下一步",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        try:
+            await message.reply_text(
+                f"✅ 已设置{media_type}媒体\n\n点击「继续」进行下一步",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            logger.info("成功发送媒体设置确认消息")
+        except Exception as e:
+            logger.error(f"发送媒体设置确认消息失败: {e}", exc_info=True)
         return True
         
     elif input_type == 'broadcast_buttons':
