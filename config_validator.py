@@ -68,8 +68,8 @@ def validate_config(config_module):
             
         # 验证最小轮播间隔
         min_interval = broadcast_settings.get('min_interval', 0)
-        if min_interval < 10:
-            raise ConfigValidationError(f"最小轮播间隔({min_interval})不能小于10秒")
+        if min_interval < 1:  # 最小1分钟
+            raise ConfigValidationError(f"最小轮播间隔({min_interval})不能小于1分钟")
             
         # 验证时区设置
         timezone_str = getattr(config_module, 'TIMEZONE_STR', None)
