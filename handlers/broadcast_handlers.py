@@ -188,7 +188,7 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
             elif repeat_type == 'hourly':
                 form_data['repeat_interval'] = 60  # 默认间隔60分钟
             elif repeat_type == 'daily':
-                form_data['repeat_interval'] = 24  # 默认间隔24小时
+                form_data['repeat_interval'] = 1440  # 默认间隔24小时
             elif repeat_type == 'custom':
                 # 提示用户设置自定义间隔
                 keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
