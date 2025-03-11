@@ -455,6 +455,8 @@ async def handle_keyword_form_input(update: Update, context: CallbackContext, in
     form_data = context.user_data.get('keyword_form', {})
     user_id = update.effective_user.id
     
+    logger.info(f"处理关键词表单输入: {input_type}, 用户ID: {user_id}")
+    
     if not form_data:
         logger.warning(f"用户 {user_id} 处于关键词输入模式但无表单数据")
         await message.reply_text("❌ 关键词表单数据丢失，请重新开始")
@@ -465,7 +467,10 @@ async def handle_keyword_form_input(update: Update, context: CallbackContext, in
     if input_type == 'keyword_pattern':
         # 接收关键词模式
         pattern = message.text
+        logger.info(f"接收到关键词模式: {pattern}")
+        
         if not pattern or len(pattern) > 100:
+            logger.warning(f"关键词长度无效: {len(pattern) if pattern else 0}")
             await message.reply_text("❌ 关键词长度必须在1-100字符之间")
             return True
             
@@ -473,19 +478,27 @@ async def handle_keyword_form_input(update: Update, context: CallbackContext, in
         form_data['pattern'] = pattern
         context.user_data['keyword_form'] = form_data
         context.user_data.pop('waiting_for', None)
+        logger.info(f"成功设置关键词模式: {pattern}")
         
         # 提供继续按钮
         keyboard = [[InlineKeyboardButton("继续", callback_data="kwform_pattern_received")]]
-        await message.reply_text(
-            f"✅ 已设置关键词: {pattern}\n\n点击「继续」设置回复内容",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        try:
+            await message.reply_text(
+                f"✅ 已设置关键词: {pattern}\n\n点击「继续」设置回复内容",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            logger.info("成功发送关键词设置确认消息")
+        except Exception as e:
+            logger.error(f"发送关键词设置确认消息失败: {e}", exc_info=True)
         return True
         
     elif input_type == 'keyword_response':
         # 接收关键词回复文本
         response = message.text
+        logger.info(f"接收到关键词回复文本, 长度: {len(response) if response else 0}")
+        
         if not response or len(response) > 1000:
+            logger.warning(f"回复内容长度无效: {len(response) if response else 0}")
             await message.reply_text("❌ 回复内容长度必须在1-1000字符之间")
             return True
             
@@ -493,43 +506,64 @@ async def handle_keyword_form_input(update: Update, context: CallbackContext, in
         form_data['response'] = response
         context.user_data['keyword_form'] = form_data
         context.user_data.pop('waiting_for', None)
+        logger.info(f"成功设置关键词回复文本, 长度: {len(response)}")
         
         # 提供继续按钮
         keyboard = [[InlineKeyboardButton("继续", callback_data="kwform_response_received")]]
-        await message.reply_text(
-            f"✅ 已设置回复文本\n\n点击「继续」进行下一步",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        try:
+            await message.reply_text(
+                f"✅ 已设置回复文本\n\n点击「继续」进行下一步",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            logger.info("成功发送回复文本设置确认消息")
+        except Exception as e:
+            logger.error(f"发送回复文本设置确认消息失败: {e}", exc_info=True)
         return True
         
     elif input_type == 'keyword_media':
         # 接收关键词回复媒体
+        logger.info(f"处理关键词媒体输入, 消息类型: {type(message)}")
+        logger.info(f"消息内容: photo={bool(message.photo)}, video={bool(message.video)}, document={bool(message.document)}")
+        
         media_type = get_media_type(message)
+        logger.info(f"获取到媒体类型: {media_type}")
+        
         if not media_type:
+            logger.warning(f"未能获取到媒体类型, message={message}")
             await message.reply_text("❌ 请发送图片、视频或文件")
             return True
             
         # 存储媒体信息
         file_id = get_file_id(message)
+        logger.info(f"获取到文件ID: {file_id}")
+        
         if not file_id:
+            logger.warning(f"未能获取到文件ID, media_type={media_type}")
             await message.reply_text("❌ 无法获取媒体文件ID")
             return True
             
         form_data['media'] = {'type': media_type, 'file_id': file_id}
         context.user_data['keyword_form'] = form_data
         context.user_data.pop('waiting_for', None)
+        logger.info(f"成功设置媒体: type={media_type}, file_id={file_id}")
         
         # 提供继续按钮
         keyboard = [[InlineKeyboardButton("继续", callback_data="kwform_media_received")]]
-        await message.reply_text(
-            f"✅ 已设置{media_type}媒体\n\n点击「继续」进行下一步",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        try:
+            await message.reply_text(
+                f"✅ 已设置{media_type}媒体\n\n点击「继续」进行下一步",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            logger.info("成功发送媒体设置确认消息")
+        except Exception as e:
+            logger.error(f"发送媒体设置确认消息失败: {e}", exc_info=True)
         return True
         
     elif input_type == 'keyword_buttons':
         # 接收按钮配置
         lines = message.text.strip().split('\n')
+        logger.info(f"接收到按钮配置, 行数: {len(lines)}")
+        
         buttons = []
         error_lines = []
         
@@ -543,17 +577,21 @@ async def handle_keyword_form_input(update: Update, context: CallbackContext, in
                 if separator in line:
                     parts = line.split(separator, 1)  # 只分割一次，以防URL中包含分隔符
                     text, url = parts[0].strip(), parts[1].strip()
+                    logger.info(f"解析行 {i}: 分隔符='{separator}', 文本='{text}', URL='{url}'")
                     
                     # 检查URL格式
                     if text and url and (url.startswith(('http://', 'https://', 't.me/'))):
                         buttons.append({'text': text, 'url': url})
                         button_found = True
+                        logger.info(f"成功解析按钮: text='{text}', url='{url}'")
                         break
             
             if not button_found:
                 error_lines.append(i)
+                logger.warning(f"行 {i} 格式不正确: '{line}'")
         
         if error_lines:
+            logger.warning(f"有 {len(error_lines)} 行按钮格式不正确: {error_lines}")
             await message.reply_text(
                 f"❌ 第 {', '.join(map(str, error_lines))} 行格式不正确\n"
                 "请使用以下格式之一，每行一个按钮:\n"
@@ -566,10 +604,12 @@ async def handle_keyword_form_input(update: Update, context: CallbackContext, in
             return True
         
         if not buttons:
+            logger.warning("未能解析任何有效按钮")
             await message.reply_text("❌ 未能解析任何有效按钮")
             return True
         
         if len(buttons) > 10:
+            logger.warning(f"按钮数量超过限制: {len(buttons)}")
             await message.reply_text("❌ 按钮数量不能超过10个")
             return True
         
@@ -577,15 +617,21 @@ async def handle_keyword_form_input(update: Update, context: CallbackContext, in
         form_data['buttons'] = buttons
         context.user_data['keyword_form'] = form_data
         context.user_data.pop('waiting_for', None)
+        logger.info(f"成功设置 {len(buttons)} 个按钮")
         
         # 提供继续按钮
         keyboard = [[InlineKeyboardButton("继续", callback_data="kwform_buttons_received")]]
-        await message.reply_text(
-            f"✅ 已设置 {len(buttons)} 个按钮\n\n点击「继续」进行下一步",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        try:
+            await message.reply_text(
+                f"✅ 已设置 {len(buttons)} 个按钮\n\n点击「继续」进行下一步",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            logger.info("成功发送按钮设置确认消息")
+        except Exception as e:
+            logger.error(f"发送按钮设置确认消息失败: {e}", exc_info=True)
         return True
         
+    logger.info(f"未处理的关键词输入类型: {input_type}")
     return False
 
 #######################################
