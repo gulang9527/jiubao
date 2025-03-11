@@ -560,19 +560,19 @@ async def handle_deauth_group(update: Update, context: CallbackContext):
         logger.error(f"解除群组授权错误: {e}")
         await update.message.reply_text("❌ 解除群组授权时出错")
 
-    @check_command_usage
-    @require_superadmin
-    async def handle_add_default_keywords(update: Update, context: CallbackContext):
-        """处理/adddefaultkeywords命令 - 为所有群组添加默认关键词"""
-        bot_instance = context.application.bot_data.get('bot_instance')
-        
-        # 获取所有群组
-        groups = await bot_instance.db.find_all_groups()
-        count = 0
-        
-        for group in groups:
-            group_id = group['group_id']
-            await bot_instance.add_default_keywords(group_id)
-            count += 1
-        
-        await update.message.reply_text(f"✅ 已为 {count} 个群组添加默认关键词")
+@check_command_usage
+@require_superadmin
+async def handle_add_default_keywords(update: Update, context: CallbackContext):
+    """处理/adddefaultkeywords命令 - 为所有群组添加默认关键词"""
+    bot_instance = context.application.bot_data.get('bot_instance')
+    
+    # 获取所有群组
+    groups = await bot_instance.db.find_all_groups()
+    count = 0
+    
+    for group in groups:
+        group_id = group['group_id']
+        await bot_instance.add_default_keywords(group_id)
+        count += 1
+    
+    await update.message.reply_text(f"✅ 已为 {count} 个群组添加默认关键词")
