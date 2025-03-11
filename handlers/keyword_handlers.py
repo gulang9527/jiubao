@@ -218,7 +218,8 @@ async def handle_keyword_detail_callback(update: Update, context: CallbackContex
         match_type_text = '精确匹配' if match_type == 'exact' else '正则匹配'
         
         # 获取媒体类型和文本内容
-        media_type = keyword.get('media', {}).get('type', '无')
+        media = keyword.get('media')
+        media_type = media.get('type', '无') if media else '无'
         media_info = f"📎 媒体类型: {media_type}" if media_type else "📝 仅文本回复"
         text = keyword.get('response', '无文本内容')
         
