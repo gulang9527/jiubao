@@ -644,11 +644,43 @@ class Database:
         """
         await self.ensure_connected()
         try:
-            obj_id = ObjectId(keyword_id)
-            return await self.db.keywords.find_one({
+            logger.info(f"尝试获取关键词 - group_id: {group_id}, keyword_id: {keyword_id}")
+            
+            # 验证ObjectId
+            try:
+                obj_id = ObjectId(keyword_id)
+                logger.info(f"已转换为ObjectId: {obj_id}")
+            except Exception as e:
+                logger.error(f"转换ObjectId失败: {keyword_id}, 错误: {e}")
+                return None
+            
+            # 尝试方法1：使用提供的群组ID和对象ID查询
+            result = await self.db.keywords.find_one({
                 'group_id': group_id,
                 '_id': obj_id
             })
+            
+            if result:
+                logger.info(f"使用group_id={group_id}查找成功")
+                return result
+                
+            # 尝试方法2：仅使用对象ID查询
+            logger.warning(f"使用group_id={group_id}查找失败，尝试仅用ID查询")
+            alt_result = await self.db.keywords.find_one({'_id': obj_id})
+            
+            if alt_result:
+                actual_group_id = alt_result.get('group_id')
+                logger.warning(f"找到关键词，但群组ID不匹配: 预期={group_id}, 实际={actual_group_id}")
+                
+                # 选项1：返回找到的结果，忽略群组ID不匹配
+                return alt_result
+                
+                # 选项2：如果想严格匹配群组ID，则取消注释下面行并注释上面的return
+                # return None
+            else:
+                logger.warning(f"关键词ID {keyword_id} 在数据库中不存在")
+                return None
+                
         except Exception as e:
             logger.error(f"获取关键词失败: {e}", exc_info=True)
             return None
