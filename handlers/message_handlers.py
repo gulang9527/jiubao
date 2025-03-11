@@ -29,7 +29,11 @@ async def handle_message(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     group_id = update.effective_chat.id
     
-    logger.info(f"处理消息 - 用户ID: {user_id}, 消息内容: {message.text}")
+    if message.text:
+        logger.info(f"处理消息 - 用户ID: {user_id}, 消息内容: {message.text}")
+    else:
+        media_type = get_media_type(message)
+        logger.info(f"处理消息 - 用户ID: {user_id}, 消息类型: {media_type or '未知'}")
     if update.effective_user:
         logger.info(f"用户 {user_id} 的上下文数据: {context.user_data}")
     
