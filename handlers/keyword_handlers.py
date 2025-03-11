@@ -36,22 +36,38 @@ async def handle_keyword_form_callback(update: Update, context: CallbackContext,
     # 解析回调数据
     parts = data.split('_')
     logger.info(f"处理关键词表单回调: {parts}")
-    
-    if len(parts) < 3:
+
+    if len(parts) < 2:
         logger.error(f"关键词回调数据格式错误: {data}")
         await query.edit_message_text("❌ 无效的操作")
         return
-    
-    # 更健壮的动作解析
-    if parts[1] == "select" and len(parts) > 2 and parts[2] == "group":
+
+    # 根据前缀判断
+    prefix = parts[0]
+    if prefix != "kwform":
+        logger.error(f"非关键词回调数据: {data}")
+        await query.edit_message_text("❌ 无效的操作")
+        return
+
+    # 特殊处理
+    if len(parts) >= 4 and parts[1] == "select" and parts[2] == "group":
         action = "select_group"
-        action_param = parts[3] if len(parts) > 3 else None
-    elif parts[1] == "type":
-        action = "type"
-        action_param = parts[2] if len(parts) > 2 else None
+        group_id = int(parts[3])
+    elif len(parts) >= 3:
+        # 获取动作类型
+        if parts[1] in ["add", "type", "edit", "pattern", "response", "media", "buttons"]:
+            if parts[1] == "add" and parts[2] in ["text", "media", "button"]:
+                action = f"add_{parts[2]}"
+            elif parts[1] == "edit" and parts[2] == "pattern":
+                action = "edit_pattern"
+            elif parts[1] in ["pattern", "response", "media", "buttons"] and parts[2] == "received":
+                action = f"{parts[1]}_received"
+            else:
+                action = parts[2]
+        else:
+            action = parts[1]
     else:
-        action = parts[2] if len(parts) > 2 else "unknown"
-        action_param = parts[3] if len(parts) > 3 else None
+        action = parts[1]  # 对于简单的情况如 kwform_cancel
         
     logger.info(f"关键词表单操作: {action}")
     
