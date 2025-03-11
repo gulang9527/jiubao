@@ -140,11 +140,14 @@ async def handle_keyword_form_callback(update: Update, context: CallbackContext,
             # 添加按钮
             keyboard = [[InlineKeyboardButton("❌ 取消", callback_data="kwform_cancel")]]
             await query.edit_message_text(
-                "请发送按钮信息，格式:\n\n"
-                "按钮文字|https://网址\n\n"
-                "每行一个按钮，例如:\n"
-                "访问官网|https://example.com\n"
-                "联系我们|https://t.me/username\n\n"
+                "请发送按钮信息，每行一个按钮，格式灵活:\n\n"
+                "文字 网址\n"
+                "文字-网址\n"
+                "文字,网址\n"
+                "文字|网址\n\n"
+                "例如:\n"
+                "访问官网 https://example.com\n"
+                "联系我们 https://t.me/username\n\n"
                 "发送完后请点击下方出现的「继续」按钮",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
@@ -457,34 +460,43 @@ async def handle_keyword_form_input(update: Update, context: CallbackContext, in
         for i, line in enumerate(lines, 1):
             if not line.strip():
                 continue
-                
-            parts = line.split('|')
-            if len(parts) != 2:
+            
+            # 尝试多种分隔符
+            button_found = False
+            for separator in ['|', ' ', '-', ',']:
+                if separator in line:
+                    parts = line.split(separator, 1)  # 只分割一次，以防URL中包含分隔符
+                    text, url = parts[0].strip(), parts[1].strip()
+                    
+                    # 检查URL格式
+                    if text and url and (url.startswith(('http://', 'https://', 't.me/'))):
+                        buttons.append({'text': text, 'url': url})
+                        button_found = True
+                        break
+            
+            if not button_found:
                 error_lines.append(i)
-                continue
-                
-            text, url = parts[0].strip(), parts[1].strip()
-            if not text or not url or not url.startswith(('http://', 'https://', 't.me/')):
-                error_lines.append(i)
-                continue
-                
-            buttons.append({'text': text, 'url': url})
         
         if error_lines:
             await message.reply_text(
                 f"❌ 第 {', '.join(map(str, error_lines))} 行格式不正确\n"
-                "请使用「按钮文字|网址」格式，每行一个按钮"
+                "请使用以下格式之一，每行一个按钮:\n"
+                "• 按钮文字|网址\n"
+                "• 按钮文字 网址\n"
+                "• 按钮文字-网址\n"
+                "• 按钮文字,网址\n"
+                "例如: 访问官网 https://example.com"
             )
             return True
-            
+        
         if not buttons:
             await message.reply_text("❌ 未能解析任何有效按钮")
             return True
-            
+        
         if len(buttons) > 10:
             await message.reply_text("❌ 按钮数量不能超过10个")
             return True
-            
+        
         # 存储按钮配置
         form_data['buttons'] = buttons
         context.user_data['keyword_form'] = form_data
