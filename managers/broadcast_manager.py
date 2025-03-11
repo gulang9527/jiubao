@@ -73,9 +73,9 @@ class BroadcastManager:
             
         # 验证间隔
         import config
-        min_interval = config.BROADCAST_SETTINGS.get('min_interval', 300)  # 默认最小5分钟
+        min_interval = config.BROADCAST_SETTINGS.get('min_interval', 5)  # 默认最小5分钟
         if data['interval'] < min_interval:
-            raise ValueError(f"间隔不能小于 {min_interval} 秒")
+            raise ValueError(f"间隔不能小于 {min_interval} 分钟")
             
     async def remove_broadcast(self, group_id: int, broadcast_id: str) -> bool:
         """
