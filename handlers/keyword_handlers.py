@@ -49,23 +49,26 @@ async def handle_keyword_form_callback(update: Update, context: CallbackContext,
         await query.edit_message_text("❌ 无效的操作")
         return
 
+    # 初始化 action 和 action_param
+    action = ""
+    action_param = None
+    
     # 特殊处理
     if len(parts) >= 4 and parts[1] == "select" and parts[2] == "group":
         action = "select_group"
         group_id = int(parts[3])
     elif len(parts) >= 3:
-        # 获取动作类型
-        if parts[1] in ["add", "type", "edit", "pattern", "response", "media", "buttons"]:
-            if parts[1] == "add" and parts[2] in ["text", "media", "button"]:
-                action = f"add_{parts[2]}"
-            elif parts[1] == "edit" and parts[2] == "pattern":
-                action = "edit_pattern"
-            elif parts[1] in ["pattern", "response", "media", "buttons"] and parts[2] == "received":
-                action = f"{parts[1]}_received"
-            else:
-                action = parts[2]
-        else:
-            action = parts[1]
+        # 获取动作类型和参数
+        action = parts[1]
+        action_param = parts[2]
+        
+        # 特殊处理一些复合动作
+        if action == "add" and action_param in ["text", "media", "button"]:
+            action = f"add_{action_param}"
+        elif action == "edit" and action_param == "pattern":
+            action = "edit_pattern"
+        elif action in ["pattern", "response", "media", "buttons"] and action_param == "received":
+            action = f"{action}_received"
     else:
         action = parts[1]  # 对于简单的情况如 kwform_cancel
         
@@ -85,13 +88,12 @@ async def handle_keyword_form_callback(update: Update, context: CallbackContext,
         
     elif action == "select_group":
         # 选择群组
-        if not group_id:  # 修改这里，使用已经解析出来的 group_id 变量
+        if not group_id:
             logger.error(f"未提供群组ID: {data}")
             await query.edit_message_text("❌ 无效的群组选择")
             return
             
         try:
-            # group_id 已经在前面解析并转换为整数了，不需要再次转换
             await start_keyword_form(update, context, group_id)
         except ValueError:
             logger.error(f"无效的群组ID格式: {group_id}")
@@ -99,12 +101,12 @@ async def handle_keyword_form_callback(update: Update, context: CallbackContext,
         
     elif action == "type":
         # 选择匹配类型
-        match_type = action_param  # 使用之前解析的 action_param
-        if not match_type:
-            logger.error(f"未提供匹配类型: {data}")
+        if not action_param or action_param not in ["exact", "regex"]:
+            logger.error(f"未提供有效的匹配类型: {data}")
             await query.edit_message_text("❌ 无效的匹配类型")
             return
             
+        match_type = action_param
         form_data['match_type'] = match_type
         context.user_data['keyword_form'] = form_data
         
