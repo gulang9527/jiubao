@@ -2,7 +2,7 @@
 处理器模块初始化文件
 """
 import logging
-from telegram.ext import MessageHandler, filters
+from telegram.ext import CommandHandler, MessageHandler, CallbackQueryHandler, filters
 
 from handlers.command_handlers import (
     handle_start, handle_settings, handle_rank_command, 
@@ -42,12 +42,6 @@ def register_all_handlers(application, callback_handler):
     application.add_handler(CommandHandler("checkconfig", handle_check_config))
     application.add_handler(CommandHandler("adddefaultkeywords", handle_add_default_keywords))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND,
-        handle_message
-    ))
-    
-    # 单独添加媒体消息处理器
     application.add_handler(MessageHandler(
         (filters.PHOTO | filters.VIDEO | 
          filters.Document.ALL | filters.ANIMATION) & ~filters.COMMAND,
