@@ -409,85 +409,85 @@ class TelegramBot:
                 })
                 logger.info(f"已为群组 {group_id} 添加'月排行'关键词")
     
-        async def _handle_daily_rank(self, message):
-            """
-            处理"日排行"关键词
+    async def _handle_daily_rank(self, message):
+        """
+        处理"日排行"关键词
+        
+        参数:
+            message: 消息对象
             
-            参数:
-                message: 消息对象
-                
-            返回:
-                命令ID或None
-            """
-            try:
-                # 移除提示消息
-                # await message.reply_text("正在查询今日排行...")
-                
-                # 执行tongji命令的逻辑
-                from handlers.command_handlers import handle_rank_command
-                
-                # 创建一个简单的上下文
-                from telegram.ext import ContextTypes
-                context = ContextTypes.DEFAULT_TYPE(self.application)
-                context.args = []
-                
-                # 创建一个假的Update对象，确保使用/tongji命令
-                message_dict = message.to_dict()
-                # 修改这里，确保使用正确的日排行命令
-                message_dict['text'] = '/tongji'
-                fake_message = message.__class__.de_json(message_dict, self.application.bot)
-                
-                fake_update = Update(
-                    update_id=message.message_id,
-                    message=fake_message
-                )
-                
-                # 执行命令
-                await handle_rank_command(fake_update, context)
-                return "daily_rank_executed"
-            except Exception as e:
-                logger.error(f"处理日排行关键词出错: {e}", exc_info=True)
-                return None
+        返回:
+            命令ID或None
+        """
+        try:
+            # 移除提示消息
+            # await message.reply_text("正在查询今日排行...")
             
-        async def _handle_monthly_rank(self, message):
-            """
-            处理"月排行"关键词
+            # 执行tongji命令的逻辑
+            from handlers.command_handlers import handle_rank_command
             
-            参数:
-                message: 消息对象
-                
-            返回:
-                命令ID或None
-            """
-            try:
-                # 移除提示消息
-                # await message.reply_text("正在查询月度排行...")
-                
-                # 执行tongji30命令的逻辑
-                from handlers.command_handlers import handle_rank_command
-                
-                # 创建一个简单的上下文
-                from telegram.ext import ContextTypes
-                context = ContextTypes.DEFAULT_TYPE(self.application)
-                context.args = []
-                
-                # 创建一个假的Update对象，模拟tongji30命令
-                # 需要修改message的text属性来模拟不同的命令
-                message_dict = message.to_dict()
-                message_dict['text'] = '/tongji30'
-                fake_message = message.__class__.de_json(message_dict, self.application.bot)
-                
-                fake_update = Update(
-                    update_id=message.message_id,
-                    message=fake_message
-                )
-                
-                # 执行命令
-                await handle_rank_command(fake_update, context)
-                return "monthly_rank_executed"
-            except Exception as e:
-                logger.error(f"处理月排行关键词出错: {e}", exc_info=True)
-                return None
+            # 创建一个简单的上下文
+            from telegram.ext import ContextTypes
+            context = ContextTypes.DEFAULT_TYPE(self.application)
+            context.args = []
+            
+            # 创建一个假的Update对象，确保使用/tongji命令
+            message_dict = message.to_dict()
+            # 修改这里，确保使用正确的日排行命令
+            message_dict['text'] = '/tongji'
+            fake_message = message.__class__.de_json(message_dict, self.application.bot)
+            
+            fake_update = Update(
+                update_id=message.message_id,
+                message=fake_message
+            )
+            
+            # 执行命令
+            await handle_rank_command(fake_update, context)
+            return "daily_rank_executed"
+        except Exception as e:
+            logger.error(f"处理日排行关键词出错: {e}", exc_info=True)
+            return None
+        
+    async def _handle_monthly_rank(self, message):
+        """
+        处理"月排行"关键词
+        
+        参数:
+            message: 消息对象
+            
+        返回:
+            命令ID或None
+        """
+        try:
+            # 移除提示消息
+            # await message.reply_text("正在查询月度排行...")
+            
+            # 执行tongji30命令的逻辑
+            from handlers.command_handlers import handle_rank_command
+            
+            # 创建一个简单的上下文
+            from telegram.ext import ContextTypes
+            context = ContextTypes.DEFAULT_TYPE(self.application)
+            context.args = []
+            
+            # 创建一个假的Update对象，模拟tongji30命令
+            # 需要修改message的text属性来模拟不同的命令
+            message_dict = message.to_dict()
+            message_dict['text'] = '/tongji30'
+            fake_message = message.__class__.de_json(message_dict, self.application.bot)
+            
+            fake_update = Update(
+                update_id=message.message_id,
+                message=fake_message
+            )
+            
+            # 执行命令
+            await handle_rank_command(fake_update, context)
+            return "monthly_rank_executed"
+        except Exception as e:
+            logger.error(f"处理月排行关键词出错: {e}", exc_info=True)
+            return None
 
     async def _schedule_delete(self, message, timeout: int):
         """计划删除消息"""
