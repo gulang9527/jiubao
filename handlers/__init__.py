@@ -43,15 +43,18 @@ def register_all_handlers(application, callback_handler):
     application.add_handler(CommandHandler("adddefaultkeywords", handle_add_default_keywords))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(MessageHandler(
-        (filters.PHOTO | filters.VIDEO | 
-         filters.Document.ALL | filters.ANIMATION) & ~filters.COMMAND,
+        (filters.TEXT | filters.PHOTO | filters.VIDEO | filters.DOCUMENT | filters.ANIMATION) & ~filters.COMMAND,
         handle_message
     ))
-                
+        
     
     # 添加简化的关键词和广播处理器
     application.add_handler(CommandHandler("easykeyword", handle_easy_keyword))
     application.add_handler(CommandHandler("easybroadcast", handle_easy_broadcast))
+
+    # 注册命令自动删除中间件 - 在这里添加
+    from handlers.command_auto_delete_middleware import command_auto_delete_middleware
+    application.add_handler(MessageHandler(filters.COMMAND, command_auto_delete_middleware), group=-1)
 
     # 注册回调查询处理器
     application.add_handler(CallbackQueryHandler(handle_callback))
@@ -96,5 +99,3 @@ def register_all_handlers(application, callback_handler):
     callback_handler.register("bc_confirm_delete_", handle_broadcast_confirm_delete_callback)
     
     logger.info("所有处理函数注册完成")
-
-__all__ = ['register_all_handlers']
