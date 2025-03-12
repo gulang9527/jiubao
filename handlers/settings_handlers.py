@@ -268,17 +268,17 @@ async def show_type_timeout_settings(bot_instance, query, group_id: int, message
     # 构建选择键盘
     keyboard = [
         [InlineKeyboardButton(f"{'✅' if current_timeout == 300 else ' '} 5分钟", 
-                            callback_data=f"auto_delete:set_type_timeout:{message_type}:{group_id}:300")],
+                           callback_data=f"auto_delete:set_type_timeout:{message_type}:{group_id}:300")],
         [InlineKeyboardButton(f"{'✅' if current_timeout == 600 else ' '} 10分钟", 
-                            callback_data=f"auto_delete:set_type_timeout:{message_type}:{group_id}:600")],
+                           callback_data=f"auto_delete:set_type_timeout:{message_type}:{group_id}:600")],
         [InlineKeyboardButton(f"{'✅' if current_timeout == 1800 else ' '} 30分钟", 
-                            callback_data=f"auto_delete:set_type_timeout:{message_type}:{group_id}:1800")],
+                           callback_data=f"auto_delete:set_type_timeout:{message_type}:{group_id}:1800")],
         [InlineKeyboardButton(f"{'✅' if current_timeout == 3600 else ' '} 1小时", 
-                            callback_data=f"auto_delete:set_type_timeout:{message_type}:{group_id}:3600")],
+                           callback_data=f"auto_delete:set_type_timeout:{message_type}:{group_id}:3600")],
         [InlineKeyboardButton(f"{'✅' if current_timeout == 7200 else ' '} 2小时", 
-                            callback_data=f"auto_delete:set_type_timeout:{message_type}:{group_id}:7200")],
+                           callback_data=f"auto_delete:set_type_timeout:{message_type}:{group_id}:7200")],
         [InlineKeyboardButton("自定义", 
-                            callback_data=f"auto_delete:custom_type_timeout:{message_type}:{group_id}")],
+                           callback_data=f"auto_delete:custom_type_timeout:{message_type}:{group_id}")],
         [InlineKeyboardButton("返回", callback_data=f"auto_delete:toggle:{group_id}")]
     ]
     
@@ -589,11 +589,11 @@ async def show_auto_delete_settings(bot_instance, query, group_id: int, settings
     command_timeout = timeouts.get('command', default_timeout)
     
     keyboard = [
-        [InlineKeyboardButton(f"自动删除: {status}", callback_data=f"auto_delete_toggle_{group_id}")],
-        [InlineKeyboardButton(f"关键词回复: {format_duration(keyword_timeout)}", callback_data=f"auto_delete_type_keyword_{group_id}")],
-        [InlineKeyboardButton(f"轮播消息: {format_duration(broadcast_timeout)}", callback_data=f"auto_delete_type_broadcast_{group_id}")],
-        [InlineKeyboardButton(f"排行榜: {format_duration(ranking_timeout)}", callback_data=f"auto_delete_type_ranking_{group_id}")],
-        [InlineKeyboardButton(f"命令响应: {format_duration(command_timeout)}", callback_data=f"auto_delete_type_command_{group_id}")],
+        [InlineKeyboardButton(f"自动删除: {status}", callback_data=f"auto_delete:toggle:{group_id}")],
+        [InlineKeyboardButton(f"关键词回复: {format_duration(keyword_timeout)}", callback_data=f"auto_delete:type:keyword:{group_id}")],
+        [InlineKeyboardButton(f"轮播消息: {format_duration(broadcast_timeout)}", callback_data=f"auto_delete:type:broadcast:{group_id}")],
+        [InlineKeyboardButton(f"排行榜: {format_duration(ranking_timeout)}", callback_data=f"auto_delete:type:ranking:{group_id}")],
+        [InlineKeyboardButton(f"命令响应: {format_duration(command_timeout)}", callback_data=f"auto_delete:type:command:{group_id}")],
         [InlineKeyboardButton("返回设置菜单", callback_data=f"settings_select_{group_id}")]
     ]
     
@@ -618,13 +618,19 @@ async def show_timeout_settings(bot_instance, query, group_id: int, settings: Di
     
     # 构建选择键盘
     keyboard = [
-        [InlineKeyboardButton(f"{'✅' if current_timeout == 300 else ' '} 5分钟", callback_data=f"auto_delete_set_timeout_{group_id}_300")],
-        [InlineKeyboardButton(f"{'✅' if current_timeout == 600 else ' '} 10分钟", callback_data=f"auto_delete_set_timeout_{group_id}_600")],
-        [InlineKeyboardButton(f"{'✅' if current_timeout == 1800 else ' '} 30分钟", callback_data=f"auto_delete_set_timeout_{group_id}_1800")],
-        [InlineKeyboardButton(f"{'✅' if current_timeout == 3600 else ' '} 1小时", callback_data=f"auto_delete_set_timeout_{group_id}_3600")],
-        [InlineKeyboardButton(f"{'✅' if current_timeout == 7200 else ' '} 2小时", callback_data=f"auto_delete_set_timeout_{group_id}_7200")],
-        [InlineKeyboardButton("自定义", callback_data=f"auto_delete_custom_timeout_{group_id}")],
-        [InlineKeyboardButton("返回", callback_data=f"auto_delete_toggle_{group_id}")]
+        [InlineKeyboardButton(f"{'✅' if current_timeout == 300 else ' '} 5分钟", 
+                           callback_data=f"auto_delete:set_timeout:{group_id}:300")],
+        [InlineKeyboardButton(f"{'✅' if current_timeout == 600 else ' '} 10分钟", 
+                           callback_data=f"auto_delete:set_timeout:{group_id}:600")],
+        [InlineKeyboardButton(f"{'✅' if current_timeout == 1800 else ' '} 30分钟", 
+                           callback_data=f"auto_delete:set_timeout:{group_id}:1800")],
+        [InlineKeyboardButton(f"{'✅' if current_timeout == 3600 else ' '} 1小时", 
+                           callback_data=f"auto_delete:set_timeout:{group_id}:3600")],
+        [InlineKeyboardButton(f"{'✅' if current_timeout == 7200 else ' '} 2小时", 
+                           callback_data=f"auto_delete:set_timeout:{group_id}:7200")],
+        [InlineKeyboardButton("自定义", 
+                           callback_data=f"auto_delete:custom_timeout:{group_id}")],
+        [InlineKeyboardButton("返回", callback_data=f"auto_delete:toggle:{group_id}")]
     ]
     
     await query.edit_message_text("请选择自动删除的超时时间：", reply_markup=InlineKeyboardMarkup(keyboard))
