@@ -1268,7 +1268,7 @@ async def preview_broadcast_content(update: Update, context: CallbackContext):
     text = form_data.get('text', '')
     media = form_data.get('media')
     buttons = form_data.get('buttons', [])
-    
+        
     # 创建按钮键盘(如果有)
     reply_markup = None
     if buttons:
