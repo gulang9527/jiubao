@@ -60,6 +60,7 @@ class TelegramBot:
         self.stats_manager = None
         self.error_handler = None
         self.callback_handler = None
+        self.auto_delete_manager = None
         
     async def initialize(self):
         """初始化机器人"""
@@ -106,6 +107,11 @@ class TelegramBot:
             
             self.stats_manager = StatsManager(self.db)
             self.broadcast_manager = BroadcastManager(self.db, self)
+
+            # 初始化 自动删除管理器
+            from managers.auto_delete_manager import AutoDeleteManager
+            self.auto_delete_manager = AutoDeleteManager(self.db)
+            logger.info("自动删除管理器已初始化")
             
             # 设置超级管理员
             for admin_id in DEFAULT_SUPERADMINS:
@@ -490,12 +496,24 @@ class TelegramBot:
             return None
 
     async def _schedule_delete(self, message, timeout: int):
-        """计划删除消息"""
-        await asyncio.sleep(timeout)
-        try:
-            await message.delete()
-        except Exception as e:
-            logger.error(f"删除消息失败: {e}")
+        """
+        计划删除消息 - 兼容现有代码的接口
+        
+        参数:
+            message: 要删除的消息
+            timeout: 超时时间（秒）
+        """
+        if self.auto_delete_manager:
+            # 使用自动删除管理器
+            group_id = message.chat.id if message.chat else None
+            await self.auto_delete_manager.schedule_delete(message, 'default', group_id, timeout)
+        else:
+            # 旧的实现方式，以防自动删除管理器不可用
+            await asyncio.sleep(timeout)
+            try:
+                await message.delete()
+            except Exception as e:
+                logger.error(f"删除消息失败: {e}")
 
 # 启动函数
 if __name__ == '__main__':
