@@ -158,6 +158,16 @@ async def handle_settings_input(update: Update, context: CallbackContext) -> boo
             lambda state, msg: process_auto_delete_timeout(bot_instance, state, msg)
         )
         return True
+        
+    # 处理特定类型的自动删除超时设置
+    for setting in active_settings:
+        if setting.startswith('auto_delete_type_timeout_'):
+            from handlers.settings_handlers import process_type_auto_delete_timeout
+            await bot_instance.settings_manager.process_setting(
+                user_id, setting, update.effective_message, 
+                lambda state, msg: process_type_auto_delete_timeout(bot_instance, state, msg)
+            )
+            return True
     
     return False
 
