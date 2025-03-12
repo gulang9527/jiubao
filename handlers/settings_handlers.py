@@ -36,8 +36,12 @@ async def handle_settings_callback(update: Update, context: CallbackContext, dat
     logger.info(f"处理设置回调: {data}")
     
     # 解析回调数据
+    parts = []
+    action = ""
+    
     if data.startswith("settings_"):
         parts = data[9:].split('_')  # 去掉"settings_"前缀
+        action = parts[0] if parts else ""
     elif data.startswith("auto_delete:"):
         parts = data[12:].split(':')  # 使用冒号分隔主要部分
         return await handle_auto_delete_callback(update, context, parts)
@@ -50,6 +54,10 @@ async def handle_settings_callback(update: Update, context: CallbackContext, dat
     else:
         logger.warning(f"未知的设置回调前缀: {data}")
         await query.edit_message_text("❌ 未知的设置操作")
+        return
+    
+    if not parts:
+        await query.edit_message_text("❌ 无效的回调数据")
         return
     
     # 处理返回群组列表的情况
