@@ -312,7 +312,8 @@ async def handle_broadcast_detail_callback(update: Update, context: CallbackCont
             return
         
         # 获取媒体类型和文本内容
-        media_type = broadcast.get('media', {}).get('type', '无')
+        media = broadcast.get('media')
+        media_type = media.get('type', '无') if media else '无'
         media_info = f"📎 媒体类型: {media_type}" if media_type else "📝 仅文本消息"
         text = broadcast.get('text', '无文本内容')
         
