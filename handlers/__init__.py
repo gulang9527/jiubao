@@ -81,6 +81,7 @@ def register_all_handlers(application, callback_handler):
     # 注册设置相关回调前缀
     callback_handler.register("settings_", handle_settings_callback)
     callback_handler.register("auto_delete_", handle_settings_callback)
+    callback_handler.register("auto_delete:", handle_settings_callback) 
     callback_handler.register("switch_toggle_", handle_settings_callback)
     callback_handler.register("stats_edit_", handle_settings_callback)
     
