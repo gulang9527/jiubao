@@ -213,8 +213,19 @@ class Database:
             # 验证必要字段
             if 'user_id' not in user_data:
                 raise ValueError("用户数据必须包含user_id字段")
+                
+            # 检查role字段
             if 'role' not in user_data:
-                raise ValueError("用户数据必须包含role字段")
+                logger.warning(f"用户数据缺少role字段，设置为默认值USER: user_id={user_data['user_id']}")
+                from db.models import UserRole
+                user_data['role'] = UserRole.USER.value
+            else:
+                # 验证role值是否有效
+                from db.models import UserRole
+                valid_roles = [role.value for role in UserRole]
+                if user_data['role'] not in valid_roles:
+                    logger.warning(f"用户数据包含无效的role值: {user_data['role']}，设置为默认值USER: user_id={user_data['user_id']}")
+                    user_data['role'] = UserRole.USER.value
                 
             # 更新时间戳
             user_data['updated_at'] = datetime.now()
@@ -228,7 +239,7 @@ class Database:
                 },
                 upsert=True
             )
-            logger.info(f"已更新/添加用户: {user_data['user_id']}")
+            logger.info(f"已更新/添加用户: user_id={user_data['user_id']}, role={user_data['role']}")
         except Exception as e:
             logger.error(f"添加用户失败: {e}", exc_info=True)
             raise
