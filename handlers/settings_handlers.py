@@ -118,14 +118,11 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
     query = update.callback_query
     bot_instance = context.application.bot_data.get('bot_instance')
     
-    if action == "type":
-        # 处理特定类型的超时设置
-        if len(parts) < 3:
-            await query.edit_message_text("❌ 无效的回调数据")
-            return
-            
-        message_type = parts[1]
-        await show_type_timeout_settings(bot_instance, query, group_id, message_type, settings)
+    if len(parts) < 1:
+        await query.edit_message_text("❌ 无效的回调数据")
+        return
+        
+    action = parts[0]
     
     # 获取群组ID
     try:
@@ -149,15 +146,23 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
         settings['auto_delete'] = auto_delete
         await bot_instance.db.update_group_settings(group_id, settings)
         await show_auto_delete_settings(bot_instance, query, group_id, settings)
-
-        elif action == "set_type_timeout":
+    
+    elif action == "type":
+        # 处理特定类型的超时设置
+        if len(parts) < 2:
+            await query.edit_message_text("❌ 无效的回调数据")
+            return
+            
+        message_type = parts[1]
+        await show_type_timeout_settings(bot_instance, query, group_id, message_type, settings)
+    
+    elif action == "set_type_timeout":
         # 设置特定类型的超时时间
         if len(parts) < 4:
             await query.edit_message_text("❌ 无效的超时时间")
             return
             
         message_type = parts[1]
-        group_id = int(parts[2])
         timeout = int(parts[3])
         
         # 获取当前设置
@@ -189,7 +194,6 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
             return
             
         message_type = parts[1]
-        group_id = int(parts[2])
         
         # 启动自定义超时时间设置
         await bot_instance.settings_manager.start_setting(
