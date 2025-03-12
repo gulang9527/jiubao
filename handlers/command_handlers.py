@@ -345,7 +345,7 @@ async def handle_add_admin(update: Update, context: CallbackContext):
         # 检查用户是否已经是管理员
         from db.models import UserRole
         user = await bot_instance.db.get_user(user_id)
-        if user and user['role'] in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]:
+        if user and user.get('role') in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]:
             await update.message.reply_text("❌ 该用户已经是管理员")
             return
             
@@ -382,7 +382,7 @@ async def handle_del_admin(update: Update, context: CallbackContext):
             return
             
         # 不能删除超级管理员
-        if user['role'] == UserRole.SUPERADMIN.value:
+        if user.get('role') == UserRole.ADMIN.value:
             await update.message.reply_text("❌ 不能删除超级管理员")
             return
             
@@ -416,7 +416,8 @@ async def handle_add_superadmin(update: Update, context: CallbackContext):
         logger.info(f"SUPERADMIN值: {UserRole.SUPERADMIN.value}")
         
         user = await bot_instance.db.get_user(user_id)
-        if user and user['role'] == UserRole.SUPERADMIN.value:
+        # 安全地检查role字段
+        if user and user.get('role') == UserRole.SUPERADMIN.value:
             await update.message.reply_text("❌ 该用户已经是超级管理员")
             return
             
@@ -455,7 +456,7 @@ async def handle_del_superadmin(update: Update, context: CallbackContext):
         # 检查用户
         from db.models import UserRole
         user = await bot_instance.db.get_user(user_id)
-        if not user or user['role'] != UserRole.SUPERADMIN.value:
+        if not user or user.get('role') != UserRole.SUPERADMIN.value:
             await update.message.reply_text("❌ 该用户不是超级管理员")
             return
             
