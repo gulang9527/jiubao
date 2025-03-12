@@ -335,9 +335,12 @@ async def show_broadcast_settings(bot_instance, query, group_id: int):
             continue  # 跳过None值
         
         try:
-            broadcast_type = '图片' if bc.get('media', {}).get('type') == 'photo' else \
-                            '视频' if bc.get('media', {}).get('type') == 'video' else \
-                            '文件' if bc.get('media', {}).get('type') == 'document' else '文本'
+            if bc.get('media') is None:
+                broadcast_type = '文本'
+            else:
+                broadcast_type = '图片' if bc.get('media', {}).get('type') == 'photo' else \
+                                '视频' if bc.get('media', {}).get('type') == 'video' else \
+                                '文件' if bc.get('media', {}).get('type') == 'document' else '文本'
                             
             content_preview = bc.get('text', '')[:20] + '...' if len(bc.get('text', '')) > 20 else bc.get('text', '无内容')   
             keyboard.append([
