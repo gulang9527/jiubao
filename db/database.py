@@ -66,7 +66,10 @@ class Database:
             
             # 启动重连任务
             self._start_reconnect_task()
-            
+
+            # 启动保活任务 - 添加此行
+            await self._start_keepalive_task()
+        
             return True
         except Exception as e:
             logger.error(f"数据库连接失败: {e}", exc_info=True)
@@ -94,6 +97,34 @@ class Database:
                     logger.error(f"数据库重连失败: {e}", exc_info=True)
                     await asyncio.sleep(5)  # 等待5秒后重试
             await asyncio.sleep(60)  # 每分钟检查一次连接状态
+
+    async def _start_keepalive_task(self):
+        """启动保活任务"""
+        self._keepalive_task = asyncio.create_task(self._keepalive_loop())
+        logger.info("数据库保活任务已启动")
+        
+    async def _keepalive_loop(self):
+        """保活循环"""
+        from config import KEEP_ALIVE_INTERVAL
+        
+        while True:
+            if self.connected.is_set():
+                try:
+                    # 执行一个轻量级操作
+                    await self.db.command("ping")
+                    # 更新系统状态集合
+                    await self.db.system_status.update_one(
+                        {"_id": "keepalive"},
+                        {"$set": {"last_ping": datetime.now(), "status": "active"}},
+                        upsert=True
+                    )
+                    logger.debug("数据库保活操作成功执行")
+                except Exception as e:
+                    logger.error(f"数据库保活操作失败: {e}", exc_info=True)
+                    self.connected.clear()  # 标记为未连接，触发重连
+            
+            # 等待下一次保活
+            await asyncio.sleep(KEEP_ALIVE_INTERVAL)
             
     async def ensure_connected(self):
         """确保数据库已连接，如果未连接则等待连接"""
@@ -101,6 +132,13 @@ class Database:
 
     async def close(self):
         """关闭数据库连接"""
+        if hasattr(self, '_keepalive_task') and self._keepalive_task:
+            self._keepalive_task.cancel()
+            try:
+                await self._keepalive_task
+            except asyncio.CancelledError:
+                pass
+            
         if self._reconnect_task:
             self._reconnect_task.cancel()
             try:
