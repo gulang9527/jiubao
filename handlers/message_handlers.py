@@ -238,6 +238,14 @@ async def handle_private_message(update: Update, context: CallbackContext):
             logger.info(f"已向管理员 {user_id} 发送操作提示")
         except Exception as e:
             logger.error(f"向管理员 {user_id} 发送提示时出错: {e}")
+
+    # 在管理员处理代码后添加检查未完成表单的逻辑
+    if 'keyword_form' in context.user_data and not context.user_data.get('waiting_for'):
+        from handlers.keyword_handlers import show_keyword_response_options
+        await message.reply_text("您有一个未完成的关键词表单。请继续完成或使用 /cancel 取消。")
+        await show_keyword_response_options(update, context)
+        return
+        
 async def handle_group_message(update: Update, context: CallbackContext):
     """
     处理群组消息
