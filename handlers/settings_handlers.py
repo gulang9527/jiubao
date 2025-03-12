@@ -149,6 +149,71 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
         settings['auto_delete'] = auto_delete
         await bot_instance.db.update_group_settings(group_id, settings)
         await show_auto_delete_settings(bot_instance, query, group_id, settings)
+
+        elif action == "set_type_timeout":
+        # 设置特定类型的超时时间
+        if len(parts) < 4:
+            await query.edit_message_text("❌ 无效的超时时间")
+            return
+            
+        message_type = parts[1]
+        group_id = int(parts[2])
+        timeout = int(parts[3])
+        
+        # 获取当前设置
+        settings = await bot_instance.db.get_group_settings(group_id)
+        
+        # 初始化 auto_delete_timeouts 如果它不存在
+        if 'auto_delete_timeouts' not in settings:
+            settings['auto_delete_timeouts'] = {
+                'default': settings.get('auto_delete_timeout', 300),
+                'keyword': settings.get('auto_delete_timeout', 300),
+                'broadcast': settings.get('auto_delete_timeout', 300),
+                'ranking': settings.get('auto_delete_timeout', 300),
+                'command': settings.get('auto_delete_timeout', 300)
+            }
+            
+        # 更新特定类型的超时时间
+        settings['auto_delete_timeouts'][message_type] = timeout
+        
+        # 保存设置
+        await bot_instance.db.update_group_settings(group_id, settings)
+        
+        # 显示更新后的设置
+        await show_auto_delete_settings(bot_instance, query, group_id, settings)
+
+    elif action == "custom_type_timeout":
+        # 设置自定义类型超时
+        if len(parts) < 3:
+            await query.edit_message_text("❌ 无效的参数")
+            return
+            
+        message_type = parts[1]
+        group_id = int(parts[2])
+        
+        # 启动自定义超时时间设置
+        await bot_instance.settings_manager.start_setting(
+            update.effective_user.id, 
+            f'auto_delete_type_timeout_{message_type}', 
+            group_id
+        )
+        
+        # 获取类型名称
+        type_names = {
+            'keyword': '关键词回复',
+            'broadcast': '轮播消息',
+            'ranking': '排行榜',
+            'command': '命令响应',
+            'default': '默认'
+        }
+        type_name = type_names.get(message_type, message_type)
+        
+        await query.edit_message_text(
+            f"请输入「{type_name}」的自定义超时时间（单位：秒）：\n"
+            "• 最小值: 60秒\n"
+            "• 最大值: 86400秒（24小时）\n\n"
+            "发送 /cancel 取消"
+        )
         
     elif action == "timeout":
         # 显示超时时间设置菜单
