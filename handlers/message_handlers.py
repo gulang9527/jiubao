@@ -293,7 +293,7 @@ async def send_keyword_response(bot_instance, original_message: Message, keyword
         if not keyword:
             logger.error(f"关键词 {keyword_id} 不存在")
             return
-            
+                    
         # 检查是否为命令关键词
         if keyword.get('is_command', False) and keyword.get('command'):
             command = keyword.get('command')
