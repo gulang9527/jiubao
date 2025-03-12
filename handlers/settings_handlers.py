@@ -143,6 +143,8 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
         auto_delete = not settings.get('auto_delete', False)
         settings['auto_delete'] = auto_delete
         await bot_instance.db.update_group_settings(group_id, settings)
+        # 重新获取最新设置
+        settings = await bot_instance.db.get_group_settings(group_id)
         await show_auto_delete_settings(bot_instance, query, group_id, settings)
     
     elif action == "type":
@@ -152,6 +154,8 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
             return
             
         message_type = parts[1]
+        # 始终获取最新设置
+        settings = await bot_instance.db.get_group_settings(group_id)
         await show_type_timeout_settings(bot_instance, query, group_id, message_type, settings)
     
     elif action == "set_type_timeout":
@@ -181,6 +185,9 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
         
         # 保存设置
         await bot_instance.db.update_group_settings(group_id, settings)
+        
+        # 重新获取最新设置
+        settings = await bot_instance.db.get_group_settings(group_id)
         
         # 显示更新后的设置
         await show_auto_delete_settings(bot_instance, query, group_id, settings)
@@ -230,6 +237,7 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
         timeout = int(parts[1])
         settings['auto_delete_timeout'] = timeout
         await bot_instance.db.update_group_settings(group_id, settings)
+        settings = await bot_instance.db.get_group_settings(group_id)
         await show_auto_delete_settings(bot_instance, query, group_id, settings)
         
     elif action == "custom_timeout":
@@ -579,7 +587,7 @@ async def show_auto_delete_settings(bot_instance, query, group_id: int, settings
     if settings is None:
         settings = await bot_instance.db.get_group_settings(group_id)
         
-    status = '开启' if settings.get('auto_delete', False) else '关闭'
+    status = '✅ 已开启' if settings.get('auto_delete', False) else '❌ 已关闭'
     
     # 获取各类消息的超时设置
     timeouts = settings.get('auto_delete_timeouts', {})
@@ -761,10 +769,19 @@ async def process_min_bytes_setting(bot_instance, state, message):
         await bot_instance.db.update_group_settings(group_id, settings)
         
         # 清理设置状态
-        await bot_instance.settings_manager.clear_setting_state(message.from_user.id, 'stats_min_bytes')
+        await bot_instance.settings_manager.clear_setting_state(message.from_user.id, setting_type)
         
         # 通知用户完成
-        await message.reply_text(f"✅ 最小统计字节数已设置为 {value} 字节")
+        await message.reply_text(f"✅ 「{type_name}」的自动删除超时时间已设置为 {format_duration(timeout)}")
+        
+        # 可以选择性地添加一个inline键盘，用于返回到设置页面
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        await message.reply_text(
+            "您可以继续设置或返回设置菜单：",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("返回设置菜单", callback_data=f"auto_delete:toggle:{group_id}")]
+            ])
+        )
     except ValueError:
         await message.reply_text("❌ 请输入一个有效的数字")
 
@@ -790,10 +807,19 @@ async def process_daily_rank_setting(bot_instance, state, message):
         await bot_instance.db.update_group_settings(group_id, settings)
         
         # 清理设置状态
-        await bot_instance.settings_manager.clear_setting_state(message.from_user.id, 'stats_daily_rank')
+        await bot_instance.settings_manager.clear_setting_state(message.from_user.id, 'auto_delete_timeout')
         
         # 通知用户完成
-        await message.reply_text(f"✅ 日排行显示数量已设置为 {value}")
+        await message.reply_text(f"✅ 自动删除超时时间已设置为 {format_duration(timeout)}")
+        
+        # 可以选择性地添加一个inline键盘，用于返回到设置页面
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        await message.reply_text(
+            "您可以继续设置或返回设置菜单：",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("返回设置菜单", callback_data=f"auto_delete:toggle:{group_id}")]
+            ])
+        )
     except ValueError:
         await message.reply_text("❌ 请输入一个有效的数字")
 
@@ -819,10 +845,19 @@ async def process_monthly_rank_setting(bot_instance, state, message):
         await bot_instance.db.update_group_settings(group_id, settings)
         
         # 清理设置状态
-        await bot_instance.settings_manager.clear_setting_state(message.from_user.id, 'stats_monthly_rank')
+        await bot_instance.settings_manager.clear_setting_state(message.from_user.id, 'auto_delete_timeout')
         
         # 通知用户完成
-        await message.reply_text(f"✅ 月排行显示数量已设置为 {value}")
+        await message.reply_text(f"✅ 自动删除超时时间已设置为 {format_duration(timeout)}")
+        
+        # 可以选择性地添加一个inline键盘，用于返回到设置页面
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        await message.reply_text(
+            "您可以继续设置或返回设置菜单：",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("返回设置菜单", callback_data=f"auto_delete:toggle:{group_id}")]
+            ])
+        )
     except ValueError:
         await message.reply_text("❌ 请输入一个有效的数字")
 
@@ -852,6 +887,15 @@ async def process_auto_delete_timeout(bot_instance, state, message):
         
         # 通知用户完成
         await message.reply_text(f"✅ 自动删除超时时间已设置为 {format_duration(timeout)}")
+        
+        # 可以选择性地添加一个inline键盘，用于返回到设置页面
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        await message.reply_text(
+            "您可以继续设置或返回设置菜单：",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("返回设置菜单", callback_data=f"auto_delete:toggle:{group_id}")]
+            ])
+        )
     except ValueError:
         await message.reply_text("❌ 请输入一个有效的数字")
 
@@ -926,9 +970,18 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
         type_name = type_names.get(message_type, message_type)
         
         # 清理设置状态
-        await bot_instance.settings_manager.clear_setting_state(message.from_user.id, setting_type)
+        await bot_instance.settings_manager.clear_setting_state(message.from_user.id, 'auto_delete_timeout')
         
         # 通知用户完成
-        await message.reply_text(f"✅ 「{type_name}」的自动删除超时时间已设置为 {format_duration(timeout)}")
+        await message.reply_text(f"✅ 自动删除超时时间已设置为 {format_duration(timeout)}")
+        
+        # 可以选择性地添加一个inline键盘，用于返回到设置页面
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        await message.reply_text(
+            "您可以继续设置或返回设置菜单：",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("返回设置菜单", callback_data=f"auto_delete:toggle:{group_id}")]
+            ])
+        )
     except ValueError:
         await message.reply_text("❌ 请输入一个有效的数字")
