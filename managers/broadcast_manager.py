@@ -211,22 +211,13 @@ class BroadcastManager:
             
         # 处理自动删除
         if msg:
-            settings = await self.bot.db.get_group_settings(group_id)
-            if settings.get('auto_delete', False):
-                from utils.message_utils import validate_delete_timeout
-                timeout = validate_delete_timeout(message_type='broadcast')
-                asyncio.create_task(self._schedule_delete(msg, timeout))
+            if msg:
+                settings = await self.bot.db.get_group_settings(group_id)
+                if settings.get('auto_delete', False) and self.bot.auto_delete_manager:
+                    await self.bot.auto_delete_manager.handle_broadcast_message(msg, group_id)
                 
         logger.info(f"已发送轮播消息: group_id={group_id}, broadcast_id={broadcast['_id']}")
-        
-    async def _schedule_delete(self, message, timeout: int):
-        """计划删除消息"""
-        await asyncio.sleep(timeout)
-        try:
-            await message.delete()
-        except Exception as e:
-            logger.error(f"删除消息失败: {e}")
-            
+                    
     async def is_broadcast_active(self, broadcast_id: str) -> bool:
         """
         检查轮播消息是否处于活动状态
