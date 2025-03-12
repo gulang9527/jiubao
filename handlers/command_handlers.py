@@ -413,19 +413,23 @@ async def handle_add_superadmin(update: Update, context: CallbackContext):
         
         # 检查用户是否已经是超级管理员
         from db.models import UserRole
+        logger.info(f"SUPERADMIN值: {UserRole.SUPERADMIN.value}")
+        
         user = await bot_instance.db.get_user(user_id)
         if user and user['role'] == UserRole.SUPERADMIN.value:
             await update.message.reply_text("❌ 该用户已经是超级管理员")
             return
             
         # 添加超级管理员
-        await bot_instance.db.add_user({'user_id': user_id, 'role': UserRole.SUPERADMIN.value})
+        user_data = {'user_id': user_id, 'role': UserRole.SUPERADMIN.value}
+        logger.info(f"添加超级管理员数据: {user_data}")
+        await bot_instance.db.add_user(user_data)
         await update.message.reply_text(f"✅ 已将用户 {user_id} 设置为超级管理员")
         
     except ValueError:
         await update.message.reply_text("❌ 用户ID必须是数字")
     except Exception as e:
-        logger.error(f"添加超级管理员错误: {e}")
+        logger.error(f"添加超级管理员错误: {e}", exc_info=True)
         await update.message.reply_text("❌ 添加超级管理员时出错")
 
 @check_command_usage
