@@ -1,18 +1,23 @@
 """
 机器人主程序入口文件，处理初始化、启动、停止等操作
 """
+import sys
 import os
+
+# 添加项目根目录到Python路径
+current_dir = os.path.dirname(os.path.abspath(__file__))  # 获取当前文件所在目录
+parent_dir = os.path.dirname(current_dir)                # 获取父目录（项目根目录）
+sys.path.insert(0, parent_dir)                           # 将项目根目录添加到Python路径
+
 import signal
 import asyncio
 import logging
 from aiohttp import web
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
-
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application
 from telegram.error import BadRequest
-
 from db.database import Database
 from db.models import UserRole, GroupPermission
 from core.callback_handler import CallbackHandler
