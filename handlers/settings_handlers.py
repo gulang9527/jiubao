@@ -866,14 +866,30 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
     """
     group_id = state['group_id']
     
-    # 从状态键中提取消息类型
-    # 状态键的格式为: auto_delete_type_timeout_消息类型
-    setting_key = state['setting_key']
-    parts = setting_key.split('_')
+    # 直接从上下文中获取设置类型
+    # 假设使用start_setting时的键是形如"auto_delete_type_timeout_keyword"的格式
+    # 我们可以遍历管理器中当前的活跃设置来找到正确的设置类型
+    user_id = message.from_user.id
+    active_settings = await bot_instance.settings_manager.get_active_settings(user_id)
+    
+    # 找到与自动删除类型超时相关的设置
+    setting_type = None
+    for setting in active_settings:
+        if setting.startswith('auto_delete_type_timeout_'):
+            setting_type = setting
+            break
+    
+    if not setting_type:
+        await message.reply_text("❌ 无法确定设置类型，请重试")
+        return
+        
+    # 从设置类型中提取消息类型
+    # 设置类型的格式为: auto_delete_type_timeout_消息类型
+    parts = setting_type.split('_')
     if len(parts) >= 4:
         message_type = parts[3]  # auto_delete_type_timeout_keyword 中的 keyword
     else:
-        await message.reply_text("❌ 设置键格式错误")
+        await message.reply_text("❌ 设置类型格式错误")
         return
     
     try:
@@ -910,7 +926,7 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
         type_name = type_names.get(message_type, message_type)
         
         # 清理设置状态
-        await bot_instance.settings_manager.clear_setting_state(message.from_user.id, setting_key)
+        await bot_instance.settings_manager.clear_setting_state(message.from_user.id, setting_type)
         
         # 通知用户完成
         await message.reply_text(f"✅ 「{type_name}」的自动删除超时时间已设置为 {format_duration(timeout)}")
