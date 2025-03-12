@@ -468,19 +468,30 @@ async def show_auto_delete_settings(bot_instance, query, group_id: int, settings
         settings = await bot_instance.db.get_group_settings(group_id)
         
     status = '开启' if settings.get('auto_delete', False) else '关闭'
-    import config
-    timeout = settings.get('auto_delete_timeout', config.AUTO_DELETE_SETTINGS['default_timeout'])
+    
+    # 获取各类消息的超时设置
+    timeouts = settings.get('auto_delete_timeouts', {})
+    default_timeout = settings.get('auto_delete_timeout', 300)  # 兼容旧设置
+    
+    # 为不同类型消息构建超时显示
+    keyword_timeout = timeouts.get('keyword', default_timeout)
+    broadcast_timeout = timeouts.get('broadcast', default_timeout)
+    ranking_timeout = timeouts.get('ranking', default_timeout)
+    command_timeout = timeouts.get('command', default_timeout)
     
     keyboard = [
         [InlineKeyboardButton(f"自动删除: {status}", callback_data=f"auto_delete_toggle_{group_id}")],
-        [InlineKeyboardButton(f"超时时间: {format_duration(timeout)}", callback_data=f"auto_delete_timeout_{group_id}")],
+        [InlineKeyboardButton(f"关键词回复: {format_duration(keyword_timeout)}", callback_data=f"auto_delete_type_keyword_{group_id}")],
+        [InlineKeyboardButton(f"轮播消息: {format_duration(broadcast_timeout)}", callback_data=f"auto_delete_type_broadcast_{group_id}")],
+        [InlineKeyboardButton(f"排行榜: {format_duration(ranking_timeout)}", callback_data=f"auto_delete_type_ranking_{group_id}")],
+        [InlineKeyboardButton(f"命令响应: {format_duration(command_timeout)}", callback_data=f"auto_delete_type_command_{group_id}")],
         [InlineKeyboardButton("返回设置菜单", callback_data=f"settings_select_{group_id}")]
     ]
     
     await query.edit_message_text(
         f"🗑️ 自动删除设置\n\n"
-        f"当前状态: {'✅ 已开启' if settings.get('auto_delete', False) else '❌ 已关闭'}\n"
-        f"超时时间: {format_duration(timeout)}",
+        f"当前状态: {'✅ 已开启' if settings.get('auto_delete', False) else '❌ 已关闭'}\n\n"
+        f"点击下方按钮设置不同类型消息的自动删除时间:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
