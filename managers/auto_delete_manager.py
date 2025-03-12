@@ -67,12 +67,13 @@ class AutoDeleteManager:
                     return
                 
             # 获取超时时间
-            timeout = custom_timeout if custom_timeout is not None else validate_delete_timeout(None, message_type)
-            
-            # 如果超时时间为0，不进行删除
-            if timeout <= 0:
-                logger.debug(f"超时时间为 {timeout}，不进行自动删除")
-                return
+            if custom_timeout is not None:
+                timeout = custom_timeout
+            else:
+                # 从设置中获取对应消息类型的超时时间
+                settings = await self.db.get_group_settings(group_id)
+                timeouts = settings.get('auto_delete_timeouts', {})
+                timeout = timeouts.get(message_type, settings.get('auto_delete_timeout', 300))
             
             # 创建删除任务
             task = asyncio.create_task(self._delete_after(message, timeout))
