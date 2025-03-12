@@ -213,43 +213,48 @@ async def handle_keyword_detail_callback(update: Update, context: CallbackContex
             return
         
         # 获取匹配类型和模式
-        match_type = keyword.get('type', 'exact')
-        pattern = keyword.get('pattern', '无')
-        match_type_text = '精确匹配' if match_type == 'exact' else '正则匹配'
-        
-        # 获取媒体类型和文本内容
-        media = keyword.get('media')
-        media_type = media.get('type', '无') if media else '无'
-        media_info = f"📎 媒体类型: {media_type}" if media_type else "📝 仅文本回复"
-        text = keyword.get('response', '无文本内容')
-        
-        # 获取按钮数量
-        buttons_count = len(keyword.get('buttons', []))
-        buttons_info = f"🔘 {buttons_count} 个按钮" if buttons_count > 0 else "无按钮"
-        
-        # 构建详情文本
-        detail_text = (
-            f"🔑 关键词详情\n\n"
-            f"📋 关键词: {pattern}\n"
-            f"🔍 匹配方式: {match_type_text}\n\n"
-            f"{media_info}\n\n"
-            f"📝 回复内容:\n{text[:200]}{'...' if len(text) > 200 else ''}\n\n"
-            f"{buttons_info}\n"
-        )
-        
-        # 构建操作按钮
-        keyboard = [
-            [InlineKeyboardButton("👁️ 预览", callback_data=f"keyword_preview_{keyword_id}_{group_id}")],
-            [InlineKeyboardButton("❌ 删除", callback_data=f"keyword_delete_{keyword_id}_{group_id}")],
-            [InlineKeyboardButton("🔙 返回", callback_data=f"settings_keywords_{group_id}")]
-        ]
-        
-        # 显示关键词详情
-        await query.edit_message_text(
-            detail_text,
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        
+        if keyword:
+            match_type = keyword.get('type', 'exact')
+            pattern = keyword.get('pattern', '无')
+            match_type_text = '精确匹配' if match_type == 'exact' else '正则匹配'
+            
+            # 获取媒体类型和文本内容
+            media = keyword.get('media')
+            media_type = media.get('type', '无') if media else '无'
+            media_info = f"📎 媒体类型: {media_type}" if media_type else "📝 仅文本回复"
+            text = keyword.get('response', '无文本内容')
+            
+            # 获取按钮数量
+            buttons_count = len(keyword.get('buttons', []))
+            buttons_info = f"🔘 {buttons_count} 个按钮" if buttons_count > 0 else "无按钮"
+            
+            # 构建详情文本
+            detail_text = (
+                f"🔑 关键词详情\n\n"
+                f"📋 关键词: {pattern}\n"
+                f"🔍 匹配方式: {match_type_text}\n\n"
+                f"{media_info}\n\n"
+                f"📝 回复内容:\n{text[:200]}{'...' if len(text) > 200 else ''}\n\n"
+                f"{buttons_info}\n"
+            )
+            
+            # 构建操作按钮
+            keyboard = [
+                [InlineKeyboardButton("👁️ 预览", callback_data=f"keyword_preview_{keyword_id}_{group_id}")],
+                [InlineKeyboardButton("❌ 删除", callback_data=f"keyword_delete_{keyword_id}_{group_id}")],
+                [InlineKeyboardButton("🔙 返回", callback_data=f"settings_keywords_{group_id}")]
+            ]
+            
+            # 显示关键词详情
+            await query.edit_message_text(
+                detail_text,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            logger.warning(f"找不到关键词: {keyword_id}")
+            await query.edit_message_text("❌ 找不到关键词")
+            return
+            
     except Exception as e:
         logger.error(f"查看关键词详情出错: {str(e)}", exc_info=True)
         await query.edit_message_text(
