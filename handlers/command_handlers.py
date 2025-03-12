@@ -157,9 +157,8 @@ async def handle_rank_command(update: Update, context: CallbackContext):
     
     # 处理自动删除
     settings = await bot_instance.db.get_group_settings(group_id)
-    if settings.get('auto_delete', False):
-        timeout = validate_delete_timeout(message_type='ranking')
-        asyncio.create_task(bot_instance._schedule_delete(msg, timeout))
+    if settings.get('auto_delete', False) and bot_instance.auto_delete_manager:
+        await bot_instance.auto_delete_manager.handle_ranking_message(msg, group_id)
 
 @check_command_usage
 async def handle_admin_groups(update: Update, context: CallbackContext):
