@@ -118,11 +118,14 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
     query = update.callback_query
     bot_instance = context.application.bot_data.get('bot_instance')
     
-    if not parts:
-        await query.edit_message_text("❌ 无效的回调数据")
-        return
-        
-    action = parts[0]
+    if action == "type":
+        # 处理特定类型的超时设置
+        if len(parts) < 3:
+            await query.edit_message_text("❌ 无效的回调数据")
+            return
+            
+        message_type = parts[1]
+        await show_type_timeout_settings(bot_instance, query, group_id, message_type, settings)
     
     # 获取群组ID
     try:
@@ -178,6 +181,48 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
     else:
         logger.warning(f"未知的自动删除操作: {action}")
         await query.edit_message_text(f"❌ 未知的自动删除操作: {action}")
+
+async def show_type_timeout_settings(bot_instance, query, group_id: int, message_type: str, settings: Dict[str, Any]):
+    """
+    显示特定消息类型的超时时间设置菜单
+    """
+    # 获取当前超时设置
+    timeouts = settings.get('auto_delete_timeouts', {})
+    default_timeout = settings.get('auto_delete_timeout', 300)
+    current_timeout = timeouts.get(message_type, default_timeout)
+    
+    # 构建类型名称显示
+    type_names = {
+        'keyword': '关键词回复',
+        'broadcast': '轮播消息',
+        'ranking': '排行榜',
+        'command': '命令响应',
+        'default': '默认'
+    }
+    type_name = type_names.get(message_type, message_type)
+    
+    # 构建选择键盘
+    keyboard = [
+        [InlineKeyboardButton(f"{'✅' if current_timeout == 300 else ' '} 5分钟", 
+                            callback_data=f"auto_delete_set_type_timeout_{message_type}_{group_id}_300")],
+        [InlineKeyboardButton(f"{'✅' if current_timeout == 600 else ' '} 10分钟", 
+                            callback_data=f"auto_delete_set_type_timeout_{message_type}_{group_id}_600")],
+        [InlineKeyboardButton(f"{'✅' if current_timeout == 1800 else ' '} 30分钟", 
+                            callback_data=f"auto_delete_set_type_timeout_{message_type}_{group_id}_1800")],
+        [InlineKeyboardButton(f"{'✅' if current_timeout == 3600 else ' '} 1小时", 
+                            callback_data=f"auto_delete_set_type_timeout_{message_type}_{group_id}_3600")],
+        [InlineKeyboardButton(f"{'✅' if current_timeout == 7200 else ' '} 2小时", 
+                            callback_data=f"auto_delete_set_type_timeout_{message_type}_{group_id}_7200")],
+        [InlineKeyboardButton("自定义", 
+                            callback_data=f"auto_delete_custom_type_timeout_{message_type}_{group_id}")],
+        [InlineKeyboardButton("返回", callback_data=f"auto_delete_toggle_{group_id}")]
+    ]
+    
+    await query.edit_message_text(
+        f"请为「{type_name}」选择自动删除的超时时间：\n"
+        f"当前设置: {format_duration(current_timeout)}",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 #######################################
 # 功能开关设置处理
