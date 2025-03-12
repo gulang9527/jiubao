@@ -45,7 +45,8 @@ def register_all_handlers(application, callback_handler):
     application.add_handler(CommandHandler("adddefaultkeywords", handle_add_default_keywords))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(MessageHandler(
-        (filters.Document.ALL | filters.PHOTO | filters.VIDEO | filters.TEXT | filters.Animation.ALL) & ~filters.COMMAND,
+        filters.TEXT | filters.PHOTO | filters.VIDEO | 
+        filters.Document() | filters.ANIMATION & ~filters.COMMAND,
         handle_message
     ))
             
