@@ -306,61 +306,64 @@ async def handle_broadcast_detail_callback(update: Update, context: CallbackCont
     # 获取轮播消息详情
     try:
         broadcast = await bot_instance.db.get_broadcast_by_id(broadcast_id)
-        if not broadcast:
+        
+        # 检查轮播消息是否存在
+        if broadcast:
+            # 获取媒体类型和文本内容
+            media = broadcast.get('media')
+            media_type = media.get('type', '无') if media else '无'
+            media_info = f"📎 媒体类型: {media_type}" if media_type != '无' else "📝 仅文本消息"
+            text = broadcast.get('text', '无文本内容')
+            
+            # 获取计划信息
+            repeat_type = broadcast.get('repeat_type', 'once')
+            interval = broadcast.get('interval', 0)
+            
+            # 设置显示的重复信息
+            repeat_info = "单次发送"
+            if repeat_type == 'hourly':
+                repeat_info = "每小时发送"
+            elif repeat_type == 'daily':
+                repeat_info = "每天发送"
+            elif repeat_type == 'custom':
+                repeat_info = f"每 {interval} 分钟发送"
+            
+            # 获取时间信息
+            start_time = format_datetime(broadcast.get('start_time')) if broadcast.get('start_time') else "未设置"
+            end_time = format_datetime(broadcast.get('end_time')) if broadcast.get('end_time') else "未设置"
+            
+            # 获取按钮数量
+            buttons_count = len(broadcast.get('buttons', []))
+            buttons_info = f"🔘 {buttons_count} 个按钮" if buttons_count > 0 else "无按钮"
+            
+            # 构建详情文本
+            detail_text = (
+                f"📢 轮播消息详情\n\n"
+                f"{media_info}\n\n"
+                f"📝 文本内容:\n{text[:200]}{'...' if len(text) > 200 else ''}\n\n"
+                f"⏰ 发送计划: {repeat_info}\n"
+                f"🕒 开始时间: {start_time}\n"
+                f"🏁 结束时间: {end_time}\n"
+                f"{buttons_info}\n"
+            )
+            
+            # 构建操作按钮
+            keyboard = [
+                [InlineKeyboardButton("👁️ 预览", callback_data=f"bc_preview_{broadcast_id}_{group_id}")],
+                [InlineKeyboardButton("❌ 删除", callback_data=f"bc_delete_{broadcast_id}_{group_id}")],
+                [InlineKeyboardButton("🔙 返回", callback_data=f"settings_broadcast_{group_id}")]
+            ]
+            
+            # 显示轮播消息详情
+            await query.edit_message_text(
+                detail_text,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
             logger.warning(f"找不到轮播消息: {broadcast_id}")
             await query.edit_message_text("❌ 找不到轮播消息")
             return
-        
-        # 获取媒体类型和文本内容
-        media = broadcast.get('media')
-        media_type = media.get('type', '无') if media else '无'
-        media_info = f"📎 媒体类型: {media_type}" if media_type else "📝 仅文本消息"
-        text = broadcast.get('text', '无文本内容')
-        
-        # 获取计划信息
-        repeat_type = broadcast.get('repeat_type', 'once')
-        interval = broadcast.get('interval', 0)
-        
-        repeat_info = "单次发送"
-        if repeat_type == 'hourly':
-            repeat_info = "每小时发送"
-        elif repeat_type == 'daily':
-            repeat_info = "每天发送"
-        elif repeat_type == 'custom':
-            repeat_info = f"每 {interval} 分钟发送"
-        
-        # 获取时间信息
-        start_time = format_datetime(broadcast.get('start_time')) if broadcast.get('start_time') else "未设置"
-        end_time = format_datetime(broadcast.get('end_time')) if broadcast.get('end_time') else "未设置"
-        
-        # 获取按钮数量
-        buttons_count = len(broadcast.get('buttons', []))
-        buttons_info = f"🔘 {buttons_count} 个按钮" if buttons_count > 0 else "无按钮"
-        
-        # 构建详情文本
-        detail_text = (
-            f"📢 轮播消息详情\n\n"
-            f"{media_info}\n\n"
-            f"📝 文本内容:\n{text[:200]}{'...' if len(text) > 200 else ''}\n\n"
-            f"⏰ 发送计划: {repeat_info}\n"
-            f"🕒 开始时间: {start_time}\n"
-            f"🏁 结束时间: {end_time}\n"
-            f"{buttons_info}\n"
-        )
-        
-        # 构建操作按钮
-        keyboard = [
-            [InlineKeyboardButton("👁️ 预览", callback_data=f"bc_preview_{broadcast_id}_{group_id}")],
-            [InlineKeyboardButton("❌ 删除", callback_data=f"bc_delete_{broadcast_id}_{group_id}")],
-            [InlineKeyboardButton("🔙 返回", callback_data=f"settings_broadcast_{group_id}")]
-        ]
-        
-        # 显示轮播消息详情
-        await query.edit_message_text(
-            detail_text,
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        
+            
     except Exception as e:
         logger.error(f"查看轮播消息详情出错: {str(e)}", exc_info=True)
         await query.edit_message_text(
