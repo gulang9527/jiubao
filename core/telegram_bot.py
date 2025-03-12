@@ -1,17 +1,17 @@
 """
-机器人核心类，处理初始化、启动、停止等生命周期管理
+机器人主程序入口文件，处理初始化、启动、停止等操作
 """
 import os
 import signal
 import asyncio
 import logging
+from aiohttp import web
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
-from telegram import Update, Bot
+from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application
 from telegram.error import BadRequest
-from aiohttp import web
 
 from db.database import Database
 from db.models import UserRole, GroupPermission
@@ -21,6 +21,7 @@ from managers.settings_manager import SettingsManager
 from managers.stats_manager import StatsManager
 from managers.broadcast_manager import BroadcastManager
 from managers.keyword_manager import KeywordManager
+from utils.message_utils import validate_delete_timeout
 
 # 配置日志
 logging.basicConfig(
@@ -352,6 +353,52 @@ class TelegramBot:
             return permission.value in group.get('permissions', []) and switches.get(feature_name, True)
         return False
 
+    async def add_default_keywords(self, group_id: int):
+        """
+        为群组添加默认的关键词
+        
+        参数:
+            group_id: 群组ID
+        """
+        logger.info(f"为群组 {group_id} 添加默认关键词")
+        
+        # 检查群组是否启用关键词功能
+        if not await self.has_permission(group_id, GroupPermission.KEYWORDS):
+            logger.info(f"群组 {group_id} 未启用关键词功能，跳过添加默认关键词")
+            return
+        
+        # 检查关键词是否已存在
+        existing_keywords = await self.db.get_keywords(group_id)
+        existing_patterns = [kw.get('pattern', '') for kw in existing_keywords]
+        
+        # 添加日排行关键词
+        if '日排行' not in existing_patterns:
+            await self.db.add_keyword({
+                'group_id': group_id,
+                'pattern': '日排行',
+                'type': 'exact',
+                'response': '正在查询今日发言排行...',
+                'media': None,
+                'buttons': [],
+                'is_command': True,
+                'command': '/tongji'
+            })
+            logger.info(f"已为群组 {group_id} 添加'日排行'关键词")
+        
+        # 添加月排行关键词
+        if '月排行' not in existing_patterns:
+            await self.db.add_keyword({
+                'group_id': group_id,
+                'pattern': '月排行',
+                'type': 'exact',
+                'response': '正在查询近30天发言排行...',
+                'media': None,
+                'buttons': [],
+                'is_command': True,
+                'command': '/tongji30'
+            })
+            logger.info(f"已为群组 {group_id} 添加'月排行'关键词")
+
     async def _schedule_delete(self, message, timeout: int):
         """计划删除消息"""
         await asyncio.sleep(timeout)
@@ -359,3 +406,7 @@ class TelegramBot:
             await message.delete()
         except Exception as e:
             logger.error(f"删除消息失败: {e}")
+
+# 启动函数
+if __name__ == '__main__':
+    asyncio.run(TelegramBot.main())
