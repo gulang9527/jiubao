@@ -213,6 +213,8 @@ class Database:
             # 验证必要字段
             if 'user_id' not in user_data:
                 raise ValueError("用户数据必须包含user_id字段")
+            if 'role' not in user_data:
+                raise ValueError("用户数据必须包含role字段")
                 
             # 更新时间戳
             user_data['updated_at'] = datetime.now()
