@@ -431,10 +431,15 @@ class TelegramBot:
             context = ContextTypes.DEFAULT_TYPE(self.application)
             context.args = []
             
-            # 创建一个假的Update对象
+            # 创建一个假的Update对象，确保使用/tongji命令
+            message_dict = message.to_dict()
+            # 修改这里，确保使用正确的日排行命令
+            message_dict['text'] = '/tongji'
+            fake_message = message.__class__.de_json(message_dict, self.application.bot)
+            
             fake_update = Update(
                 update_id=message.message_id,
-                message=message
+                message=fake_message
             )
             
             # 执行命令
