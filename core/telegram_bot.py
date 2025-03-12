@@ -428,7 +428,7 @@ class TelegramBot:
             
             # 创建一个简单的上下文
             from telegram.ext import ContextTypes
-            context = ContextTypes.DEFAULT_TYPE.context.copy_with(self.application)
+            context = ContextTypes.DEFAULT_TYPE(self.application)
             context.args = []
             
             # 创建一个假的Update对象
@@ -443,7 +443,7 @@ class TelegramBot:
         except Exception as e:
             logger.error(f"处理日排行关键词出错: {e}", exc_info=True)
             return None
-    
+        
     async def _handle_monthly_rank(self, message):
         """
         处理"月排行"关键词
@@ -463,7 +463,7 @@ class TelegramBot:
             
             # 创建一个简单的上下文
             from telegram.ext import ContextTypes
-            context = ContextTypes.DEFAULT_TYPE.context.copy_with(self.application)
+            context = ContextTypes.DEFAULT_TYPE(self.application)
             context.args = []
             
             # 创建一个假的Update对象，模拟tongji30命令
