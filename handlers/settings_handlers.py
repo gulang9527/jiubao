@@ -51,6 +51,9 @@ async def handle_settings_callback(update: Update, context: CallbackContext, dat
     elif data.startswith("stats_edit_"):
         parts = data[11:].split('_')  # 去掉"stats_edit_"前缀
         return await handle_stats_edit_callback(update, context, parts)
+    elif data.startswith("auto_delete_toggle_"):  # 暂时兼容旧格式
+        group_id = int(data.split('_')[-1])
+        return await handle_auto_delete_callback(update, context, ["toggle", group_id])
     else:
         logger.warning(f"未知的设置回调前缀: {data}")
         await query.edit_message_text("❌ 未知的设置操作")
