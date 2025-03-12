@@ -781,3 +781,65 @@ async def process_auto_delete_timeout(bot_instance, state, message):
         await message.reply_text(f"✅ 自动删除超时时间已设置为 {format_duration(timeout)}")
     except ValueError:
         await message.reply_text("❌ 请输入一个有效的数字")
+
+async def process_type_auto_delete_timeout(bot_instance, state, message):
+    """
+    处理特定消息类型的自动删除超时设置
+    
+    参数:
+        bot_instance: 机器人实例
+        state: 设置状态
+        message: 消息对象
+    """
+    group_id = state['group_id']
+    
+    # 从状态键中提取消息类型
+    # 状态键的格式为: auto_delete_type_timeout_消息类型
+    setting_key = state['setting_key']
+    parts = setting_key.split('_')
+    if len(parts) >= 4:
+        message_type = parts[3]  # auto_delete_type_timeout_keyword 中的 keyword
+    else:
+        await message.reply_text("❌ 设置键格式错误")
+        return
+    
+    try:
+        timeout = int(message.text)
+        if timeout < 60 or timeout > 86400:
+            await message.reply_text("❌ 超时时间必须在60-86400秒之间")
+            return
+            
+        # 更新设置
+        settings = await bot_instance.db.get_group_settings(group_id)
+        
+        # 确保 auto_delete_timeouts 字典存在
+        if 'auto_delete_timeouts' not in settings:
+            settings['auto_delete_timeouts'] = {
+                'default': settings.get('auto_delete_timeout', 300),
+                'keyword': settings.get('auto_delete_timeout', 300),
+                'broadcast': settings.get('auto_delete_timeout', 300),
+                'ranking': settings.get('auto_delete_timeout', 300),
+                'command': settings.get('auto_delete_timeout', 300)
+            }
+            
+        # 更新特定类型的超时时间
+        settings['auto_delete_timeouts'][message_type] = timeout
+        await bot_instance.db.update_group_settings(group_id, settings)
+        
+        # 获取类型名称
+        type_names = {
+            'keyword': '关键词回复',
+            'broadcast': '轮播消息',
+            'ranking': '排行榜',
+            'command': '命令响应',
+            'default': '默认'
+        }
+        type_name = type_names.get(message_type, message_type)
+        
+        # 清理设置状态
+        await bot_instance.settings_manager.clear_setting_state(message.from_user.id, setting_key)
+        
+        # 通知用户完成
+        await message.reply_text(f"✅ 「{type_name}」的自动删除超时时间已设置为 {format_duration(timeout)}")
+    except ValueError:
+        await message.reply_text("❌ 请输入一个有效的数字")
