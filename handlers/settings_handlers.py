@@ -38,8 +38,8 @@ async def handle_settings_callback(update: Update, context: CallbackContext, dat
     # 解析回调数据
     if data.startswith("settings_"):
         parts = data[9:].split('_')  # 去掉"settings_"前缀
-    elif data.startswith("auto_delete_"):
-        parts = data[12:].split('_')  # 去掉"auto_delete_"前缀
+    elif data.startswith("auto_delete:"):
+        parts = data[12:].split(':')  # 使用冒号分隔主要部分
         return await handle_auto_delete_callback(update, context, parts)
     elif data.startswith("switch_toggle_"):
         parts = data[14:].split('_')  # 去掉"switch_toggle_"前缀
@@ -51,12 +51,6 @@ async def handle_settings_callback(update: Update, context: CallbackContext, dat
         logger.warning(f"未知的设置回调前缀: {data}")
         await query.edit_message_text("❌ 未知的设置操作")
         return
-    
-    if not parts:
-        await query.edit_message_text("❌ 无效的回调数据")
-        return
-        
-    action = parts[0]
     
     # 处理返回群组列表的情况
     if action == "back" or data == "show_manageable_groups":
@@ -107,14 +101,7 @@ async def handle_settings_callback(update: Update, context: CallbackContext, dat
 #######################################
 
 async def handle_auto_delete_callback(update: Update, context: CallbackContext, parts: List[str]):
-    """
-    处理自动删除设置的回调
-    
-    参数:
-        update: 更新对象
-        context: 上下文对象
-        parts: 回调数据部分
-    """
+    """处理自动删除设置的回调"""
     query = update.callback_query
     bot_instance = context.application.bot_data.get('bot_instance')
     
@@ -273,18 +260,18 @@ async def show_type_timeout_settings(bot_instance, query, group_id: int, message
     # 构建选择键盘
     keyboard = [
         [InlineKeyboardButton(f"{'✅' if current_timeout == 300 else ' '} 5分钟", 
-                            callback_data=f"auto_delete_set_type_timeout_{message_type}_{group_id}_300")],
+                            callback_data=f"auto_delete:set_type_timeout:{message_type}:{group_id}:300")],
         [InlineKeyboardButton(f"{'✅' if current_timeout == 600 else ' '} 10分钟", 
-                            callback_data=f"auto_delete_set_type_timeout_{message_type}_{group_id}_600")],
+                            callback_data=f"auto_delete:set_type_timeout:{message_type}:{group_id}:600")],
         [InlineKeyboardButton(f"{'✅' if current_timeout == 1800 else ' '} 30分钟", 
-                            callback_data=f"auto_delete_set_type_timeout_{message_type}_{group_id}_1800")],
+                            callback_data=f"auto_delete:set_type_timeout:{message_type}:{group_id}:1800")],
         [InlineKeyboardButton(f"{'✅' if current_timeout == 3600 else ' '} 1小时", 
-                            callback_data=f"auto_delete_set_type_timeout_{message_type}_{group_id}_3600")],
+                            callback_data=f"auto_delete:set_type_timeout:{message_type}:{group_id}:3600")],
         [InlineKeyboardButton(f"{'✅' if current_timeout == 7200 else ' '} 2小时", 
-                            callback_data=f"auto_delete_set_type_timeout_{message_type}_{group_id}_7200")],
+                            callback_data=f"auto_delete:set_type_timeout:{message_type}:{group_id}:7200")],
         [InlineKeyboardButton("自定义", 
-                            callback_data=f"auto_delete_custom_type_timeout_{message_type}_{group_id}")],
-        [InlineKeyboardButton("返回", callback_data=f"auto_delete_toggle_{group_id}")]
+                            callback_data=f"auto_delete:custom_type_timeout:{message_type}:{group_id}")],
+        [InlineKeyboardButton("返回", callback_data=f"auto_delete:toggle:{group_id}")]
     ]
     
     await query.edit_message_text(
