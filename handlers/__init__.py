@@ -45,7 +45,7 @@ def register_all_handlers(application, callback_handler):
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(MessageHandler(filters.PHOTO, handle_message))
     application.add_handler(MessageHandler(filters.VIDEO, handle_message))
-    application.add_handler(MessageHandler(filters.Document(), handle_message))
+    application.add_handler(MessageHandler(filters.Document.ALL, handle_message))
     application.add_handler(MessageHandler(filters.ANIMATION, handle_message))
             
     
@@ -98,5 +98,12 @@ def register_all_handlers(application, callback_handler):
     callback_handler.register("bc_preview_", handle_broadcast_preview_callback)
     callback_handler.register("bc_delete_", handle_broadcast_delete_callback)
     callback_handler.register("bc_confirm_delete_", handle_broadcast_confirm_delete_callback)
+
+    # 添加错误处理程序
+    def error_handler(update, context):
+        """处理错误的函数"""
+        logger.error(f"Update {update} caused error {context.error}")
+
+    application.add_error_handler(error_handler)
     
     logger.info("所有处理函数注册完成")
