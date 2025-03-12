@@ -277,6 +277,10 @@ async def handle_group_message(update: Update, context: CallbackContext):
         except Exception as e:
             logger.error(f"添加消息统计失败: {e}", exc_info=True)
 
+    # 如果是命令消息，处理自动删除
+    if message.text and message.text.startswith('/') and await bot_instance.has_permission(group_id, GroupPermission.AUTO_DELETE):
+        await bot_instance.auto_delete_manager.handle_user_command(message)
+
 async def send_keyword_response(bot_instance, original_message: Message, keyword_id: str, group_id: int):
     """
     发送关键词回复
@@ -365,9 +369,8 @@ async def send_keyword_response(bot_instance, original_message: Message, keyword
             
         # 处理自动删除
         settings = await bot_instance.db.get_group_settings(group_id)
-        if settings.get('auto_delete', False):
-            timeout = validate_delete_timeout(message_type='keyword')
-            asyncio.create_task(bot_instance._schedule_delete(msg, timeout))
+        if settings.get('auto_delete', False) and bot_instance.auto_delete_manager:
+            await bot_instance.auto_delete_manager.handle_keyword_response(msg, group_id)
             
     except Exception as e:
         logger.error(f"发送关键词回复出错: {e}", exc_info=True)
