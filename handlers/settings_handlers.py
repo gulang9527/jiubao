@@ -619,7 +619,7 @@ async def show_auto_delete_settings(bot_instance, query, group_id: int, settings
     参数:
         bot_instance: 机器人实例
         query: 回调查询
-        group_id: 群组ID
+        group_id: 群组ID或用户ID（负数为群组，正数为用户）
         settings: 群组设置
     """
     if settings is None:
@@ -639,6 +639,10 @@ async def show_auto_delete_settings(bot_instance, query, group_id: int, settings
     ranking_timeout = format_duration(timeouts.get('ranking', default_timeout))
     command_timeout = format_duration(timeouts.get('command', default_timeout))
     
+    # 判断是群组还是私聊
+    is_group = group_id < 0
+    chat_type = "群组" if is_group else "私聊"
+    
     keyboard = [
         [InlineKeyboardButton(f"自动删除: {status}", callback_data=f"auto_delete:toggle:{group_id}")],
         [InlineKeyboardButton(f"关键词回复: {keyword_timeout}", callback_data=f"auto_delete:type:keyword:{group_id}")],
@@ -649,7 +653,7 @@ async def show_auto_delete_settings(bot_instance, query, group_id: int, settings
     ]
     
     await query.edit_message_text(
-        f"🗑️ 自动删除设置\n\n"
+        f"🗑️ 自动删除设置 ({chat_type})\n\n"
         f"当前状态: {status}\n\n"
         f"点击下方按钮设置不同类型消息的自动删除时间:",
         reply_markup=InlineKeyboardMarkup(keyboard)
