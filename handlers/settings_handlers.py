@@ -632,6 +632,7 @@ async def show_auto_delete_settings(bot_instance, query, group_id: int, settings
     # 获取各类消息的超时设置
     timeouts = settings.get('auto_delete_timeouts', {})
     default_timeout = settings.get('auto_delete_timeout', 300)  # 兼容旧设置
+    prompt_timeout = format_duration(timeouts.get('prompt', default_timeout))
     
     # 统一使用format_duration函数格式化所有时间
     keyword_timeout = format_duration(timeouts.get('keyword', default_timeout))
@@ -816,7 +817,8 @@ async def process_min_bytes_setting(bot_instance, state, message):
         await bot_instance.settings_manager.clear_setting_state(message.from_user.id, 'stats_min_bytes')
         
         # 通知用户完成
-        await message.reply_text(f"✅ 最小统计字节数已设置为 {value} 字节")
+        from utils.message_utils import send_auto_delete_message
+        await send_auto_delete_message(context.bot, message.chat.id, f"✅ 最小统计字节数已设置为 {value} 字节")
         
         # 可以选择性地添加一个inline键盘，用于返回到设置页面
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -827,7 +829,8 @@ async def process_min_bytes_setting(bot_instance, state, message):
             ])
         )
     except ValueError:
-        await message.reply_text("❌ 请输入一个有效的数字")
+        from utils.message_utils import send_auto_delete_message
+        await send_auto_delete_message(context.bot, message.chat.id, "❌ 请输入一个有效的数字")
 
 async def process_daily_rank_setting(bot_instance, state, message):
     """
@@ -854,7 +857,8 @@ async def process_daily_rank_setting(bot_instance, state, message):
         await bot_instance.settings_manager.clear_setting_state(message.from_user.id, 'stats_daily_rank')
         
         # 通知用户完成
-        await message.reply_text(f"✅ 日排行显示数量已设置为 {value}")
+        from utils.message_utils import send_auto_delete_message
+        await send_auto_delete_message(context.bot, message.chat.id, f"✅ 日排行显示数量已设置为 {value}")
         
         # 可以选择性地添加一个inline键盘，用于返回到设置页面
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -865,7 +869,8 @@ async def process_daily_rank_setting(bot_instance, state, message):
             ])
         )
     except ValueError:
-        await message.reply_text("❌ 请输入一个有效的数字")
+        from utils.message_utils import send_auto_delete_message
+        await send_auto_delete_message(context.bot, message.chat.id, "❌ 请输入一个有效的数字")
 
 async def process_monthly_rank_setting(bot_instance, state, message):
     """
@@ -892,7 +897,8 @@ async def process_monthly_rank_setting(bot_instance, state, message):
         await bot_instance.settings_manager.clear_setting_state(message.from_user.id, 'stats_monthly_rank')
         
         # 通知用户完成
-        await message.reply_text(f"✅ 月排行显示数量已设置为 {value}")
+        from utils.message_utils import send_auto_delete_message
+        await send_auto_delete_message(context.bot, message.chat.id, f"✅ 月排行显示数量已设置为 {value}")
         
         # 可以选择性地添加一个inline键盘，用于返回到设置页面
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -903,7 +909,8 @@ async def process_monthly_rank_setting(bot_instance, state, message):
             ])
         )
     except ValueError:
-        await message.reply_text("❌ 请输入一个有效的数字")
+        from utils.message_utils import send_auto_delete_message
+        await send_auto_delete_message(context.bot, message.chat.id, "❌ 请输入一个有效的数字")
 
 async def process_auto_delete_timeout(bot_instance, state, message):
     """
@@ -930,7 +937,8 @@ async def process_auto_delete_timeout(bot_instance, state, message):
         await bot_instance.settings_manager.clear_setting_state(message.from_user.id, 'auto_delete_timeout')
         
         # 通知用户完成
-        await message.reply_text(f"✅ 自动删除超时时间已设置为 {format_duration(timeout)}")
+        from utils.message_utils import send_auto_delete_message
+        await send_auto_delete_message(context.bot, message.chat.id, f"✅ 自动删除超时时间已设置为 {format_duration(timeout)}")
         
         # 可以选择性地添加一个inline键盘，用于返回到设置页面
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -941,7 +949,8 @@ async def process_auto_delete_timeout(bot_instance, state, message):
             ])
         )
     except ValueError:
-        await message.reply_text("❌ 请输入一个有效的数字")
+        from utils.message_utils import send_auto_delete_message
+        await send_auto_delete_message(context.bot, message.chat.id, "❌ 请输入一个有效的数字")
 
 async def process_type_auto_delete_timeout(bot_instance, state, message):
     """
@@ -989,7 +998,8 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
                 'keyword': settings.get('auto_delete_timeout', 300),
                 'broadcast': settings.get('auto_delete_timeout', 300),
                 'ranking': settings.get('auto_delete_timeout', 300),
-                'command': settings.get('auto_delete_timeout', 300)
+                'command': settings.get('auto_delete_timeout', 300),
+                'prompt': settings.get('auto_delete_timeout', 10)
             }
             
         # 更新特定类型的超时时间并记录日志
@@ -1011,6 +1021,7 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
             'broadcast': '轮播消息',
             'ranking': '排行榜',
             'command': '命令响应',
+            'prompt': '提示消息', 
             'default': '默认'
         }
         type_name = type_names.get(message_type, message_type)
@@ -1019,8 +1030,8 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
         await bot_instance.settings_manager.clear_setting_state(user_id, f'auto_delete_type_timeout_{message_type}')
         
         # 通知用户完成
-        from utils.time_utils import format_duration
-        await message.reply_text(f"✅ 「{type_name}」的自动删除超时时间已设置为 {format_duration(timeout)}")
+        from utils.message_utils import send_auto_delete_message
+        await send_auto_delete_message(context.bot, message.chat.id, f"✅ 「{type_name}」的自动删除超时时间已设置为 {format_duration(timeout)}")
         
         # 添加返回按钮
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -1031,4 +1042,5 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
             ])
         )
     except ValueError:
-        await message.reply_text("❌ 请输入一个有效的数字")
+        from utils.message_utils import send_auto_delete_message
+        await send_auto_delete_message(context.bot, message.chat.id, "❌ 请输入一个有效的数字")
