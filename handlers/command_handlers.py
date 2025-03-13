@@ -68,7 +68,29 @@ async def handle_start(update: Update, context: CallbackContext):
         )
         
     welcome_text += "\n如需帮助，请联系管理员。"
-    await update.message.reply_text(welcome_text)
+    
+    # 检查是否在群组中
+    if update.effective_chat.type in ['group', 'supergroup']:
+        try:
+            # 尝试向用户发送私聊消息
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=welcome_text
+            )
+            
+            # 在群组中回复一个简短的提示
+            await update.message.reply_text(
+                f"@{update.effective_user.username or update.effective_user.first_name}，我已经向你发送了帮助信息，请查看私聊。"
+            )
+        except Exception as e:
+            logger.error(f"无法向用户 {user_id} 发送私聊消息: {e}")
+            # 如果用户没有先私聊机器人，则在群组中提示
+            await update.message.reply_text(
+                f"@{update.effective_user.username or update.effective_user.first_name}，请先私聊我一次(@qdjiubao_bot)，这样我才能向你发送帮助信息。"
+            )
+    else:
+        # 在私聊中正常发送欢迎消息
+        await update.message.reply_text(welcome_text)
 
 @check_command_usage
 async def handle_settings(update: Update, context: CallbackContext):
