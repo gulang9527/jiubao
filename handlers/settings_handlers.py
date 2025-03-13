@@ -173,6 +173,15 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
         if len(parts) < 4:
             await query.edit_message_text("❌ 无效的超时时间")
             return
+
+    if action == "back_to_menu":
+        # 返回到设置菜单，不改变任何设置
+        await show_settings_menu(bot_instance, query, group_id)
+    
+    elif action == "back_to_settings":
+        # 返回到自动删除设置页面，不改变任何设置
+        settings = await bot_instance.db.get_group_settings(group_id)
+        await show_auto_delete_settings(bot_instance, query, group_id, settings)
             
         message_type = parts[1]
         timeout = int(parts[3])
@@ -300,7 +309,7 @@ async def show_type_timeout_settings(bot_instance, query, group_id: int, message
                            callback_data=f"auto_delete:set_type_timeout:{message_type}:{group_id}:7200")],
         [InlineKeyboardButton("自定义", 
                            callback_data=f"auto_delete:custom_type_timeout:{message_type}:{group_id}")],
-        [InlineKeyboardButton("返回", callback_data=f"auto_delete:toggle:{group_id}")]
+        [InlineKeyboardButton("返回", callback_data=f"auto_delete:back_to_settings:{group_id}")]
     ]
     
     await query.edit_message_text(
@@ -617,7 +626,7 @@ async def show_auto_delete_settings(bot_instance, query, group_id: int, settings
         [InlineKeyboardButton(f"轮播消息: {format_duration(broadcast_timeout)}", callback_data=f"auto_delete:type:broadcast:{group_id}")],
         [InlineKeyboardButton(f"排行榜: {format_duration(ranking_timeout)}", callback_data=f"auto_delete:type:ranking:{group_id}")],
         [InlineKeyboardButton(f"命令响应: {format_duration(command_timeout)}", callback_data=f"auto_delete:type:command:{group_id}")],
-        [InlineKeyboardButton("返回设置菜单", callback_data=f"settings_select_{group_id}")]
+        [InlineKeyboardButton("返回设置菜单", callback_data=f"auto_delete:back_to_menu:{group_id}")]
     ]
     
     await query.edit_message_text(
@@ -966,7 +975,17 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
             
         # 更新特定类型的超时时间
         settings['auto_delete_timeouts'][message_type] = timeout
+        
+        # 添加详细日志以便调试
+        logger.info(f"更新 {message_type} 超时时间为 {timeout}，完整设置: {settings}")
+        
+        # 保存设置
         await bot_instance.db.update_group_settings(group_id, settings)
+        
+        # 再次获取设置，确认保存成功
+        updated_settings = await bot_instance.db.get_group_settings(group_id)
+        logger.info(f"保存后的设置: {updated_settings}")
+        updated_timeout = updated_settings.get('auto_delete_timeouts', {}).get(message_type, timeout)
         
         # 获取类型名称
         type_names = {
@@ -982,14 +1001,15 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
         await bot_instance.settings_manager.clear_setting_state(message.from_user.id, setting_type)
         
         # 通知用户完成
+        from utils.time_utils import format_duration
         await message.reply_text(f"✅ 「{type_name}」的自动删除超时时间已设置为 {format_duration(timeout)}")
         
-        # 可以选择性地添加一个inline键盘，用于返回到设置页面
+        # 添加返回按钮（使用新的回调数据格式，不会触发状态切换）
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         await message.reply_text(
             "您可以继续设置或返回设置菜单：",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("返回设置菜单", callback_data=f"auto_delete:toggle:{group_id}")]
+                [InlineKeyboardButton("返回设置菜单", callback_data=f"auto_delete:back_to_settings:{group_id}")]
             ])
         )
     except ValueError:
