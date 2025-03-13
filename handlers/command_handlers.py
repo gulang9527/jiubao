@@ -124,8 +124,14 @@ async def get_message_stats_from_db(group_id: int, limit: int = 15, skip: int = 
         消息统计数据列表
     """
     try:
-        from core.database_manager import get_db
-        db = get_db()
+        # 获取bot_instance
+        from telegram.ext import ApplicationBuilder
+        current_app = ApplicationBuilder.running_application
+        bot_instance = current_app.bot_data.get('bot_instance')
+        
+        if not bot_instance or not bot_instance.db:
+            logger.error("无法获取数据库实例")
+            return []
         
         # 聚合查询以获取每个用户的总消息数
         pipeline = [
@@ -140,7 +146,7 @@ async def get_message_stats_from_db(group_id: int, limit: int = 15, skip: int = 
         ]
         
         # 执行聚合查询
-        stats = await db.db.message_stats.aggregate(pipeline).to_list(None)
+        stats = await bot_instance.db.db.message_stats.aggregate(pipeline).to_list(None)
         logger.info(f"获取消息统计成功: 群组={group_id}, 结果数={len(stats)}")
         return stats
     except Exception as e:
