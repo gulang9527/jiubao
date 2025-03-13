@@ -149,9 +149,11 @@ async def handle_rank_command(update: Update, context: CallbackContext):
     if command == "tongji":
         stats, total_pages = await bot_instance.stats_manager.get_daily_stats(group_id, page)
         title = "📊 今日发言排行"
+        rank_type = "daily"
     else:
         stats, total_pages = await bot_instance.stats_manager.get_monthly_stats(group_id, page)
         title = "📊 近30天发言排行"
+        rank_type = "monthly"
         
     # 检查是否有统计数据
     if not stats:
@@ -171,17 +173,26 @@ async def handle_rank_command(update: Update, context: CallbackContext):
         
     # 添加分页信息
     text += f"\n第 {page}/{total_pages} 页"
-    if total_pages > 1:
-        text += f"\n使用 /{command} <页码> 查看其他页"
-        
+    
+    # 构建翻页按钮
+    keyboard = []
+    nav_row = []
+    if page > 1:
+        nav_row.append(InlineKeyboardButton("◀️ 上一页", callback_data=f"rank_page_{rank_type}_{page-1}_{group_id}"))
+    if page < total_pages:
+        nav_row.append(InlineKeyboardButton("下一页 ▶️", callback_data=f"rank_page_{rank_type}_{page+1}_{group_id}"))
+    if nav_row:
+        keyboard.append(nav_row)
+    
     # 发送排行消息到群组
-    msg = await update.message.reply_text(text, parse_mode="Markdown")
+    reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
+    msg = await update.message.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
     
     # 处理自动删除
     settings = await bot_instance.db.get_group_settings(group_id)
     if settings.get('auto_delete', False) and bot_instance.auto_delete_manager:
         await bot_instance.auto_delete_manager.handle_ranking_message(msg, group_id)
-
+        
 @check_command_usage
 async def handle_admin_groups(update: Update, context: CallbackContext):
     """处理/admingroups命令 - 显示可管理的群组列表"""
