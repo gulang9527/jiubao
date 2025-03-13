@@ -254,6 +254,10 @@ class TelegramBot:
         # 取消清理任务
         if self.cleanup_task:
             self.cleanup_task.cancel()
+
+        # 关闭自动删除管理器
+        if self.auto_delete_manager:
+            await self.auto_delete_manager.shutdown()
             
         # 清理Web服务器
         if self.web_runner:
