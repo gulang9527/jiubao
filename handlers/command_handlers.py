@@ -124,11 +124,7 @@ async def get_message_stats_from_db(group_id: int, limit: int = 15, skip: int = 
         消息统计数据列表
     """
     try:
-        # 获取bot_instance
-        from telegram.ext import ApplicationBuilder
-        current_app = ApplicationBuilder.running_application
-        bot_instance = current_app.bot_data.get('bot_instance')
-        
+        bot_instance = context.application.bot_data.get('bot_instance')
         if not bot_instance or not bot_instance.db:
             logger.error("无法获取数据库实例")
             return []
@@ -174,7 +170,13 @@ async def handle_rank_command(update: Update, context: CallbackContext):
     
     # 如果没有数据，显示提示信息
     if not stats:
-        await update.message.reply_text("暂无排行数据。")
+        msg = await update.message.reply_text("暂无排行数据。")
+        await set_message_expiry(
+            context=context,
+            chat_id=group_id,
+            message_id=msg.message_id,
+            feature="rank_command"
+        )
         return
     
     # 计算总页数（每页15条记录）
