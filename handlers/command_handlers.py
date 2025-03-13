@@ -118,7 +118,7 @@ async def handle_settings(update: Update, context: CallbackContext):
     await update.message.reply_text("请选择要管理的群组：", reply_markup=reply_markup)
 
 @check_command_usage
-async def handle_rank_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_rank_command(update: Update, context: CallbackContext):
     """处理 /rank 命令，显示群组消息排行榜"""
     # 只在群组中响应
     if update.effective_chat.type not in ['group', 'supergroup']:
@@ -264,9 +264,9 @@ async def handle_rank_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         message_id=msg.message_id,
         feature="rank_command"
     )
-
+    
 @handle_callback_errors
-async def handle_rank_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_rank_page_callback(update: Update, context: CallbackContext):
     """处理排行榜分页回调"""
     query = update.callback_query
     await query.answer()
