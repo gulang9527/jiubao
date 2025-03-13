@@ -173,15 +173,6 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
         if len(parts) < 4:
             await query.edit_message_text("❌ 无效的超时时间")
             return
-
-    if action == "back_to_menu":
-        # 返回到设置菜单，不改变任何设置
-        await show_settings_menu(bot_instance, query, group_id)
-    
-    elif action == "back_to_settings":
-        # 返回到自动删除设置页面，不改变任何设置
-        settings = await bot_instance.db.get_group_settings(group_id)
-        await show_auto_delete_settings(bot_instance, query, group_id, settings)
             
         message_type = parts[1]
         timeout = int(parts[3])
@@ -272,10 +263,20 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
             "• 最大值: 86400秒（24小时）\n\n"
             "发送 /cancel 取消"
         )
+    
+    elif action == "back_to_menu":
+        # 返回到设置菜单，不改变任何设置
+        await show_settings_menu(bot_instance, query, group_id)
+    
+    elif action == "back_to_settings":
+        # 返回到自动删除设置页面，不改变任何设置
+        settings = await bot_instance.db.get_group_settings(group_id)
+        await show_auto_delete_settings(bot_instance, query, group_id, settings)
+        
     else:
         logger.warning(f"未知的自动删除操作: {action}")
         await query.edit_message_text(f"❌ 未知的自动删除操作: {action}")
-
+        
 async def show_type_timeout_settings(bot_instance, query, group_id: int, message_type: str, settings: Dict[str, Any]):
     """
     显示特定消息类型的超时时间设置菜单
