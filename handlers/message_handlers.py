@@ -228,6 +228,12 @@ async def handle_private_message(update: Update, context: CallbackContext):
             except Exception as e:
                 logger.error(f"处理轮播消息表单输入出错: {e}", exc_info=True)
     
+    # 检查是否匹配私聊关键词
+    if message.text:
+        # 这里可以实现私聊中的关键词匹配逻辑
+        # 如果有私聊关键词功能，可以在这里添加代码
+        pass
+        
     # 检查管理员状态
     is_admin = await bot_instance.is_admin(user_id)
     logger.info(f"用户 {user_id} 的管理员状态: {is_admin}")
@@ -255,6 +261,21 @@ async def handle_private_message(update: Update, context: CallbackContext):
         await message.reply_text("您有一个未完成的关键词表单。请继续完成或使用 /cancel 取消。")
         await show_keyword_response_options(update, context)
         return
+
+async def delete_message_after_delay(message, delay_seconds=5):
+    """
+    在指定延迟后删除消息
+    
+    参数:
+        message: 要删除的消息
+        delay_seconds: 延迟秒数
+    """
+    try:
+        await asyncio.sleep(delay_seconds)
+        await message.delete()
+        logger.info(f"已删除消息: {message.message_id}")
+    except Exception as e:
+        logger.error(f"删除消息失败: {e}")
         
 async def handle_group_message(update: Update, context: CallbackContext):
     """
@@ -280,13 +301,8 @@ async def handle_group_message(update: Update, context: CallbackContext):
                 await send_keyword_response(bot_instance, message, keyword_id, group_id)
                 keyword_matched = True
                 
-                # 匹配到关键词后，5秒后删除用户的触发消息
-                try:
-                    await asyncio.sleep(5)
-                    await message.delete()
-                    logger.info(f"已删除关键词触发消息: {message.text}")
-                except Exception as e:
-                    logger.error(f"删除关键词触发消息失败: {e}")
+                # 删除触发消息
+                await delete_message_after_delay(message, 5)
         except Exception as e:
             logger.error(f"关键词匹配过程出错: {e}", exc_info=True)
     
@@ -383,10 +399,16 @@ async def send_keyword_response(bot_instance, original_message: Message, keyword
                 text or "关键词回复", reply_markup=reply_markup
             )
             
-        # 处理自动删除
+        # 处理自动删除 - 这里可以添加对机器人回复的延迟删除
+        # 获取自动删除配置的超时时间
         settings = await bot_instance.db.get_group_settings(group_id)
-        if settings.get('auto_delete', False) and bot_instance.auto_delete_manager:
-            await bot_instance.auto_delete_manager.handle_keyword_response(msg, group_id)
+        timeouts = settings.get('auto_delete_timeouts', {})
+        default_timeout = settings.get('auto_delete_timeout', 300)
+        keyword_timeout = timeouts.get('keyword', default_timeout)
+        
+        # 如果启用了自动删除，则设置延迟删除机器人的回复
+        if settings.get('auto_delete', False):
+            asyncio.create_task(delete_message_after_delay(msg, keyword_timeout))
             
     except Exception as e:
         logger.error(f"发送关键词回复出错: {e}", exc_info=True)
