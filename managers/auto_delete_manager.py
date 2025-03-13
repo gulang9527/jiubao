@@ -117,8 +117,12 @@ class AutoDeleteManager:
         message_id = f"{message.chat.id}_{message.message_id}"
         try:
             await asyncio.sleep(timeout)
-            await message.delete()
-            logger.info(f"已删除消息 {message.message_id}")
+            # 检查任务是否仍然在列表中（可能在等待期间被取消）
+            if message_id in self.delete_tasks:
+                await message.delete()
+                logger.info(f"已删除消息 {message.message_id}")
+        except asyncio.CancelledError:
+            logger.info(f"删除任务已取消: {message.message_id}")
         except Exception as e:
             logger.error(f"删除消息 {message.message_id} 失败: {e}")
         finally:
@@ -179,3 +183,18 @@ class AutoDeleteManager:
         group_id = message.chat.id
         if message.chat.type != 'private':  # 只在群组中自动删除
             await self.schedule_delete(message, 'default', group_id)
+
+    async def shutdown(self):
+        """
+        关闭管理器，取消所有等待中的删除任务
+        """
+        logger.info("正在关闭自动删除管理器...")
+        for message_id, task in list(self.delete_tasks.items()):
+            try:
+                logger.info(f"取消删除任务: {message_id}")
+                task.cancel()
+            except Exception as e:
+                logger.error(f"取消删除任务 {message_id} 时出错: {e}")
+        
+        self.delete_tasks.clear()
+        logger.info("自动删除管理器已关闭")
