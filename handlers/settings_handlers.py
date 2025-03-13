@@ -992,7 +992,7 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
                 'command': settings.get('auto_delete_timeout', 300)
             }
             
-        # 更新特定类型的超时时间
+        # 关键修复：直接使用message_type作为键，不再使用硬编码的'timeout'
         settings['auto_delete_timeouts'][message_type] = timeout
         
         # 添加详细日志以便调试
@@ -1004,7 +1004,6 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
         # 再次获取设置，确认保存成功
         updated_settings = await bot_instance.db.get_group_settings(group_id)
         logger.info(f"保存后的设置: {updated_settings}")
-        updated_timeout = updated_settings.get('auto_delete_timeouts', {}).get(message_type, timeout)
         
         # 获取类型名称
         type_names = {
@@ -1023,7 +1022,7 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
         from utils.time_utils import format_duration
         await message.reply_text(f"✅ 「{type_name}」的自动删除超时时间已设置为 {format_duration(timeout)}")
         
-        # 添加返回按钮（使用新的回调数据格式，不会触发状态切换）
+        # 添加返回按钮
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         await message.reply_text(
             "您可以继续设置或返回设置菜单：",
