@@ -615,7 +615,8 @@ async def show_auto_delete_settings(bot_instance, query, group_id: int, settings
         f"🗑️ 自动删除设置\n\n"
         f"当前状态: {status}\n\n"  # 使用之前定义的status变量，避免重复计算
         f"点击下方按钮设置不同类型消息的自动删除时间:",
-        reply_markup=I
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
         
 async def show_timeout_settings(bot_instance, query, group_id: int, settings: Dict[str, Any]):
     """
