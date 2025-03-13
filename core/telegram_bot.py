@@ -252,14 +252,12 @@ class TelegramBot:
         logger.info("机器人成功启动")
         return True
     
-    async def stop(self):
-        """停止机器人"""
-        logger.critical("开始执行应用程序关闭流程")
+    async def stop(self, close_db=True):
+        """停止机器人，可选择是否关闭数据库连接"""
         self.running = False
         
         # 设置关闭信号
         if self.shutdown_event:
-            logger.info("设置关闭事件标志")
             self.shutdown_event.set()
             
         # 停止设置管理器
@@ -293,17 +291,15 @@ class TelegramBot:
             except Exception as e:
                 logger.error(f"停止应用时出错: {e}", exc_info=True)
                     
-        # 关闭数据库连接
-        if self.db:
+        # 条件性关闭数据库
+        if close_db and self.db:
             try:
-                logger.critical("准备关闭数据库连接 - 当前状态: 已连接={}, 重连任务活跃={}".format(
-                    self.db.connected.is_set(),
-                    self.db._reconnect_task is not None and not self.db._reconnect_task.done() if hasattr(self.db, '_reconnect_task') else "未知"
-                ))
+                logger.info("关闭数据库连接...")
                 await self.db.close()
-                logger.critical("数据库连接已关闭")
             except Exception as e:
-                logger.error(f"关闭数据库连接时出错: {e}", exc_info=True)
+                logger.error(f"关闭数据库连接时出错: {e}")
+        else:
+            logger.info("保持数据库连接活跃")
         
         logger.critical("应用程序关闭流程完成")
                 
@@ -356,41 +352,47 @@ class TelegramBot:
             logger.warning("此平台不支持信号处理器")
     
     async def _handle_signal(self, signal_type):
-        """处理信号并记录详细信息"""
-        logger.critical(f"收到系统信号: {signal_type}, 准备关闭应用程序")
-        # 记录当前运行状态
-        logger.critical(f"关闭前应用状态 - 运行中: {self.running}, 连接数据库: {self.db is not None and self.db.connected.is_set()}")
-        # 记录系统信息
-        import psutil, os
-        process = psutil.Process(os.getpid())
-        logger.critical(f"进程信息 - CPU: {process.cpu_percent()}%, 内存: {process.memory_info().rss / 1024 / 1024:.2f}MB")
-        # 记录当前活动线程和任务
-        import threading
-        logger.critical(f"活动线程数: {threading.active_count()}")
-        # 记录当前运行时间
-        import time
-        logger.critical(f"应用运行时间: {time.time() - process.create_time():.2f}秒")
-        # 然后执行关闭
-        await self.stop()
+        """处理信号并进行优雅关闭"""
+        signal_name = signal.Signals(signal_type).name if isinstance(signal_type, int) else str(signal_type)
+        logger.critical(f"收到系统信号: {signal_name}，准备优雅关闭应用程序")
+        
+        # 设置标志位，停止接受新请求
+        self.running = False
+        
+        # 完成当前正在处理的请求
+        logger.info("等待当前请求完成...")
+        await asyncio.sleep(2)
+        
+        # 然后执行正常关闭流程，但保持数据库连接
+        logger.info("开始关闭应用程序，但保持数据库连接")
+        await self.stop(close_db=False) 
 
+    # 添加简单的限流机制
+    _last_health_check_time = None
+    _health_check_min_interval = 1.0  # 最小间隔1秒
+    
     async def handle_healthcheck(self, request):
         """健康检查处理函数"""
+        global _last_health_check_time
+        
+        current_time = time.time()
         client_ip = request.remote
         user_agent = request.headers.get('User-Agent', 'Unknown')
         
-        # 记录详细的请求信息
+        # 记录请求信息
         logger.info(f"健康检查请求 - IP: {client_ip}, User-Agent: {user_agent}, 路径: {request.path}")
         
-        # 可选: 记录请求频率过高的情况
-        current_time = datetime.now()
-        if hasattr(self, '_last_health_check_time'):
-            time_diff = (current_time - self._last_health_check_time).total_seconds()
-            if time_diff < 1.0:  # 如果请求间隔小于1秒
-                logger.warning(f"健康检查请求频率过高: {time_diff:.2f}秒")
-        self._last_health_check_time = current_time
+        # 限流逻辑
+        if _last_health_check_time is not None:
+            time_diff = current_time - _last_health_check_time
+            if time_diff < _health_check_min_interval:
+                logger.warning(f"健康检查请求频率过高: {time_diff:.2f}秒，暂时延迟响应")
+                await asyncio.sleep(0.5)  # 适当延迟，避免资源耗尽
+        
+        _last_health_check_time = current_time
         
         return web.Response(text="Healthy", status=200)
-
+    
     async def _handle_webhook(self, request):
         """处理Webhook请求"""
         try:
