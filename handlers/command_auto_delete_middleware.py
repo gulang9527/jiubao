@@ -1,7 +1,4 @@
-# 这是一个可选的功能，用于在用户发送命令时自动删除命令
-# 可以在 __init__.py 中添加一个中间件来处理所有命令
 
-# 1. 创建一个新的中间件函数，命名为 command_auto_delete_middleware.py
 """
 命令自动删除中间件，处理用户命令的自动删除
 """
@@ -37,11 +34,20 @@ async def command_auto_delete_middleware(update: Update, context: CallbackContex
         
     # 获取机器人实例
     bot_instance = context.application.bot_data.get('bot_instance')
-    if not bot_instance or not bot_instance.auto_delete_manager:
+    if not bot_instance:
         return
         
     # 获取群组ID
     group_id = update.effective_chat.id
+    
+    # 自动删除用户的命令消息（5秒后）
+    try:
+        # 延迟5秒后删除
+        await asyncio.sleep(5)
+        await message.delete()
+        logger.info(f"已删除命令消息: {message.text}")
+    except Exception as e:
+        logger.error(f"删除命令消息失败: {e}")
     
     # 检查群组设置
     settings = await bot_instance.db.get_group_settings(group_id)
