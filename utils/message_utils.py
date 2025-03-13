@@ -322,3 +322,83 @@ def format_error_message(error: Exception) -> str:
     except Exception as e:
         logger.error(f"格式化错误消息出错: {e}")
         return "❌ 未知错误"
+
+async def send_auto_delete_message(bot, chat_id, text, reply_markup=None, message_type='prompt', **kwargs):
+    """
+    发送会自动删除的消息
+    
+    参数:
+        bot: 机器人实例
+        chat_id: 聊天ID
+        text: 消息文本
+        reply_markup: 回复标记
+        message_type: 消息类型，默认为'prompt'
+        **kwargs: 其他发送消息的参数
+    
+    返回:
+        发送的消息对象
+    """
+    try:
+        # 发送消息
+        message = await bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            reply_markup=reply_markup,
+            **kwargs
+        )
+        
+        # 获取群组设置
+        if chat_id < 0:  # 群组
+            group_id = chat_id
+        else:  # 私聊
+            group_id = chat_id
+            
+        # 获取群组设置，为了不耦合，这里需要从全局变量获取bot_instance
+        from telegram.ext import ApplicationBuilder, ContextTypes
+        current_app = ApplicationBuilder.running_application
+        if current_app and 'bot_instance' in current_app.bot_data:
+            bot_instance = current_app.bot_data['bot_instance']
+            settings = await bot_instance.db.get_group_settings(group_id)
+            
+            # 检查是否启用自动删除
+            if settings.get('auto_delete', False):
+                # 获取超时时间
+                timeouts = settings.get('auto_delete_timeouts', {})
+                default_timeout = settings.get('auto_delete_timeout', 300)
+                timeout = timeouts.get(message_type, default_timeout)
+                
+                # 处理自动删除
+                if timeout > 0:
+                    # 记录自动删除信息
+                    if not hasattr(bot_instance, 'auto_delete_messages'):
+                        bot_instance.auto_delete_messages = {}
+                        
+                    message_key = f"{chat_id}:{message.message_id}"
+                    delete_time = datetime.now() + timedelta(seconds=timeout)
+                    bot_instance.auto_delete_messages[message_key] = delete_time
+                    
+                    # 可以选择立即启动删除任务或交由定时任务处理
+                    import asyncio
+                    asyncio.create_task(_schedule_delete_message(bot, chat_id, message.message_id, timeout))
+        
+        return message
+    except Exception as e:
+        logger.error(f"发送自动删除消息失败: {e}", exc_info=True)
+        return None
+
+async def _schedule_delete_message(bot, chat_id, message_id, timeout):
+    """
+    安排删除消息的任务
+    
+    参数:
+        bot: 机器人实例
+        chat_id: 聊天ID
+        message_id: 消息ID
+        timeout: 超时秒数
+    """
+    await asyncio.sleep(timeout)
+    try:
+        await bot.delete_message(chat_id=chat_id, message_id=message_id)
+        logger.debug(f"已删除消息: chat_id={chat_id}, message_id={message_id}")
+    except Exception as e:
+        logger.warning(f"删除消息失败: chat_id={chat_id}, message_id={message_id}, 错误: {e}")
