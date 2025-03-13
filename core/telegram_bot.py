@@ -208,19 +208,32 @@ class TelegramBot:
     @classmethod
     async def main(cls):
         """主入口方法"""
-        bot = cls()
-        if not await bot.initialize():
-            logger.error("机器人初始化失败")
-            return
-            
-        await bot.handle_signals()
-        
-        if not await bot.start():
-            logger.error("机器人启动失败")
-            return
-            
-        while bot.running:
-            await asyncio.sleep(1)
+        try:
+            bot = cls()
+            if not await bot.initialize():
+                logger.error("机器人初始化失败")
+                return
+                    
+            await bot.handle_signals()
+                
+            if not await bot.start():
+                logger.error("机器人启动失败")
+                return
+                    
+            while bot.running:
+                await asyncio.sleep(1)
+        except Exception as e:
+            logger.critical(f"应用程序发生未捕获的异常: {e}", exc_info=True)
+            # 记录所有正在运行的任务
+            for task in asyncio.all_tasks():
+                logger.critical(f"活动任务: {task.get_name()}, 已完成: {task.done()}, 已取消: {task.cancelled()}")
+                if task.done() and not task.cancelled():
+                    try:
+                        exc = task.exception()
+                        if exc:
+                            logger.critical(f"任务异常: {exc}")
+                    except asyncio.InvalidStateError:
+                        pass
             
     async def start(self):
         """启动机器人"""
@@ -241,43 +254,58 @@ class TelegramBot:
     
     async def stop(self):
         """停止机器人"""
+        logger.critical("开始执行应用程序关闭流程")
         self.running = False
         
         # 设置关闭信号
         if self.shutdown_event:
+            logger.info("设置关闭事件标志")
             self.shutdown_event.set()
             
         # 停止设置管理器
         if self.settings_manager:
+            logger.info("开始关闭设置管理器")
             await self.settings_manager.stop()
             
         # 取消清理任务
         if self.cleanup_task:
+            logger.info("取消清理任务")
             self.cleanup_task.cancel()
-
+    
         # 关闭自动删除管理器
         if self.auto_delete_manager:
+            logger.info("开始关闭自动删除管理器")
             await self.auto_delete_manager.shutdown()
             
         # 清理Web服务器
         if self.web_runner:
+            logger.info("开始清理Web服务器")
             await self.web_runner.cleanup()
             
         # 停止应用
         if self.application:
             try:
+                logger.info("开始停止Telegram应用")
                 if getattr(self.application, 'running', False):
                     await self.application.stop()
                     await self.application.shutdown()
+                    logger.info("Telegram应用已成功关闭")
             except Exception as e:
-                logger.error(f"停止应用时出错: {e}")
-                
+                logger.error(f"停止应用时出错: {e}", exc_info=True)
+                    
         # 关闭数据库连接
         if self.db:
             try:
+                logger.critical("准备关闭数据库连接 - 当前状态: 已连接={}, 重连任务活跃={}".format(
+                    self.db.connected.is_set(),
+                    self.db._reconnect_task is not None and not self.db._reconnect_task.done() if hasattr(self.db, '_reconnect_task') else "未知"
+                ))
                 await self.db.close()
+                logger.critical("数据库连接已关闭")
             except Exception as e:
-                logger.error(f"关闭数据库连接时出错: {e}")
+                logger.error(f"关闭数据库连接时出错: {e}", exc_info=True)
+        
+        logger.critical("应用程序关闭流程完成")
                 
     async def shutdown(self):
         """关闭机器人"""
@@ -315,16 +343,52 @@ class TelegramBot:
         """处理系统信号"""
         try:
             for sig in (signal.SIGTERM, signal.SIGINT):
+                # 创建带有信号类型的闭包
+                def create_signal_handler(signal_type):
+                    return lambda: asyncio.create_task(self._handle_signal(signal_type))
+                
                 asyncio.get_running_loop().add_signal_handler(
                     sig,
-                    lambda: asyncio.create_task(self.stop())
+                    create_signal_handler(sig)
                 )
             logger.info("信号处理器设置完成")
         except NotImplementedError:
             logger.warning("此平台不支持信号处理器")
+    
+    async def _handle_signal(self, signal_type):
+        """处理信号并记录详细信息"""
+        logger.critical(f"收到系统信号: {signal_type}, 准备关闭应用程序")
+        # 记录当前运行状态
+        logger.critical(f"关闭前应用状态 - 运行中: {self.running}, 连接数据库: {self.db is not None and self.db.connected.is_set()}")
+        # 记录系统信息
+        import psutil, os
+        process = psutil.Process(os.getpid())
+        logger.critical(f"进程信息 - CPU: {process.cpu_percent()}%, 内存: {process.memory_info().rss / 1024 / 1024:.2f}MB")
+        # 记录当前活动线程和任务
+        import threading
+        logger.critical(f"活动线程数: {threading.active_count()}")
+        # 记录当前运行时间
+        import time
+        logger.critical(f"应用运行时间: {time.time() - process.create_time():.2f}秒")
+        # 然后执行关闭
+        await self.stop()
 
     async def handle_healthcheck(self, request):
         """健康检查处理函数"""
+        client_ip = request.remote
+        user_agent = request.headers.get('User-Agent', 'Unknown')
+        
+        # 记录详细的请求信息
+        logger.info(f"健康检查请求 - IP: {client_ip}, User-Agent: {user_agent}, 路径: {request.path}")
+        
+        # 可选: 记录请求频率过高的情况
+        current_time = datetime.now()
+        if hasattr(self, '_last_health_check_time'):
+            time_diff = (current_time - self._last_health_check_time).total_seconds()
+            if time_diff < 1.0:  # 如果请求间隔小于1秒
+                logger.warning(f"健康检查请求频率过高: {time_diff:.2f}秒")
+        self._last_health_check_time = current_time
+        
         return web.Response(text="Healthy", status=200)
 
     async def _handle_webhook(self, request):
