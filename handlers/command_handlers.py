@@ -162,7 +162,7 @@ async def handle_rank_command(update: Update, context: CallbackContext):
         
     # 构建排行文本
     text = f"{title}\n\n"
-    max_name_length = 15  # 最大显示名称长度
+    max_name_length = 13  # 最大显示名称长度
     message_label = "消息数:"
     
     for i, stat in enumerate(stats, start=(page-1)*15+1):
@@ -258,7 +258,7 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext, da
     
     # 构建排行文本
     text = f"{title}\n\n"
-    max_name_length = 15  # 最大显示名称长度
+    max_name_length = 13  # 最大显示名称长度
     message_label = "消息数:"
     
     for i, stat in enumerate(stats, start=(page-1)*15+1):
