@@ -122,8 +122,8 @@ class TelegramBot:
             # 设置默认群组
             default_groups = [{
                 'group_id': -1001234567890,
-                'permissions': [perm.value for perm in GroupPermission],
-                'feature_switches': {'keywords': True, 'stats': True, 'broadcast': True}
+                'permissions': [perm.value for perm in GroupPermission],  
+                'feature_switches': {'keywords': True, 'stats': True, 'broadcast': True, 'auto_delete': True}
             }]
             
             for group in default_groups:
