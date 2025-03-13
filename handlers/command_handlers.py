@@ -162,14 +162,27 @@ async def handle_rank_command(update: Update, context: CallbackContext):
         
     # 构建排行文本
     text = f"{title}\n\n"
+    max_name_length = 15  # 最大显示名称长度
+    max_rank_length = 3   # 排名最大长度、
+    
     for i, stat in enumerate(stats, start=(page-1)*15+1):
         try:
             user = await context.bot.get_chat_member(group_id, stat['_id'])
-            user_mention = f"[{user.user.full_name}](tg://user?id={stat['_id']})"
+            display_name = user.user.full_name
+            # 截断过长的名称
+            if len(display_name) > max_name_length:
+                display_name = display_name[:max_name_length-3] + "..."
+            user_mention = f"[{display_name}](tg://user?id={stat['_id']})"
         except Exception:
             user_mention = f"用户{stat['_id']}"
-            
-        text += f"{i}. {user_mention} - 消息数: {stat['total_messages']}\n"
+        
+        # 格式化每一行
+        rank = f"{i}."
+        # 计算填充，确保用户名后的部分都在同一位置
+        padding = max_name_length - min(len(display_name), max_name_length) + 2  # 添加2个额外空格作为间距
+        
+        # 构建格式化的一行，确保"消息数"对齐
+        text += f"{rank:<{max_rank_length}} {user_mention}{' ' * padding}消息数: {stat['total_messages']:>5}\n"
         
     # 添加分页信息
     text += f"\n第 {page}/{total_pages} 页"
@@ -239,14 +252,27 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext, da
     
     # 构建排行文本
     text = f"{title}\n\n"
+    max_name_length = 15  # 最大显示名称长度
+    max_rank_length = 3   # 排名最大长度
+    
     for i, stat in enumerate(stats, start=(page-1)*15+1):
         try:
             user = await context.bot.get_chat_member(group_id, stat['_id'])
-            user_mention = f"[{user.user.full_name}](tg://user?id={stat['_id']})"
+            display_name = user.user.full_name
+            # 截断过长的名称
+            if len(display_name) > max_name_length:
+                display_name = display_name[:max_name_length-3] + "..."
+            user_mention = f"[{display_name}](tg://user?id={stat['_id']})"
         except Exception:
             user_mention = f"用户{stat['_id']}"
-            
-        text += f"{i}. {user_mention} - 消息数: {stat['total_messages']}\n"
+        
+        # 格式化每一行
+        rank = f"{i}."
+        # 计算填充，确保用户名后的部分都在同一位置
+        padding = max_name_length - min(len(display_name), max_name_length) + 2
+        
+        # 构建格式化的一行，确保"消息数"对齐
+        text += f"{rank:<{max_rank_length}} {user_mention}{' ' * padding}消息数: {stat['total_messages']:>5}\n"
     
     # 添加分页信息
     text += f"\n第 {page}/{total_pages} 页"
