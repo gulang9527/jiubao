@@ -162,30 +162,40 @@ async def handle_rank_command(update: Update, context: CallbackContext):
         
     # 构建排行文本
     text = f"{title}\n\n"
-    max_name_length = 15  # 最大显示名称长度
-    max_rank_length = 3   # 排名最大长度
-    message_label = "消息数:"  # 标签
-    message_value_length = 5  # 消息数值预留的宽度
+    
+    # 定义固定宽度，确保"消息数"从这个位置开始
+    fixed_width = 20  # 可以根据实际需要调整这个值
+    max_name_length = 10  # 可以根据需要调整，但要确保小于fixed_width
     
     for i, stat in enumerate(stats, start=(page-1)*15+1):
         try:
             user = await context.bot.get_chat_member(group_id, stat['_id'])
             display_name = user.user.full_name
-            # 截断过长的名称
+            # 控制用户名显示长度，确保不会超过固定宽度
             if len(display_name) > max_name_length:
                 display_name = display_name[:max_name_length-3] + "..."
             user_mention = f"[{display_name}](tg://user?id={stat['_id']})"
         except Exception:
             user_mention = f"用户{stat['_id']}"
         
-        # 格式化每一行
-        rank = f"{i}."
-        # 计算填充，确保"消息数:"和数值都在固定位置
-        full_name_space = max_name_length + 5  # 用户名占用的总宽度(含格式标记)
+        # 计算排名部分的长度
+        rank_str = f"{i}. "
+        rank_length = len(rank_str)
         
-        # 构建格式化的一行，确保消息数标签和数值之间有足够间距
-        text += f"{rank:<{max_rank_length}} {user_mention:{full_name_space}} {message_label}    {stat['total_messages']:>{message_value_length}}\n"
+        # 计算用户名显示部分的长度（不包括Markdown格式）
+        name_visible_length = len(display_name)
         
+        # 计算需要添加的空格数量，确保"消息数"从固定位置开始
+        total_visible_length = rank_length + name_visible_length
+        spaces_needed = fixed_width - total_visible_length
+        
+        # 确保至少有一个空格
+        spaces_needed = max(1, spaces_needed)
+        padding = " " * spaces_needed
+        
+        # 构建行
+        text += f"{rank_str}{user_mention}{padding}消息数: {stat['total_messages']}\n"
+    
     # 添加分页信息
     text += f"\n第 {page}/{total_pages} 页"
     
@@ -254,29 +264,39 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext, da
     
     # 构建排行文本
     text = f"{title}\n\n"
-    max_name_length = 15  # 最大显示名称长度
-    max_rank_length = 3   # 排名最大长度
-    message_label = "消息数:"  # 标签
-    message_value_length = 5  # 消息数值预留的宽度
+    
+    # 定义固定宽度，确保"消息数"从这个位置开始
+    fixed_width = 20  # 可以根据实际需要调整这个值
+    max_name_length = 10  # 可以根据需要调整，但要确保小于fixed_width
     
     for i, stat in enumerate(stats, start=(page-1)*15+1):
         try:
             user = await context.bot.get_chat_member(group_id, stat['_id'])
             display_name = user.user.full_name
-            # 截断过长的名称
+            # 控制用户名显示长度，确保不会超过固定宽度
             if len(display_name) > max_name_length:
                 display_name = display_name[:max_name_length-3] + "..."
             user_mention = f"[{display_name}](tg://user?id={stat['_id']})"
         except Exception:
             user_mention = f"用户{stat['_id']}"
         
-        # 格式化每一行
-        rank = f"{i}."
-        # 计算填充，确保"消息数:"和数值都在固定位置
-        full_name_space = max_name_length + 5  # 用户名占用的总宽度(含格式标记)
+        # 计算排名部分的长度
+        rank_str = f"{i}. "
+        rank_length = len(rank_str)
         
-        # 构建格式化的一行，确保消息数标签和数值之间有足够间距
-        text += f"{rank:<{max_rank_length}} {user_mention:{full_name_space}} {message_label}    {stat['total_messages']:>{message_value_length}}\n"
+        # 计算用户名显示部分的长度（不包括Markdown格式）
+        name_visible_length = len(display_name)
+        
+        # 计算需要添加的空格数量，确保"消息数"从固定位置开始
+        total_visible_length = rank_length + name_visible_length
+        spaces_needed = fixed_width - total_visible_length
+        
+        # 确保至少有一个空格
+        spaces_needed = max(1, spaces_needed)
+        padding = " " * spaces_needed
+        
+        # 构建行
+        text += f"{rank_str}{user_mention}{padding}消息数: {stat['total_messages']}\n"
     
     # 添加分页信息
     text += f"\n第 {page}/{total_pages} 页"
