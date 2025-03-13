@@ -140,8 +140,9 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
     # 处理不同的操作
     if action == "toggle":
         # 切换自动删除开关
-        auto_delete = not settings.get('auto_delete', False)
-        settings['auto_delete'] = auto_delete
+        current_value = settings.get('auto_delete', False)
+        settings['auto_delete'] = not current_value
+        logger.info(f"切换自动删除状态，从 {current_value} 到 {settings['auto_delete']}")
         await bot_instance.db.update_group_settings(group_id, settings)
         # 重新获取最新设置
         settings = await bot_instance.db.get_group_settings(group_id)
@@ -587,7 +588,9 @@ async def show_auto_delete_settings(bot_instance, query, group_id: int, settings
     if settings is None:
         settings = await bot_instance.db.get_group_settings(group_id)
         
-    status = '✅ 已开启' if settings.get('auto_delete', False) else '❌ 已关闭'
+    # 获取自动删除状态
+    auto_delete_enabled = settings.get('auto_delete', False)
+    status = '✅ 已开启' if auto_delete_enabled else '❌ 已关闭'
     
     # 获取各类消息的超时设置
     timeouts = settings.get('auto_delete_timeouts', {})
@@ -610,11 +613,10 @@ async def show_auto_delete_settings(bot_instance, query, group_id: int, settings
     
     await query.edit_message_text(
         f"🗑️ 自动删除设置\n\n"
-        f"当前状态: {'✅ 已开启' if settings.get('auto_delete', False) else '❌ 已关闭'}\n\n"
+        f"当前状态: {status}\n\n"  # 使用之前定义的status变量，避免重复计算
         f"点击下方按钮设置不同类型消息的自动删除时间:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
+        reply_markup=I
+        
 async def show_timeout_settings(bot_instance, query, group_id: int, settings: Dict[str, Any]):
     """
     显示超时时间设置菜单
@@ -911,8 +913,6 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
     group_id = state['group_id']
     
     # 直接从上下文中获取设置类型
-    # 假设使用start_setting时的键是形如"auto_delete_type_timeout_keyword"的格式
-    # 我们可以遍历管理器中当前的活跃设置来找到正确的设置类型
     user_id = message.from_user.id
     active_settings = await bot_instance.settings_manager.get_active_settings(user_id)
     
@@ -928,7 +928,6 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
         return
         
     # 从设置类型中提取消息类型
-    # 设置类型的格式为: auto_delete_type_timeout_消息类型
     parts = setting_type.split('_')
     if len(parts) >= 4:
         message_type = parts[3]  # auto_delete_type_timeout_keyword 中的 keyword
@@ -970,10 +969,10 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
         type_name = type_names.get(message_type, message_type)
         
         # 清理设置状态
-        await bot_instance.settings_manager.clear_setting_state(message.from_user.id, 'auto_delete_timeout')
+        await bot_instance.settings_manager.clear_setting_state(message.from_user.id, setting_type)
         
         # 通知用户完成
-        await message.reply_text(f"✅ 自动删除超时时间已设置为 {format_duration(timeout)}")
+        await message.reply_text(f"✅ 「{type_name}」的自动删除超时时间已设置为 {format_duration(timeout)}")
         
         # 可以选择性地添加一个inline键盘，用于返回到设置页面
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
