@@ -43,8 +43,16 @@ async def handle_settings_callback(update: Update, context: CallbackContext, dat
         parts = data[9:].split('_')  # 去掉"settings_"前缀
         action = parts[0] if parts else ""
     elif data.startswith("auto_delete:"):
-        parts = data[12:].split(':')  # 使用冒号分隔主要部分
-        return await handle_auto_delete_callback(update, context, parts)
+        try:
+            parts = data[12:].split(':')  # 使用冒号分隔主要部分
+            if not parts:
+                await query.edit_message_text("❌ 无效的自动删除回调数据")
+                return
+            return await handle_auto_delete_callback(update, context, parts)
+        except Exception as e:
+            logger.error(f"处理自动删除回调时出错: {e}")
+            await query.edit_message_text("❌ 处理自动删除设置时出错")
+            return
     elif data.startswith("switch_toggle_"):
         parts = data[14:].split('_')  # 去掉"switch_toggle_"前缀
         return await handle_switch_toggle_callback(update, context, parts)
@@ -52,17 +60,27 @@ async def handle_settings_callback(update: Update, context: CallbackContext, dat
         parts = data[11:].split('_')  # 去掉"stats_edit_"前缀
         return await handle_stats_edit_callback(update, context, parts)
     elif data.startswith("auto_delete_settings_"):  # 新的导航格式，只显示设置页面
-        group_id = int(data.split('_')[-1])
-        # 获取群组设置
-        settings = await bot_instance.db.get_group_settings(group_id)
-        # 显示自动删除设置页面，不切换状态
-        return await show_auto_delete_settings(bot_instance, query, group_id, settings)
+        try:
+            group_id = int(data.split('_')[-1])
+            # 获取群组设置
+            settings = await bot_instance.db.get_group_settings(group_id)
+            # 显示自动删除设置页面，不切换状态
+            return await show_auto_delete_settings(bot_instance, query, group_id, settings)
+        except (ValueError, IndexError) as e:
+            logger.error(f"处理自动删除设置导航时出错: {e}")
+            await query.edit_message_text("❌ 无效的群组ID")
+            return
     elif data.startswith("auto_delete_toggle_"):  # 兼容旧格式，也只显示设置页面
-        group_id = int(data.split('_')[-1])
-        # 获取群组设置
-        settings = await bot_instance.db.get_group_settings(group_id)
-        # 显示自动删除设置页面，不切换状态
-        return await show_auto_delete_settings(bot_instance, query, group_id, settings)
+        try:
+            group_id = int(data.split('_')[-1])
+            # 获取群组设置
+            settings = await bot_instance.db.get_group_settings(group_id)
+            # 显示自动删除设置页面，不切换状态
+            return await show_auto_delete_settings(bot_instance, query, group_id, settings)
+        except (ValueError, IndexError) as e:
+            logger.error(f"处理自动删除设置开关时出错: {e}")
+            await query.edit_message_text("❌ 无效的群组ID")
+            return
     else:
         logger.warning(f"未知的设置回调前缀: {data}")
         await query.edit_message_text("❌ 未知的设置操作")
@@ -615,24 +633,24 @@ async def show_auto_delete_settings(bot_instance, query, group_id: int, settings
     timeouts = settings.get('auto_delete_timeouts', {})
     default_timeout = settings.get('auto_delete_timeout', 300)  # 兼容旧设置
     
-    # 为不同类型消息构建超时显示
-    keyword_timeout = timeouts.get('keyword', default_timeout)
-    broadcast_timeout = timeouts.get('broadcast', default_timeout)
-    ranking_timeout = timeouts.get('ranking', default_timeout)
-    command_timeout = timeouts.get('command', default_timeout)
+    # 统一使用format_duration函数格式化所有时间
+    keyword_timeout = format_duration(timeouts.get('keyword', default_timeout))
+    broadcast_timeout = format_duration(timeouts.get('broadcast', default_timeout))
+    ranking_timeout = format_duration(timeouts.get('ranking', default_timeout))
+    command_timeout = format_duration(timeouts.get('command', default_timeout))
     
     keyboard = [
         [InlineKeyboardButton(f"自动删除: {status}", callback_data=f"auto_delete:toggle:{group_id}")],
-        [InlineKeyboardButton(f"关键词回复: {format_duration(keyword_timeout)}", callback_data=f"auto_delete:type:keyword:{group_id}")],
-        [InlineKeyboardButton(f"轮播消息: {format_duration(broadcast_timeout)}", callback_data=f"auto_delete:type:broadcast:{group_id}")],
-        [InlineKeyboardButton(f"排行榜: {format_duration(ranking_timeout)}", callback_data=f"auto_delete:type:ranking:{group_id}")],
-        [InlineKeyboardButton(f"命令响应: {format_duration(command_timeout)}", callback_data=f"auto_delete:type:command:{group_id}")],
+        [InlineKeyboardButton(f"关键词回复: {keyword_timeout}", callback_data=f"auto_delete:type:keyword:{group_id}")],
+        [InlineKeyboardButton(f"轮播消息: {broadcast_timeout}", callback_data=f"auto_delete:type:broadcast:{group_id}")],
+        [InlineKeyboardButton(f"排行榜: {ranking_timeout}", callback_data=f"auto_delete:type:ranking:{group_id}")],
+        [InlineKeyboardButton(f"命令响应: {command_timeout}", callback_data=f"auto_delete:type:command:{group_id}")],
         [InlineKeyboardButton("返回设置菜单", callback_data=f"auto_delete:back_to_menu:{group_id}")]
     ]
     
     await query.edit_message_text(
         f"🗑️ 自动删除设置\n\n"
-        f"当前状态: {status}\n\n"  # 使用之前定义的status变量，避免重复计算
+        f"当前状态: {status}\n\n"
         f"点击下方按钮设置不同类型消息的自动删除时间:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -791,17 +809,17 @@ async def process_min_bytes_setting(bot_instance, state, message):
         await bot_instance.db.update_group_settings(group_id, settings)
         
         # 清理设置状态
-        await bot_instance.settings_manager.clear_setting_state(message.from_user.id, setting_type)
+        await bot_instance.settings_manager.clear_setting_state(message.from_user.id, 'stats_min_bytes')
         
         # 通知用户完成
-        await message.reply_text(f"✅ 「{type_name}」的自动删除超时时间已设置为 {format_duration(timeout)}")
+        await message.reply_text(f"✅ 最小统计字节数已设置为 {value} 字节")
         
         # 可以选择性地添加一个inline键盘，用于返回到设置页面
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         await message.reply_text(
             "您可以继续设置或返回设置菜单：",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("返回设置菜单", callback_data=f"auto_delete:toggle:{group_id}")]
+                [InlineKeyboardButton("返回设置菜单", callback_data=f"settings_stats_{group_id}")]
             ])
         )
     except ValueError:
@@ -829,17 +847,17 @@ async def process_daily_rank_setting(bot_instance, state, message):
         await bot_instance.db.update_group_settings(group_id, settings)
         
         # 清理设置状态
-        await bot_instance.settings_manager.clear_setting_state(message.from_user.id, 'auto_delete_timeout')
+        await bot_instance.settings_manager.clear_setting_state(message.from_user.id, 'stats_daily_rank')
         
         # 通知用户完成
-        await message.reply_text(f"✅ 自动删除超时时间已设置为 {format_duration(timeout)}")
+        await message.reply_text(f"✅ 日排行显示数量已设置为 {value}")
         
         # 可以选择性地添加一个inline键盘，用于返回到设置页面
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         await message.reply_text(
             "您可以继续设置或返回设置菜单：",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("返回设置菜单", callback_data=f"auto_delete:toggle:{group_id}")]
+                [InlineKeyboardButton("返回设置菜单", callback_data=f"settings_stats_{group_id}")]
             ])
         )
     except ValueError:
@@ -867,17 +885,17 @@ async def process_monthly_rank_setting(bot_instance, state, message):
         await bot_instance.db.update_group_settings(group_id, settings)
         
         # 清理设置状态
-        await bot_instance.settings_manager.clear_setting_state(message.from_user.id, 'auto_delete_timeout')
+        await bot_instance.settings_manager.clear_setting_state(message.from_user.id, 'stats_monthly_rank')
         
         # 通知用户完成
-        await message.reply_text(f"✅ 自动删除超时时间已设置为 {format_duration(timeout)}")
+        await message.reply_text(f"✅ 月排行显示数量已设置为 {value}")
         
         # 可以选择性地添加一个inline键盘，用于返回到设置页面
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         await message.reply_text(
             "您可以继续设置或返回设置菜单：",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("返回设置菜单", callback_data=f"auto_delete:toggle:{group_id}")]
+                [InlineKeyboardButton("返回设置菜单", callback_data=f"settings_stats_{group_id}")]
             ])
         )
     except ValueError:
