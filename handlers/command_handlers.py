@@ -2,17 +2,11 @@
 命令处理函数，处理各种命令的逻辑
 """
 import logging
-import asyncio
-from typing import Optional, List, Dict, Any
-
+import html
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
-
-from utils.decorators import (
-    check_command_usage, require_admin, require_superadmin, handle_callback_errors
-)
-from utils.message_utils import validate_delete_timeout
-from db.models import UserRole, GroupPermission
+from utils.decorators import check_command_usage, handle_callback_errors
+from utils.message_utils import set_message_expiry
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +111,42 @@ async def handle_settings(update: Update, context: CallbackContext):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("请选择要管理的群组：", reply_markup=reply_markup)
 
+async def get_message_stats_from_db(group_id: int, limit: int = 15, skip: int = 0):
+    """
+    从数据库获取消息统计数据
+    
+    参数:
+        group_id: 群组ID
+        limit: 返回结果数量限制
+        skip: 跳过的结果数量（用于分页）
+        
+    返回:
+        消息统计数据列表
+    """
+    try:
+        from core.database_manager import get_db
+        db = get_db()
+        
+        # 聚合查询以获取每个用户的总消息数
+        pipeline = [
+            {'$match': {'group_id': group_id}},
+            {'$group': {
+                '_id': '$user_id',
+                'total_messages': {'$sum': '$total_messages'}
+            }},
+            {'$sort': {'total_messages': -1}},
+            {'$skip': skip},
+            {'$limit': limit}
+        ]
+        
+        # 执行聚合查询
+        stats = await db.db.message_stats.aggregate(pipeline).to_list(None)
+        logger.info(f"获取消息统计成功: 群组={group_id}, 结果数={len(stats)}")
+        return stats
+    except Exception as e:
+        logger.error(f"获取消息统计失败: {e}", exc_info=True)
+        return []
+        
 @check_command_usage
 async def handle_rank_command(update: Update, context: CallbackContext):
     """处理 /rank 命令，显示群组消息排行榜"""
@@ -214,7 +244,6 @@ async def handle_rank_command(update: Update, context: CallbackContext):
             user = await context.bot.get_chat_member(group_id, stat['_id'])
             display_name = user.user.full_name
             # 处理HTML特殊字符
-            import html
             display_name = html.escape(display_name)
             user_mention = f'<a href="tg://user?id={stat["_id"]}">{display_name}</a>'
         except Exception:
@@ -264,6 +293,7 @@ async def handle_rank_command(update: Update, context: CallbackContext):
         message_id=msg.message_id,
         feature="rank_command"
     )
+
     
 @handle_callback_errors
 async def handle_rank_page_callback(update: Update, context: CallbackContext):
@@ -381,7 +411,6 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext):
             user = await context.bot.get_chat_member(group_id, stat['_id'])
             display_name = user.user.full_name
             # 处理HTML特殊字符
-            import html
             display_name = html.escape(display_name)
             user_mention = f'<a href="tg://user?id={stat["_id"]}">{display_name}</a>'
         except Exception:
