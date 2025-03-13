@@ -374,7 +374,6 @@ class TelegramBot:
     
     async def handle_healthcheck(self, request):
         """健康检查处理函数"""
-        global _last_health_check_time
         
         current_time = time.time()
         client_ip = request.remote
@@ -384,13 +383,13 @@ class TelegramBot:
         logger.info(f"健康检查请求 - IP: {client_ip}, User-Agent: {user_agent}, 路径: {request.path}")
         
         # 限流逻辑
-        if _last_health_check_time is not None:
-            time_diff = current_time - _last_health_check_time
-            if time_diff < _health_check_min_interval:
+        if self._last_health_check_time is not None:
+            time_diff = current_time - self._last_health_check_time
+            if time_diff < self._health_check_min_interval:
                 logger.warning(f"健康检查请求频率过高: {time_diff:.2f}秒，暂时延迟响应")
                 await asyncio.sleep(0.5)  # 适当延迟，避免资源耗尽
         
-        _last_health_check_time = current_time
+        self._last_health_check_time = current_time
         
         return web.Response(text="Healthy", status=200)
     
