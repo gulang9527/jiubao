@@ -5,7 +5,7 @@ import logging
 import html
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
-from utils.decorators import check_command_usage, handle_callback_errors
+from utils.decorators import check_command_usage, handle_callback_errors, require_superadmin
 from utils.message_utils import set_message_expiry
 
 logger = logging.getLogger(__name__)
