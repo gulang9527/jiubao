@@ -161,7 +161,7 @@ class KeyboardBuilder:
         # 添加自动删除设置按钮
         buttons.append((
             "🗑️ 自动删除设置", 
-            f"auto_delete_toggle_{group_id}"
+            f"auto_delete_settings_{group_id}"
         ))
             
         # 添加返回按钮
