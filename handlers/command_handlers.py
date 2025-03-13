@@ -192,6 +192,78 @@ async def handle_rank_command(update: Update, context: CallbackContext):
     settings = await bot_instance.db.get_group_settings(group_id)
     if settings.get('auto_delete', False) and bot_instance.auto_delete_manager:
         await bot_instance.auto_delete_manager.handle_ranking_message(msg, group_id)
+
+@handle_callback_errors
+async def handle_rank_page_callback(update: Update, context: CallbackContext, data: str):
+    """
+    处理排行榜翻页的回调
+    
+    参数:
+        update: 更新对象
+        context: 上下文对象
+        data: 回调数据
+    """
+    query = update.callback_query
+    bot_instance = context.application.bot_data.get('bot_instance')
+    
+    # 立即应答回调查询
+    await query.answer()
+    
+    # 解析回调数据
+    parts = data.split('_')
+    if len(parts) < 5:  # rank, page, type, page_num, group_id
+        await query.edit_message_text("❌ 无效的回调数据")
+        return
+        
+    rank_type = parts[2]  # daily 或 monthly
+    page = int(parts[3])
+    group_id = int(parts[4])
+    
+    # 检查权限
+    if not await bot_instance.has_permission(group_id, GroupPermission.STATS):
+        await query.edit_message_text("❌ 此群组未启用统计功能")
+        return
+    
+    # 获取统计数据
+    if rank_type == "daily":
+        stats, total_pages = await bot_instance.stats_manager.get_daily_stats(group_id, page)
+        title = "📊 今日发言排行"
+    else:
+        stats, total_pages = await bot_instance.stats_manager.get_monthly_stats(group_id, page)
+        title = "📊 近30天发言排行"
+    
+    # 检查是否有统计数据
+    if not stats:
+        await query.edit_message_text("📊 暂无统计数据")
+        return
+    
+    # 构建排行文本
+    text = f"{title}\n\n"
+    for i, stat in enumerate(stats, start=(page-1)*15+1):
+        try:
+            user = await context.bot.get_chat_member(group_id, stat['_id'])
+            user_mention = f"[{user.user.full_name}](tg://user?id={stat['_id']})"
+        except Exception:
+            user_mention = f"用户{stat['_id']}"
+            
+        text += f"{i}. {user_mention} - 消息数: {stat['total_messages']}\n"
+    
+    # 添加分页信息
+    text += f"\n第 {page}/{total_pages} 页"
+    
+    # 构建翻页按钮
+    keyboard = []
+    nav_row = []
+    if page > 1:
+        nav_row.append(InlineKeyboardButton("◀️ 上一页", callback_data=f"rank_page_{rank_type}_{page-1}_{group_id}"))
+    if page < total_pages:
+        nav_row.append(InlineKeyboardButton("下一页 ▶️", callback_data=f"rank_page_{rank_type}_{page+1}_{group_id}"))
+    if nav_row:
+        keyboard.append(nav_row)
+    
+    # 更新消息
+    reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
         
 @check_command_usage
 async def handle_admin_groups(update: Update, context: CallbackContext):
