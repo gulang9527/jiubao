@@ -9,7 +9,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
 
 from utils.decorators import (
-    check_command_usage, require_admin, require_superadmin
+    check_command_usage, require_admin, require_superadmin, handle_callback_errors
 )
 from utils.message_utils import validate_delete_timeout
 from db.models import UserRole, GroupPermission
