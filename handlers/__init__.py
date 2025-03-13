@@ -100,6 +100,9 @@ def register_all_handlers(application, callback_handler):
     callback_handler.register("bc_delete_", handle_broadcast_delete_callback)
     callback_handler.register("bc_confirm_delete_", handle_broadcast_confirm_delete_callback)
 
+    # 排行榜翻页回调注册
+    callback_handler.register("rank_page_", handle_rank_page_callback)
+
     # 添加错误处理程序
     def error_handler(update, context):
         """处理错误的函数"""
