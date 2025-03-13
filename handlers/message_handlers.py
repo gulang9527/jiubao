@@ -270,6 +270,7 @@ async def handle_group_message(update: Update, context: CallbackContext):
     group_id = update.effective_chat.id
     
     # 处理关键词回复
+    keyword_matched = False
     if message.text and await bot_instance.has_permission(group_id, GroupPermission.KEYWORDS):
         logger.debug(f"检查关键词匹配 - 群组: {group_id}, 文本: {message.text[:20]}...")
         try:
@@ -277,6 +278,15 @@ async def handle_group_message(update: Update, context: CallbackContext):
             if keyword_id:
                 logger.info(f"找到匹配关键词: {keyword_id}")
                 await send_keyword_response(bot_instance, message, keyword_id, group_id)
+                keyword_matched = True
+                
+                # 匹配到关键词后，5秒后删除用户的触发消息
+                try:
+                    await asyncio.sleep(5)
+                    await message.delete()
+                    logger.info(f"已删除关键词触发消息: {message.text}")
+                except Exception as e:
+                    logger.error(f"删除关键词触发消息失败: {e}")
         except Exception as e:
             logger.error(f"关键词匹配过程出错: {e}", exc_info=True)
     
@@ -286,10 +296,6 @@ async def handle_group_message(update: Update, context: CallbackContext):
             await bot_instance.stats_manager.add_message_stat(group_id, user_id, message)
         except Exception as e:
             logger.error(f"添加消息统计失败: {e}", exc_info=True)
-
-    # 如果是命令消息，处理自动删除
-    if message.text and message.text.startswith('/') and await bot_instance.has_permission(group_id, GroupPermission.AUTO_DELETE):
-        await bot_instance.auto_delete_manager.handle_user_command(message)
 
 async def send_keyword_response(bot_instance, original_message: Message, keyword_id: str, group_id: int):
     """
