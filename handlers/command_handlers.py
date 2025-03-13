@@ -163,7 +163,9 @@ async def handle_rank_command(update: Update, context: CallbackContext):
     # 构建排行文本
     text = f"{title}\n\n"
     max_name_length = 15  # 最大显示名称长度
-    max_rank_length = 3   # 排名最大长度、
+    max_rank_length = 3   # 排名最大长度
+    message_label = "消息数:"  # 标签
+    message_value_length = 5  # 消息数值预留的宽度
     
     for i, stat in enumerate(stats, start=(page-1)*15+1):
         try:
@@ -178,11 +180,11 @@ async def handle_rank_command(update: Update, context: CallbackContext):
         
         # 格式化每一行
         rank = f"{i}."
-        # 计算填充，确保用户名后的部分都在同一位置
-        padding = max_name_length - min(len(display_name), max_name_length) + 2  # 添加2个额外空格作为间距
+        # 计算填充，确保"消息数:"和数值都在固定位置
+        full_name_space = max_name_length + 5  # 用户名占用的总宽度(含格式标记)
         
-        # 构建格式化的一行，确保"消息数"对齐
-        text += f"{rank:<{max_rank_length}} {user_mention}{' ' * padding}消息数: {stat['total_messages']:>5}\n"
+        # 构建格式化的一行，确保消息数标签和数值之间有足够间距
+        text += f"{rank:<{max_rank_length}} {user_mention:{full_name_space}} {message_label}    {stat['total_messages']:>{message_value_length}}\n"
         
     # 添加分页信息
     text += f"\n第 {page}/{total_pages} 页"
@@ -254,6 +256,8 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext, da
     text = f"{title}\n\n"
     max_name_length = 15  # 最大显示名称长度
     max_rank_length = 3   # 排名最大长度
+    message_label = "消息数:"  # 标签
+    message_value_length = 5  # 消息数值预留的宽度
     
     for i, stat in enumerate(stats, start=(page-1)*15+1):
         try:
@@ -268,11 +272,11 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext, da
         
         # 格式化每一行
         rank = f"{i}."
-        # 计算填充，确保用户名后的部分都在同一位置
-        padding = max_name_length - min(len(display_name), max_name_length) + 2
+        # 计算填充，确保"消息数:"和数值都在固定位置
+        full_name_space = max_name_length + 5  # 用户名占用的总宽度(含格式标记)
         
-        # 构建格式化的一行，确保"消息数"对齐
-        text += f"{rank:<{max_rank_length}} {user_mention}{' ' * padding}消息数: {stat['total_messages']:>5}\n"
+        # 构建格式化的一行，确保消息数标签和数值之间有足够间距
+        text += f"{rank:<{max_rank_length}} {user_mention:{full_name_space}} {message_label}    {stat['total_messages']:>{message_value_length}}\n"
     
     # 添加分页信息
     text += f"\n第 {page}/{total_pages} 页"
