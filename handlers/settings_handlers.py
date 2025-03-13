@@ -51,9 +51,18 @@ async def handle_settings_callback(update: Update, context: CallbackContext, dat
     elif data.startswith("stats_edit_"):
         parts = data[11:].split('_')  # 去掉"stats_edit_"前缀
         return await handle_stats_edit_callback(update, context, parts)
-    elif data.startswith("auto_delete_toggle_"):  # 暂时兼容旧格式
+    elif data.startswith("auto_delete_settings_"):  # 新的导航格式，只显示设置页面
         group_id = int(data.split('_')[-1])
-        return await handle_auto_delete_callback(update, context, ["toggle", group_id])
+        # 获取群组设置
+        settings = await bot_instance.db.get_group_settings(group_id)
+        # 显示自动删除设置页面，不切换状态
+        return await show_auto_delete_settings(bot_instance, query, group_id, settings)
+    elif data.startswith("auto_delete_toggle_"):  # 兼容旧格式，也只显示设置页面
+        group_id = int(data.split('_')[-1])
+        # 获取群组设置
+        settings = await bot_instance.db.get_group_settings(group_id)
+        # 显示自动删除设置页面，不切换状态
+        return await show_auto_delete_settings(bot_instance, query, group_id, settings)
     else:
         logger.warning(f"未知的设置回调前缀: {data}")
         await query.edit_message_text("❌ 未知的设置操作")
