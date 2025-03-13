@@ -953,30 +953,26 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
         message: 消息对象
     """
     group_id = state['group_id']
-    
-    # 直接从上下文中获取设置类型
     user_id = message.from_user.id
+    
+    # 尝试从状态中直接获取消息类型
+    message_type = None
     active_settings = await bot_instance.settings_manager.get_active_settings(user_id)
     
-    # 找到与自动删除类型超时相关的设置
-    setting_type = None
-    for setting in active_settings:
-        if setting.startswith('auto_delete_type_timeout_'):
-            setting_type = setting
+    # 调试日志，打印所有活动设置
+    logger.info(f"用户 {user_id} 的所有活动设置: {active_settings}")
+    
+    for setting_key in active_settings:
+        if setting_key.startswith('auto_delete_type_timeout_'):
+            # 直接从键名提取消息类型
+            message_type = setting_key.replace('auto_delete_type_timeout_', '')
+            logger.info(f"从设置键中提取的消息类型: {message_type}")
             break
     
-    if not setting_type:
-        await message.reply_text("❌ 无法确定设置类型，请重试")
+    if not message_type:
+        await message.reply_text("❌ 无法确定消息类型，请重试")
         return
         
-    # 从设置类型中提取消息类型
-    parts = setting_type.split('_')
-    if len(parts) >= 4:
-        message_type = parts[3]  # auto_delete_type_timeout_keyword 中的 keyword
-    else:
-        await message.reply_text("❌ 设置类型格式错误")
-        return
-    
     try:
         timeout = int(message.text)
         if timeout < 60 or timeout > 86400:
@@ -996,18 +992,18 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
                 'command': settings.get('auto_delete_timeout', 300)
             }
             
-        # 关键修复：直接使用message_type作为键，不再使用硬编码的'timeout'
+        # 更新特定类型的超时时间并记录日志
+        logger.info(f"即将更新 {message_type} 的超时时间: {timeout}")
         settings['auto_delete_timeouts'][message_type] = timeout
-        
-        # 添加详细日志以便调试
-        logger.info(f"更新 {message_type} 超时时间为 {timeout}，完整设置: {settings}")
+        logger.info(f"更新后的设置: {settings}")
         
         # 保存设置
         await bot_instance.db.update_group_settings(group_id, settings)
         
-        # 再次获取设置，确认保存成功
+        # 验证保存成功
         updated_settings = await bot_instance.db.get_group_settings(group_id)
-        logger.info(f"保存后的设置: {updated_settings}")
+        actual_timeout = updated_settings.get('auto_delete_timeouts', {}).get(message_type)
+        logger.info(f"从数据库验证的 {message_type} 超时时间: {actual_timeout}")
         
         # 获取类型名称
         type_names = {
@@ -1020,7 +1016,7 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
         type_name = type_names.get(message_type, message_type)
         
         # 清理设置状态
-        await bot_instance.settings_manager.clear_setting_state(message.from_user.id, setting_type)
+        await bot_instance.settings_manager.clear_setting_state(user_id, f'auto_delete_type_timeout_{message_type}')
         
         # 通知用户完成
         from utils.time_utils import format_duration
