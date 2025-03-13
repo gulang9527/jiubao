@@ -118,63 +118,107 @@ async def handle_settings(update: Update, context: CallbackContext):
     await update.message.reply_text("请选择要管理的群组：", reply_markup=reply_markup)
 
 @check_command_usage
-async def handle_rank_command(update: Update, context: CallbackContext):
-    """处理/tongji和/tongji30命令 - 显示统计排行"""
-    if not update.effective_chat or not update.effective_user or not update.message:
+async def handle_rank_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理 /rank 命令，显示群组消息排行榜"""
+    # 只在群组中响应
+    if update.effective_chat.type not in ['group', 'supergroup']:
+        await update.message.reply_text("此命令只能在群组中使用。")
         return
-        
-    bot_instance = context.application.bot_data.get('bot_instance')
+
+    # 获取群组信息
+    chat = update.effective_chat
+    group_id = chat.id
     
-    # 确定是哪个命令
-    command = update.message.text.split('@')[0][1:]
-    group_id = update.effective_chat.id
+    # 设置排行榜标题
+    title = "📊 消息数量排行榜 📊"
     
-    # 检查权限
-    if not await bot_instance.has_permission(group_id, GroupPermission.STATS):
-        await update.message.reply_text("❌ 此群组未启用统计功能")
-        return
-        
-    # 解析页码
+    # 从数据库获取排名前15的用户数据（按消息数量降序排序）
     page = 1
-    if context.args:
-        try:
-            page = int(context.args[0])
-            if page < 1:
-                raise ValueError
-        except ValueError:
-            await update.message.reply_text("❌ 无效的页码")
-            return
-            
-    # 获取统计数据
-    if command == "tongji":
-        stats, total_pages = await bot_instance.stats_manager.get_daily_stats(group_id, page)
-        title = "📊 今日发言排行"
-        rank_type = "daily"
-    else:
-        stats, total_pages = await bot_instance.stats_manager.get_monthly_stats(group_id, page)
-        title = "📊 近30天发言排行"
-        rank_type = "monthly"
-        
-    # 检查是否有统计数据
-    if not stats:
-        await update.message.reply_text("📊 暂无统计数据")
-        return
-        
-    # 构建排行文本
-    text = f"{title}\n\n"
-    max_name_length = 12  # 最大显示名称长度
-    message_label = "消息数:"
+    stats = await get_message_stats_from_db(group_id, limit=50)
     
+    # 如果没有数据，显示提示信息
+    if not stats:
+        await update.message.reply_text("暂无排行数据。")
+        return
+    
+    # 计算总页数（每页15条记录）
+    total_pages = (len(stats) + 14) // 15
+    
+    # 只显示第一页的15条记录
+    stats = stats[:15]
+    
+    # 构建分页按钮
+    keyboard = []
+    if total_pages > 1:
+        buttons = []
+        if page < total_pages:
+            buttons.append(InlineKeyboardButton("下一页 ➡️", callback_data=f"rank_next_{page}"))
+        keyboard.append(buttons)
+
+    # 构建HTML格式的排行文本
+    text = f"""
+<html>
+<head>
+<style>
+.ranking-container {{
+  width: 100%;
+}}
+.title {{
+  text-align: center;
+  font-size: 16px;
+  font-weight: bold;
+  margin-bottom: 10px;
+}}
+.user-row {{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 0;
+}}
+.user-info {{
+  display: flex;
+  align-items: center;
+  max-width: 70%;
+}}
+.rank {{
+  width: 25px;
+  text-align: right;
+  margin-right: 8px;
+}}
+.username {{
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: calc(100% - 35px);
+}}
+.message-count {{
+  font-weight: bold;
+  min-width: 80px;
+  text-align: right;
+}}
+.pagination-info {{
+  text-align: center;
+  margin-top: 10px;
+  color: #666;
+}}
+</style>
+</head>
+<body>
+<div class="ranking-container">
+  <div class="title">{title}</div>
+"""
+
+    # 添加用户排行
     for i, stat in enumerate(stats, start=(page-1)*15+1):
         try:
             user = await context.bot.get_chat_member(group_id, stat['_id'])
             display_name = user.user.full_name
-            # 截断过长的名称
-            if len(display_name) > max_name_length:
-                display_name = display_name[:max_name_length-3] + "..."
-            user_mention = f"[{display_name}](tg://user?id={stat['_id']})"
+            # 处理HTML特殊字符
+            import html
+            display_name = html.escape(display_name)
+            user_mention = f'<a href="tg://user?id={stat["_id"]}">{display_name}</a>'
         except Exception:
-            user_mention = f"用户{stat['_id']}"
+            user_mention = f'用户{stat["_id"]}'
         
         # 添加奖牌图标（前三名）
         rank_prefix = ""
@@ -186,91 +230,162 @@ async def handle_rank_command(update: Update, context: CallbackContext):
             elif i == 3:
                 rank_prefix = "🥉 "
         
-        # 构建格式化的一行，使用固定宽度确保对齐
-        # 使用4个空格和制表符确保各字段对齐
-        text += f"{rank_prefix}{i}. {user_mention:<{max_name_length+5}}    {message_label} {stat['total_messages']}\n"
-    
+        # 构建用户行
+        text += f"""
+  <div class="user-row">
+    <div class="user-info">
+      <div class="rank">{rank_prefix}{i}.</div>
+      <div class="username">{user_mention}</div>
+    </div>
+    <div class="message-count">消息数: {stat['total_messages']}</div>
+  </div>
+"""
+
     # 添加分页信息
-    text += f"\n第 {page}/{total_pages} 页"
-    
-    # 构建翻页按钮
-    keyboard = []
-    nav_row = []
-    if page > 1:
-        nav_row.append(InlineKeyboardButton("◀️ 上一页", callback_data=f"rank_page_{rank_type}_{page-1}_{group_id}"))
-    if page < total_pages:
-        nav_row.append(InlineKeyboardButton("下一页 ▶️", callback_data=f"rank_page_{rank_type}_{page+1}_{group_id}"))
-    if nav_row:
-        keyboard.append(nav_row)
-    
+    text += f"""
+  <div class="pagination-info">第 {page}/{total_pages} 页</div>
+</div>
+</body>
+</html>
+"""
+
     # 发送排行消息到群组
     reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-    msg = await update.message.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+    msg = await update.message.reply_text(
+        text=text, 
+        parse_mode="HTML", 
+        reply_markup=reply_markup
+    )
     
-    # 处理自动删除
-    settings = await bot_instance.db.get_group_settings(group_id)
-    if settings.get('auto_delete', False) and bot_instance.auto_delete_manager:
-        await bot_instance.auto_delete_manager.handle_ranking_message(msg, group_id)
+    # 如果启用了自动删除，设置消息过期时间
+    await set_message_expiry(
+        context=context,
+        chat_id=group_id,
+        message_id=msg.message_id,
+        feature="rank_command"
+    )
 
 @handle_callback_errors
-async def handle_rank_page_callback(update: Update, context: CallbackContext, data: str):
-    """
-    处理排行榜翻页的回调
-    
-    参数:
-        update: 更新对象
-        context: 上下文对象
-        data: 回调数据
-    """
+async def handle_rank_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理排行榜分页回调"""
     query = update.callback_query
-    bot_instance = context.application.bot_data.get('bot_instance')
-    
-    # 立即应答回调查询
     await query.answer()
+
+    # 获取按钮数据
+    data = query.data.split("_")
+    action = data[1]
+    current_page = int(data[2])
     
-    # 解析回调数据
-    parts = data.split('_')
-    if len(parts) < 5:  # rank, page, type, page_num, group_id
-        await query.edit_message_text("❌ 无效的回调数据")
-        return
-        
-    rank_type = parts[2]  # daily 或 monthly
-    page = int(parts[3])
-    group_id = int(parts[4])
-    
-    # 检查权限
-    if not await bot_instance.has_permission(group_id, GroupPermission.STATS):
-        await query.edit_message_text("❌ 此群组未启用统计功能")
-        return
-    
-    # 获取统计数据
-    if rank_type == "daily":
-        stats, total_pages = await bot_instance.stats_manager.get_daily_stats(group_id, page)
-        title = "📊 今日发言排行"
+    if action == "prev":
+        page = max(1, current_page - 1)
+    elif action == "next":
+        page = current_page + 1
     else:
-        stats, total_pages = await bot_instance.stats_manager.get_monthly_stats(group_id, page)
-        title = "📊 近30天发言排行"
+        page = current_page
+
+    # 获取群组信息
+    chat = update.effective_chat
+    group_id = chat.id
     
-    # 检查是否有统计数据
+    # 获取排行数据
+    title = "📊 消息数量排行榜 📊"
+    
+    # 从数据库获取排名前50的用户数据（按消息数量降序排序）
+    stats = await get_message_stats_from_db(group_id, limit=50, skip=(page-1)*15)
+    
+    # 如果没有数据，显示提示信息
     if not stats:
-        await query.edit_message_text("📊 暂无统计数据")
+        await query.edit_message_text(
+            "暂无排行数据。", 
+            reply_markup=None
+        )
         return
+
+    # 计算总页数（每页15条记录）
+    total_pages = (len(stats) + 14) // 15
     
-    # 构建排行文本
-    text = f"{title}\n\n"
-    max_name_length = 12  # 最大显示名称长度
-    message_label = "消息数:"
+    # 如果请求的页码超出范围，显示最后一页
+    if page > total_pages:
+        page = total_pages
+        stats = await get_message_stats_from_db(group_id, limit=15, skip=(page-1)*15)
     
+    # 只显示当前页的15条记录
+    stats = stats[:15]
+
+    # 构建分页按钮
+    keyboard = []
+    if total_pages > 1:
+        buttons = []
+        if page > 1:
+            buttons.append(InlineKeyboardButton("⬅️ 上一页", callback_data=f"rank_prev_{page}"))
+        if page < total_pages:
+            buttons.append(InlineKeyboardButton("下一页 ➡️", callback_data=f"rank_next_{page}"))
+        keyboard.append(buttons)
+
+    # 构建HTML格式的排行文本
+    text = f"""
+<html>
+<head>
+<style>
+.ranking-container {{
+  width: 100%;
+}}
+.title {{
+  text-align: center;
+  font-size: 16px;
+  font-weight: bold;
+  margin-bottom: 10px;
+}}
+.user-row {{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 0;
+}}
+.user-info {{
+  display: flex;
+  align-items: center;
+  max-width: 70%;
+}}
+.rank {{
+  width: 25px;
+  text-align: right;
+  margin-right: 8px;
+}}
+.username {{
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: calc(100% - 35px);
+}}
+.message-count {{
+  font-weight: bold;
+  min-width: 80px;
+  text-align: right;
+}}
+.pagination-info {{
+  text-align: center;
+  margin-top: 10px;
+  color: #666;
+}}
+</style>
+</head>
+<body>
+<div class="ranking-container">
+  <div class="title">{title}</div>
+"""
+
+    # 添加用户排行
     for i, stat in enumerate(stats, start=(page-1)*15+1):
         try:
             user = await context.bot.get_chat_member(group_id, stat['_id'])
             display_name = user.user.full_name
-            # 截断过长的名称
-            if len(display_name) > max_name_length:
-                display_name = display_name[:max_name_length-3] + "..."
-            user_mention = f"[{display_name}](tg://user?id={stat['_id']})"
+            # 处理HTML特殊字符
+            import html
+            display_name = html.escape(display_name)
+            user_mention = f'<a href="tg://user?id={stat["_id"]}">{display_name}</a>'
         except Exception:
-            user_mention = f"用户{stat['_id']}"
+            user_mention = f'用户{stat["_id"]}'
         
         # 添加奖牌图标（前三名）
         rank_prefix = ""
@@ -282,25 +397,31 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext, da
             elif i == 3:
                 rank_prefix = "🥉 "
         
-        # 构建格式化的一行，使用固定宽度确保对齐
-        text += f"{rank_prefix}{i}. {user_mention:<{max_name_length+5}}    {message_label} {stat['total_messages']}\n"
-    
+        # 构建用户行
+        text += f"""
+  <div class="user-row">
+    <div class="user-info">
+      <div class="rank">{rank_prefix}{i}.</div>
+      <div class="username">{user_mention}</div>
+    </div>
+    <div class="message-count">消息数: {stat['total_messages']}</div>
+  </div>
+"""
+
     # 添加分页信息
-    text += f"\n第 {page}/{total_pages} 页"
-    
-    # 构建翻页按钮
-    keyboard = []
-    nav_row = []
-    if page > 1:
-        nav_row.append(InlineKeyboardButton("◀️ 上一页", callback_data=f"rank_page_{rank_type}_{page-1}_{group_id}"))
-    if page < total_pages:
-        nav_row.append(InlineKeyboardButton("下一页 ▶️", callback_data=f"rank_page_{rank_type}_{page+1}_{group_id}"))
-    if nav_row:
-        keyboard.append(nav_row)
-    
-    # 更新消息
-    reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+    text += f"""
+  <div class="pagination-info">第 {page}/{total_pages} 页</div>
+</div>
+</body>
+</html>
+"""
+
+    # 更新消息内容
+    await query.edit_message_text(
+        text=text,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None
+    )
         
 @check_command_usage
 async def handle_admin_groups(update: Update, context: CallbackContext):
