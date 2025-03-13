@@ -16,6 +16,7 @@ class GroupPermission(Enum):
     KEYWORDS = "keywords"
     STATS = "stats"
     BROADCAST = "broadcast"
+    AUTO_DELETE = 'auto_delete'
 
 class User:
     """用户模型"""
