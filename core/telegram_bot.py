@@ -63,6 +63,11 @@ class TelegramBot:
         self.callback_handler = None
         self.auto_delete_manager = None
         
+        # 时间校准管理器
+        self.calibration_manager = None
+        # 最后活动时间，用于检测系统休眠
+        self.last_active_time = datetime.now()
+        
     async def initialize(self):
         """初始化机器人"""
         try:
@@ -275,6 +280,29 @@ class TelegramBot:
         if self.auto_delete_manager:
             logger.info("开始关闭自动删除管理器")
             await self.auto_delete_manager.shutdown()
+
+        # 关闭时间校准管理器
+        if hasattr(self, 'calibration_manager') and self.calibration_manager:
+            logger.info("开始关闭时间校准管理器")
+            try:
+                await self.calibration_manager.stop()
+                logger.info("时间校准管理器已关闭")
+            except Exception as e:
+                logger.error(f"关闭时间校准管理器时出错: {e}", exc_info=True)
+        
+        # 修改关闭轮播管理器的部分:
+        if self.broadcast_manager:
+            logger.info("开始关闭轮播管理器")
+            try:
+                # 检查是否是增强版轮播管理器
+                if hasattr(self.broadcast_manager, 'stop'):
+                    await self.broadcast_manager.stop()
+                else:
+                    # 原始版本无需特殊关闭
+                    pass
+                logger.info("轮播管理器已关闭")
+            except Exception as e:
+                logger.error(f"关闭轮播管理器时出错: {e}", exc_info=True)
             
         # 清理Web服务器
         if self.web_runner:
@@ -312,12 +340,47 @@ class TelegramBot:
         """启动广播任务"""
         while self.running:
             try:
-                await self.broadcast_manager.process_broadcasts()
+                # 更新最后活动时间
+                self.last_active_time = datetime.now()
+                
+                # 处理广播
+                if self.broadcast_manager:
+                    if hasattr(self.broadcast_manager, 'process_broadcasts'):
+                        await self.broadcast_manager.process_broadcasts()
+                    
                 # 每分钟检查一次
                 await asyncio.sleep(60)
+                
+                # 检查时间偏移，可能的休眠后唤醒
+                drift = self._check_time_drift()
+                if drift > 120:  # 如果偏移超过2分钟
+                    logger.warning(f"检测到系统可能休眠，时间偏移: {drift:.2f}秒")
+                    # 如果使用增强版轮播管理器，它会自动处理
+                    if hasattr(self.broadcast_manager, 'force_check'):
+                        await self.broadcast_manager.force_check()
+                
             except Exception as e:
                 logger.error(f"轮播任务出错: {e}")
                 await asyncio.sleep(60)
+
+    def _check_time_drift(self):
+        """
+        检查时间偏移，用于检测系统休眠
+        
+        返回:
+            时间偏移（秒）
+        """
+        current_time = datetime.now()
+        time_diff = (current_time - self.last_active_time).total_seconds()
+        expected_diff = 60  # 预期间隔时间
+        
+        # 计算时间偏移
+        time_drift = time_diff - expected_diff
+        
+        # 更新最后活动时间
+        self.last_active_time = current_time
+        
+        return time_drift
 
     async def _start_cleanup_task(self):
         """启动清理任务"""
