@@ -29,6 +29,10 @@ from managers.stats_manager import StatsManager
 from managers.broadcast_manager import BroadcastManager
 from managers.keyword_manager import KeywordManager
 from utils.message_utils import validate_delete_timeout
+from config import (
+    TELEGRAM_TOKEN, MONGODB_URI, MONGODB_DB, DEFAULT_SUPERADMINS,
+    DEFAULT_SETTINGS, BROADCAST_SETTINGS, KEYWORD_SETTINGS
+)
 
 # 配置日志
 logging.basicConfig(
@@ -113,7 +117,6 @@ class TelegramBot:
             self.keyword_manager.register_built_in_handler('月排行', self._handle_monthly_rank)
             
             self.stats_manager = StatsManager(self.db)
-            self.broadcast_manager = BroadcastManager(self.db, self)
 
             # 初始化 自动删除管理器
             from managers.auto_delete_manager import AutoDeleteManager
