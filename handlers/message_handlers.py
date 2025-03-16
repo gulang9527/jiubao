@@ -304,7 +304,9 @@ async def handle_group_message(update: Update, context: CallbackContext):
     # 处理消息统计
     if await bot_instance.has_permission(group_id, GroupPermission.STATS):
         try:
+            logger.info(f"开始处理消息统计 - 群组: {group_id}, 用户: {user_id}")
             await bot_instance.stats_manager.add_message_stat(group_id, user_id, message)
+            logger.info(f"消息统计处理完成 - 群组: {group_id}, 用户: {user_id}")
         except Exception as e:
             logger.error(f"添加消息统计失败: {e}", exc_info=True)
 
