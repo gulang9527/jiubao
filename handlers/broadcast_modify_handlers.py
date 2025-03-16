@@ -181,6 +181,14 @@ async def handle_broadcast_save_edit_callback(update: Update, context: CallbackC
         await show_broadcast_edit_options(update, context)
         return
     
+    # 获取更新前的轮播消息数据，用于日志和比较
+    try:
+        old_broadcast = await bot_instance.db.get_broadcast_by_id(broadcast_id)
+        logger.info(f"更新前的轮播消息数据: {old_broadcast}")
+    except Exception as e:
+        logger.warning(f"获取旧轮播消息数据失败: {e}")
+        old_broadcast = None
+    
     # 构建更新数据
     update_data = {
         'text': form_data.get('text', ''),
@@ -215,13 +223,53 @@ async def handle_broadcast_save_edit_callback(update: Update, context: CallbackC
     
     # 更新轮播消息
     try:
+        logger.info(f"准备更新轮播消息，ID: {broadcast_id}，更新数据: {update_data}")
         success = await bot_instance.db.update_broadcast(broadcast_id, update_data)
+        
         if success:
             # 清理表单数据
             if 'broadcast_form' in context.user_data:
                 del context.user_data['broadcast_form']
             if 'waiting_for' in context.user_data:
                 del context.user_data['waiting_for']
+            
+            # 获取更新后的数据用于重新调度
+            updated_broadcast = await bot_instance.db.get_broadcast_by_id(broadcast_id)
+            logger.info(f"轮播消息更新成功，更新后数据: {updated_broadcast}")
+            
+            # 刷新轮播调度器
+            # 检查轮播管理器类型并调用相应方法
+            if bot_instance.broadcast_manager:
+                try:
+                    # 检查是否是增强版轮播管理器
+                    if hasattr(bot_instance.broadcast_manager, 'stop_broadcast') and hasattr(bot_instance.broadcast_manager, 'schedule_broadcast'):
+                        # 先尝试停止旧的轮播任务
+                        logger.info(f"停止旧的轮播任务: {broadcast_id}")
+                        await bot_instance.broadcast_manager.stop_broadcast(broadcast_id)
+                        
+                        # 重新调度更新后的轮播消息
+                        logger.info(f"重新调度轮播消息: {broadcast_id}")
+                        await bot_instance.broadcast_manager.schedule_broadcast(updated_broadcast)
+                    # 标准轮播管理器
+                    elif hasattr(bot_instance.broadcast_manager, 'schedule_broadcast'):
+                        # 重新调度更新后的轮播消息
+                        logger.info(f"使用标准轮播管理器重新调度轮播消息: {broadcast_id}")
+                        await bot_instance.broadcast_manager.schedule_broadcast(updated_broadcast)
+                    else:
+                        logger.warning(f"轮播管理器没有必要的方法来重新调度轮播消息: {broadcast_id}")
+                        
+                    logger.info(f"轮播消息已重新调度")
+                except Exception as scheduler_error:
+                    logger.error(f"重新调度轮播消息失败: {scheduler_error}", exc_info=True)
+                    await query.edit_message_text(
+                        "⚠️ 轮播消息已更新但重新调度失败，请检查日志",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
+                        ]])
+                    )
+                    return
+            else:
+                logger.warning("找不到轮播管理器，无法重新调度轮播消息")
                 
             await query.edit_message_text(
                 "✅ 轮播消息已更新",
@@ -230,6 +278,7 @@ async def handle_broadcast_save_edit_callback(update: Update, context: CallbackC
                 ]])
             )
         else:
+            logger.error(f"更新轮播消息失败: {broadcast_id}")
             await query.edit_message_text(
                 "❌ 轮播消息更新失败，请重试",
                 reply_markup=InlineKeyboardMarkup([[
