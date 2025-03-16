@@ -11,6 +11,7 @@ from handlers.command_handlers import (
     handle_add_superadmin, handle_del_superadmin, handle_auth_group,
     handle_deauth_group, handle_check_config, handle_cancel,
     handle_easy_keyword, handle_easy_broadcast, handle_add_default_keywords,
+    handle_rank_page_callback, handle_check_stats_settings,
     handle_rank_page_callback
 )
 from handlers.message_handlers import handle_message
@@ -48,6 +49,7 @@ def register_all_handlers(application, callback_handler):
     application.add_handler(MessageHandler(filters.VIDEO, handle_message))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_message))
     application.add_handler(MessageHandler(filters.ANIMATION, handle_message))
+    application.add_handler(CommandHandler("checkstats", handle_check_stats_settings))
             
     
     # 添加简化的关键词和广播处理器
