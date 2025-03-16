@@ -356,11 +356,12 @@ async def send_auto_delete_message(bot, chat_id, text, reply_markup=None, messag
             group_id = chat_id
             
         # 获取群组设置，为了不耦合，这里需要从全局变量获取bot_instance
-        from telegram.ext import ApplicationBuilder, ContextTypes
-        current_app = ApplicationBuilder.running_application
-        if current_app and 'bot_instance' in current_app.bot_data:
-            bot_instance = current_app.bot_data['bot_instance']
-            settings = await bot_instance.db.get_group_settings(group_id)
+        if 'bot_instance' in kwargs:
+            bot_instance = kwargs.pop('bot_instance')
+        elif chat_id < 0 and hasattr(bot, 'application') and 'bot_instance' in bot.application.bot_data:
+            bot_instance = bot.application.bot_data['bot_instance']
+        else:
+            bot_instance = None
             
             # 检查是否启用自动删除
             if settings.get('auto_delete', False):
