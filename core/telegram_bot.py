@@ -119,6 +119,37 @@ class TelegramBot:
             self.auto_delete_manager = AutoDeleteManager(self.db)
             logger.info("自动删除管理器已初始化")
             
+            # 尝试初始化增强版轮播功能
+            try:
+                # 检查配置是否启用增强功能
+                enable_enhanced = config.BROADCAST_SETTINGS.get('enable_enhanced_features', False)
+                
+                if enable_enhanced:
+                    # 导入增强版轮播管理器
+                    from managers.enhanced_broadcast_manager import EnhancedBroadcastManager
+                    # 创建增强版轮播管理器
+                    self.broadcast_manager = EnhancedBroadcastManager(self.db, self)
+                    # 导入时间校准管理器
+                    from managers.time_calibration import TimeCalibrationManager
+                    # 创建时间校准管理器
+                    self.calibration_manager = TimeCalibrationManager(self.db, self.broadcast_manager)
+                    # 设置轮播管理器的校准管理器
+                    self.broadcast_manager.calibration_manager = self.calibration_manager
+                    # 启动时间校准管理器
+                    await self.calibration_manager.start()
+                    logger.info("增强版轮播管理器和时间校准管理器已初始化")
+                else:
+                    # 使用原始版轮播管理器
+                    from managers.broadcast_manager import BroadcastManager
+                    self.broadcast_manager = BroadcastManager(self.db, self)
+                    logger.info("使用原始版轮播管理器")
+            except Exception as e:
+                logger.error(f"初始化增强版轮播功能出错: {e}", exc_info=True)
+                # 使用原始版本的轮播管理器
+                from managers.broadcast_manager import BroadcastManager
+                self.broadcast_manager = BroadcastManager(self.db, self)
+                logger.warning("使用原始版本的轮播管理器")
+                        
             # 设置超级管理员
             for admin_id in DEFAULT_SUPERADMINS:
                 await self.db.add_user({'user_id': admin_id, 'role': UserRole.SUPERADMIN.value})
