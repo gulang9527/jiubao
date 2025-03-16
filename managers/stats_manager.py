@@ -179,7 +179,7 @@ async def add_message_stat(self, group_id: int, user_id: int, message: Message):
     async def get_user_stats(self, group_id: int, user_id: int, days: int = 30) -> Dict[str, Any]:
         """
         获取用户统计数据
-        
+    
         参数:
             group_id: 群组ID
             user_id: 用户ID
