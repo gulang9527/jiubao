@@ -342,9 +342,14 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext):
     
     # 如果没有数据，显示提示信息
     if not stats:
-        await query.edit_message_text(
-            "暂无排行数据。", 
-            reply_markup=None
+        msg = await update.message.reply_text("暂无排行数据。")
+        
+        # 确保自动删除设置生效
+        await set_message_expiry(
+            context=context,
+            chat_id=group_id,
+            message_id=msg.message_id,
+            feature="rank_command"
         )
         return
 
