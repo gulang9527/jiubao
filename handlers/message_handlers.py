@@ -278,31 +278,26 @@ async def delete_message_after_delay(message, delay_seconds=5):
         logger.error(f"删除消息失败: {e}")
         
 async def handle_group_message(update: Update, context: CallbackContext):
-    """
-    处理群组消息
-    
-    参数:
-        update: 更新对象
-        context: 上下文对象
-    """
+    """处理群组消息"""
     bot_instance = context.application.bot_data.get('bot_instance')
     message = update.effective_message
     user_id = update.effective_user.id
     group_id = update.effective_chat.id
     
     # 处理关键词回复
-    keyword_matched = False
     if message.text and await bot_instance.has_permission(group_id, GroupPermission.KEYWORDS):
         logger.debug(f"检查关键词匹配 - 群组: {group_id}, 文本: {message.text[:20]}...")
         try:
             keyword_id = await bot_instance.keyword_manager.match_keyword(group_id, message.text, message)
             if keyword_id:
                 logger.info(f"找到匹配关键词: {keyword_id}")
-                await send_keyword_response(bot_instance, message, keyword_id, group_id)
-                keyword_matched = True
-                
-                # 删除触发消息
-                await delete_message_after_delay(message, 5)
+                # 检查这是否是内置处理函数的结果（一般为模式本身）
+                if keyword_id in bot_instance.keyword_manager._built_in_handlers:
+                    # 内置处理函数已经处理了响应，不需要再发送回复
+                    logger.info(f"内置处理函数已处理关键词: {keyword_id}")
+                else:
+                    # 只有自定义关键词才需要查询和发送回复
+                    await send_keyword_response(bot_instance, message, keyword_id, group_id)
         except Exception as e:
             logger.error(f"关键词匹配过程出错: {e}", exc_info=True)
     
