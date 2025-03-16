@@ -350,6 +350,7 @@ async def handle_broadcast_detail_callback(update: Update, context: CallbackCont
             # 构建操作按钮
             keyboard = [
                 [InlineKeyboardButton("👁️ 预览", callback_data=f"bc_preview_{broadcast_id}_{group_id}")],
+                [InlineKeyboardButton("✏️ 编辑", callback_data=f"bc_edit_{broadcast_id}_{group_id}")],
                 [InlineKeyboardButton("❌ 删除", callback_data=f"bc_delete_{broadcast_id}_{group_id}")],
                 [InlineKeyboardButton("🔙 返回", callback_data=f"settings_broadcast_{group_id}")]
             ]
