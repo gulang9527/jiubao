@@ -101,6 +101,14 @@ def register_all_handlers(application, callback_handler):
     callback_handler.register("bc_delete_", handle_broadcast_delete_callback)
     callback_handler.register("bc_confirm_delete_", handle_broadcast_confirm_delete_callback)
 
+    # 注册轮播消息编辑相关回调前缀
+    from handlers.broadcast_modify_handlers import (
+        handle_broadcast_edit_callback,
+        handle_broadcast_save_edit_callback
+    )
+    callback_handler.register("bc_edit_", handle_broadcast_edit_callback)
+    callback_handler.register("bc_save_edit_", handle_broadcast_save_edit_callback)
+
     # 排行榜翻页回调注册
     callback_handler.register("rank_page_", handle_rank_page_callback)
 
