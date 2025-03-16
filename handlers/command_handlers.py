@@ -158,7 +158,7 @@ async def get_message_stats_from_db(group_id: int, limit: int = 15, skip: int = 
 
 async def format_rank_rows(stats, page, group_id, context):
     """
-    格式化排行榜行数据，确保"消息数"位置一致
+    格式化排行榜行数据，用户名限制为最长12字符，考虑排名图标宽度
     
     参数:
         stats: 统计数据
@@ -171,50 +171,57 @@ async def format_rank_rows(stats, page, group_id, context):
     """
     import html
     
+    # 固定用户名最大长度
+    MAX_NAME_LENGTH = 12
+    # 消息数的固定位置（从行首开始的字符数）
+    FIXED_MSG_POSITION = 20
+    
+    # 构建每一行文本
     rows = []
-    
-    # 第一列：排名和用户名
-    # 第二列："消息数: XX"（固定位置）
-    
     for i, stat in enumerate(stats, start=(page-1)*15+1):
         # 添加奖牌图标（前三名）
         rank_prefix = ""
         if page == 1:
             if i == 1:
-                rank_prefix = "🥇 "
+                rank_prefix = "🥇 "  # 金牌
             elif i == 2:
-                rank_prefix = "🥈 "
+                rank_prefix = "🥈 "  # 银牌
             elif i == 3:
-                rank_prefix = "🥉 "
+                rank_prefix = "🥉 "  # 铜牌
         
-        # 获取用户名
+        # 获取用户信息
         try:
             user = await context.bot.get_chat_member(group_id, stat['_id'])
             display_name = user.user.full_name
             # 处理HTML特殊字符
             display_name = html.escape(display_name)
-            user_mention = f'<a href="tg://user?id={stat["_id"]}">{display_name}</a>'
         except Exception:
-            user_mention = f'用户{stat["_id"]}'
+            display_name = f'用户{stat["_id"]}'
         
-        # 构建表格行
-        # 使用HTML表格确保"消息数"位置对齐
-        row = (
-            f'<tr>'
-            f'<td>{rank_prefix}{i}. {user_mention}</td>'
-            f'<td style="text-align:right">消息数: {stat["total_messages"]}</td>'
-            f'</tr>'
-        )
+        # 截断用户名（如果超过最大长度）
+        if len(display_name) > MAX_NAME_LENGTH:
+            display_name = display_name[:MAX_NAME_LENGTH-1] + "…"
+        
+        # 创建带链接的用户名
+        user_mention = f'<a href="tg://user?id={stat["_id"]}">{display_name}</a>'
+        
+        # 计算序号部分的长度（包括排名图标）
+        # 注意：奖牌图标视为2个字符宽度
+        rank_prefix_width = 2 if rank_prefix else 0
+        
+        # 计算需要的填充空格数，考虑排名图标的宽度
+        # 排名前缀(如果有) + 序号 + ". " + 用户名
+        prefix_length = rank_prefix_width + len(str(i)) + 2 + len(display_name)
+        
+        # 计算需要添加的空格数，确保"消息数"位置固定
+        space_count = max(2, FIXED_MSG_POSITION - prefix_length)
+        space_padding = ' ' * space_count
+        
+        # 构建一行
+        row = f"{rank_prefix}{i}. {user_mention}{space_padding}消息数: {stat['total_messages']}"
         rows.append(row)
     
-    # 使用HTML表格包装所有行
-    table = (
-        f'<table style="width:100%">'
-        f'{"".join(rows)}'
-        f'</table>'
-    )
-    
-    return table
+    return "\n".join(rows)
 
 @check_command_usage
 async def handle_rank_command(update: Update, context: CallbackContext):
@@ -278,7 +285,7 @@ async def handle_rank_command(update: Update, context: CallbackContext):
         # 构建HTML格式的排行文本
         text = f"<b>{title}</b>\n\n"
         
-        # 使用格式化函数生成排行表格
+        # 使用格式化函数生成排行行文本
         text += await format_rank_rows(stats, page, group_id, context)
         
         # 添加分页信息
@@ -303,7 +310,6 @@ async def handle_rank_command(update: Update, context: CallbackContext):
         logger.error(f"处理排行命令出错: {e}", exc_info=True)
         await update.message.reply_text("处理命令时出错，请稍后再试。")
 
-    
 @handle_callback_errors
 async def handle_rank_page_callback(update: Update, context: CallbackContext):
     """处理排行榜分页回调"""
@@ -365,7 +371,7 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext):
     # 构建HTML格式的排行文本
     text = f"<b>{title}</b>\n\n"
     
-    # 使用格式化函数生成排行表格
+    # 使用格式化函数生成排行行文本
     text += await format_rank_rows(stats, page, group_id, context)
     
     # 添加分页信息
