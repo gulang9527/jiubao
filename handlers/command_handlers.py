@@ -158,7 +158,8 @@ async def get_message_stats_from_db(group_id: int, limit: int = 15, skip: int = 
 
 async def format_rank_rows(stats, page, group_id, context):
     """
-    格式化排行榜行数据，用户名限制为最长12字符，考虑排名图标宽度
+    最终有效的排行榜格式解决方案
+    把"消息数"部分放入<code>标签中确保对齐
     
     参数:
         stats: 统计数据
@@ -173,21 +174,23 @@ async def format_rank_rows(stats, page, group_id, context):
     
     # 固定用户名最大长度
     MAX_NAME_LENGTH = 12
-    # 消息数的固定位置（从行首开始的字符数）
-    FIXED_MSG_POSITION = 20
     
     # 构建每一行文本
     rows = []
+    
+    # 找出消息数的最大长度以便右对齐
+    max_count_length = max(len(str(stat['total_messages'])) for stat in stats)
+    
     for i, stat in enumerate(stats, start=(page-1)*15+1):
         # 添加奖牌图标（前三名）
         rank_prefix = ""
         if page == 1:
             if i == 1:
-                rank_prefix = "🥇 "  # 金牌
+                rank_prefix = "🥇"
             elif i == 2:
-                rank_prefix = "🥈 "  # 银牌
+                rank_prefix = "🥈"
             elif i == 3:
-                rank_prefix = "🥉 "  # 铜牌
+                rank_prefix = "🥉"
         
         # 获取用户信息
         try:
@@ -205,24 +208,15 @@ async def format_rank_rows(stats, page, group_id, context):
         # 创建带链接的用户名
         user_mention = f'<a href="tg://user?id={stat["_id"]}">{display_name}</a>'
         
-        # 计算序号部分的长度（包括排名图标）
-        # 注意：奖牌图标视为2个字符宽度
-        rank_prefix_width = 2 if rank_prefix else 0
+        # 右对齐消息数
+        count = str(stat['total_messages']).rjust(max_count_length)
         
-        # 计算需要的填充空格数，考虑排名图标的宽度
-        # 排名前缀(如果有) + 序号 + ". " + 用户名
-        prefix_length = rank_prefix_width + len(str(i)) + 2 + len(display_name)
-        
-        # 计算需要添加的空格数，确保"消息数"位置固定
-        space_count = max(2, FIXED_MSG_POSITION - prefix_length)
-        space_padding = ' ' * space_count
-        
-        # 构建一行
-        row = f"{rank_prefix}{i}. {user_mention}{space_padding}消息数: {stat['total_messages']}"
+        # 把"消息数: XXX"部分放入<code>标签，确保对齐
+        # 构建行 - 分为两部分：排名和用户名 + 消息数(等宽字体)
+        row = f"{rank_prefix}{i}. {user_mention}    <code>消息数: {count}</code>"
         rows.append(row)
     
     return "\n".join(rows)
-
 @check_command_usage
 async def handle_rank_command(update: Update, context: CallbackContext):
     """处理 /rank 命令，显示群组消息排行榜"""
