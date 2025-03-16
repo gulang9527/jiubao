@@ -115,8 +115,8 @@ class TelegramBot:
             # 注册内置关键词处理函数
             self.keyword_manager.register_built_in_handler('日排行', self._handle_daily_rank)
             self.keyword_manager.register_built_in_handler('月排行', self._handle_monthly_rank)
-            
             self.stats_manager = StatsManager(self.db)
+            logger.info(f"StatsManager方法列表: {[method for method in dir(self.stats_manager) if not method.startswith('_')]}")
 
             # 初始化 自动删除管理器
             from managers.auto_delete_manager import AutoDeleteManager
