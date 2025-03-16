@@ -407,7 +407,18 @@ async def _schedule_delete_message(bot, chat_id, message_id, timeout):
         logger.warning(f"删除消息失败: chat_id={chat_id}, message_id={message_id}, 错误: {e}")
 
 async def set_message_expiry(context, chat_id, message_id, feature=None):
-    """设置消息过期时间，用于自动删除功能"""
+    """
+    设置消息过期时间，用于自动删除功能
+    
+    参数:
+        context: 回调上下文
+        chat_id: 聊天ID
+        message_id: 消息ID
+        feature: 功能类型，用于确定删除超时时间
+    
+    返回:
+        无
+    """
     try:
         bot_instance = context.application.bot_data.get('bot_instance')
         if not bot_instance:
@@ -434,8 +445,19 @@ async def set_message_expiry(context, chat_id, message_id, feature=None):
         
         if timeout > 0:
             if hasattr(bot_instance, 'auto_delete_manager') and bot_instance.auto_delete_manager:
-                await bot_instance.auto_delete_manager.queue_message_for_deletion(message_id, chat_id, timeout)
-                logger.info(f"消息 {message_id} 已加入自动删除队列")
+                # 检查可用的方法并使用正确的方法
+                if hasattr(bot_instance.auto_delete_manager, 'handle_message'):
+                    # 如果有handle_message方法
+                    await bot_instance.auto_delete_manager.handle_message(message_id, chat_id)
+                    logger.info(f"消息 {message_id} 已加入自动删除队列(使用handle_message)")
+                elif hasattr(bot_instance.auto_delete_manager, 'schedule_delete'):
+                    # 如果有schedule_delete方法
+                    await bot_instance.auto_delete_manager.schedule_delete(message_id, 'default', chat_id, timeout)
+                    logger.info(f"消息 {message_id} 已加入自动删除队列(使用schedule_delete)")
+                else:
+                    # 如果没有找到合适的方法，使用基本的延迟删除实现
+                    logger.warning(f"AutoDeleteManager没有合适的删除方法，使用基本实现")
+                    asyncio.create_task(_schedule_delete_message(context.bot, chat_id, message_id, timeout))
             else:
                 # 旧的实现方式
                 message_key = f"{chat_id}:{message_id}"
