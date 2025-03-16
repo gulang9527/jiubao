@@ -13,6 +13,7 @@ import signal
 import asyncio
 import logging
 import time
+import aiohttp
 from aiohttp import web
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
@@ -286,6 +287,7 @@ class TelegramBot:
         # 启动任务
         await self._start_broadcast_task()
         await self._start_cleanup_task()
+        await self._start_ping_task()
         logger.info("机器人成功启动")
         return True
     
@@ -429,6 +431,25 @@ class TelegramBot:
                     await asyncio.sleep(1 * 60 * 60)
                     
         self.cleanup_task = asyncio.create_task(cleanup_routine())
+
+    async def _start_ping_task(self):
+        """启动自我ping任务，防止Render休眠"""
+        import aiohttp  # 确保在文件顶部有导入aiohttp
+        
+        while self.running:
+            try:
+                # 每10分钟访问一次自己的健康检查端点
+                async with aiohttp.ClientSession() as session:
+                    webhook_domain = os.getenv('WEBHOOK_DOMAIN', 'your-render-app-name.onrender.com')
+                    url = f"https://{webhook_domain}/health"
+                    async with session.get(url) as response:
+                        logger.info(f"自我健康检查: {response.status}")
+                
+                # 每10分钟ping一次
+                await asyncio.sleep(10 * 60)
+            except Exception as e:
+                logger.error(f"自我ping任务出错: {e}")
+                await asyncio.sleep(5 * 60)  # 出错后5分钟再试
     
     async def handle_signals(self):
         """处理系统信号"""
