@@ -159,157 +159,98 @@ async def get_message_stats_from_db(group_id: int, limit: int = 15, skip: int = 
 @check_command_usage
 async def handle_rank_command(update: Update, context: CallbackContext):
     """处理 /rank 命令，显示群组消息排行榜"""
-    # 只在群组中响应
-    if update.effective_chat.type not in ['group', 'supergroup']:
-        await update.message.reply_text("此命令只能在群组中使用。")
-        return
+    try:
+        # 只在群组中响应
+        if update.effective_chat.type not in ['group', 'supergroup']:
+            await update.message.reply_text("此命令只能在群组中使用。")
+            return
 
-    # 获取群组信息
-    chat = update.effective_chat
-    group_id = chat.id
-    
-    # 设置排行榜标题
-    title = "📊 消息数量排行榜 📊"
-    
-    # 从数据库获取排名前15的用户数据（按消息数量降序排序）
-    page = 1
-    stats = await get_message_stats_from_db(group_id, limit=50, context=context)
-    
-    # 如果没有数据，显示提示信息并设置自动删除
-    if not stats:
-        msg = await update.message.reply_text("暂无排行数据。")
+        # 获取群组信息
+        chat = update.effective_chat
+        group_id = chat.id
         
-        # 确保自动删除设置生效
+        # 设置排行榜标题
+        title = "📊 消息数量排行榜 📊"
+        
+        # 从数据库获取排名前15的用户数据（按消息数量降序排序）
+        page = 1
+        stats = await get_message_stats_from_db(group_id, limit=50, context=context)
+        
+        # 如果没有数据，显示提示信息
+        if not stats:
+            msg = await update.message.reply_text("暂无排行数据。")
+            
+            # 确保自动删除设置生效
+            await set_message_expiry(
+                context=context,
+                chat_id=group_id,
+                message_id=msg.message_id,
+                feature="rank_command"
+            )
+            return
+        
+        # 计算总页数（每页15条记录）
+        total_pages = (len(stats) + 14) // 15
+        
+        # 只显示第一页的15条记录
+        stats = stats[:15]
+        
+        # 构建分页按钮
+        keyboard = []
+        if total_pages > 1:
+            buttons = []
+            if page < total_pages:
+                buttons.append(InlineKeyboardButton("下一页 ➡️", callback_data=f"rank_next_{page}"))
+            keyboard.append(buttons)
+
+        # 构建HTML格式的排行文本 - 使用Telegram支持的HTML标签
+        text = f"<b>{title}</b>\n\n"
+
+        # 添加用户排行
+        for i, stat in enumerate(stats, start=(page-1)*15+1):
+            try:
+                user = await context.bot.get_chat_member(group_id, stat['_id'])
+                display_name = user.user.full_name
+                # 处理HTML特殊字符
+                display_name = html.escape(display_name)
+                user_mention = f'<a href="tg://user?id={stat["_id"]}">{display_name}</a>'
+            except Exception:
+                user_mention = f'用户{stat["_id"]}'
+            
+            # 添加奖牌图标（前三名）
+            rank_prefix = ""
+            if page == 1:
+                if i == 1:
+                    rank_prefix = "🥇 "
+                elif i == 2:
+                    rank_prefix = "🥈 "
+                elif i == 3:
+                    rank_prefix = "🥉 "
+            
+            # 构建用户行 - 使用简单的HTML格式
+            text += f"{rank_prefix}{i}. {user_mention} - <b>消息数: {stat['total_messages']}</b>\n"
+
+        # 添加分页信息
+        text += f"\n<i>第 {page}/{total_pages} 页</i>"
+
+        # 发送排行消息到群组
+        reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
+        msg = await update.message.reply_text(
+            text=text, 
+            parse_mode="HTML", 
+            reply_markup=reply_markup
+        )
+        
+        # 如果启用了自动删除，设置消息过期时间
         await set_message_expiry(
             context=context,
             chat_id=group_id,
             message_id=msg.message_id,
             feature="rank_command"
         )
-        return
-    
-    # 计算总页数（每页15条记录）
-    total_pages = (len(stats) + 14) // 15
-    
-    # 只显示第一页的15条记录
-    stats = stats[:15]
-    
-    # 构建分页按钮
-    keyboard = []
-    if total_pages > 1:
-        buttons = []
-        if page < total_pages:
-            buttons.append(InlineKeyboardButton("下一页 ➡️", callback_data=f"rank_next_{page}"))
-        keyboard.append(buttons)
-
-    # 构建HTML格式的排行文本
-    text = f"""
-<html>
-<head>
-<style>
-.ranking-container {{
-  width: 100%;
-}}
-.title {{
-  text-align: center;
-  font-size: 16px;
-  font-weight: bold;
-  margin-bottom: 10px;
-}}
-.user-row {{
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 3px 0;
-}}
-.user-info {{
-  display: flex;
-  align-items: center;
-  max-width: 70%;
-}}
-.rank {{
-  width: 25px;
-  text-align: right;
-  margin-right: 8px;
-}}
-.username {{
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: calc(100% - 35px);
-}}
-.message-count {{
-  font-weight: bold;
-  min-width: 80px;
-  text-align: right;
-}}
-.pagination-info {{
-  text-align: center;
-  margin-top: 10px;
-  color: #666;
-}}
-</style>
-</head>
-<body>
-<div class="ranking-container">
-  <div class="title">{title}</div>
-"""
-
-    # 添加用户排行
-    for i, stat in enumerate(stats, start=(page-1)*15+1):
-        try:
-            user = await context.bot.get_chat_member(group_id, stat['_id'])
-            display_name = user.user.full_name
-            # 处理HTML特殊字符
-            display_name = html.escape(display_name)
-            user_mention = f'<a href="tg://user?id={stat["_id"]}">{display_name}</a>'
-        except Exception:
-            user_mention = f'用户{stat["_id"]}'
-        
-        # 添加奖牌图标（前三名）
-        rank_prefix = ""
-        if page == 1:
-            if i == 1:
-                rank_prefix = "🥇 "
-            elif i == 2:
-                rank_prefix = "🥈 "
-            elif i == 3:
-                rank_prefix = "🥉 "
-        
-        # 构建用户行
-        text += f"""
-  <div class="user-row">
-    <div class="user-info">
-      <div class="rank">{rank_prefix}{i}.</div>
-      <div class="username">{user_mention}</div>
-    </div>
-    <div class="message-count">消息数: {stat['total_messages']}</div>
-  </div>
-"""
-
-    # 添加分页信息
-    text += f"""
-  <div class="pagination-info">第 {page}/{total_pages} 页</div>
-</div>
-</body>
-</html>
-"""
-
-    # 发送排行消息到群组
-    reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-    msg = await update.message.reply_text(
-        text=text, 
-        parse_mode="HTML", 
-        reply_markup=reply_markup
-    )
-    
-    # 如果启用了自动删除，设置消息过期时间
-    await set_message_expiry(
-        context=context,
-        chat_id=group_id,
-        message_id=msg.message_id,
-        feature="rank_command"
-    )
+    except Exception as e:
+        logger.error(f"处理排行命令出错: {e}", exc_info=True)
+        await update.message.reply_text("处理命令时出错，请稍后再试。")
 
     
 @handle_callback_errors
@@ -338,18 +279,13 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext):
     title = "📊 消息数量排行榜 📊"
     
     # 从数据库获取排名前50的用户数据（按消息数量降序排序）
-    stats = await get_message_stats_from_db(group_id, limit=50, skip=(page-1)*15)
+    stats = await get_message_stats_from_db(group_id, limit=50, skip=(page-1)*15, context=context)
     
     # 如果没有数据，显示提示信息
     if not stats:
-        msg = await update.message.reply_text("暂无排行数据。")
-        
-        # 确保自动删除设置生效
-        await set_message_expiry(
-            context=context,
-            chat_id=group_id,
-            message_id=msg.message_id,
-            feature="rank_command"
+        await query.edit_message_text(
+            "暂无排行数据。", 
+            reply_markup=None
         )
         return
 
@@ -359,7 +295,7 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext):
     # 如果请求的页码超出范围，显示最后一页
     if page > total_pages:
         page = total_pages
-        stats = await get_message_stats_from_db(group_id, limit=15, skip=(page-1)*15)
+        stats = await get_message_stats_from_db(group_id, limit=15, skip=(page-1)*15, context=context)
     
     # 只显示当前页的15条记录
     stats = stats[:15]
@@ -374,58 +310,8 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext):
             buttons.append(InlineKeyboardButton("下一页 ➡️", callback_data=f"rank_next_{page}"))
         keyboard.append(buttons)
 
-    # 构建HTML格式的排行文本
-    text = f"""
-<html>
-<head>
-<style>
-.ranking-container {{
-  width: 100%;
-}}
-.title {{
-  text-align: center;
-  font-size: 16px;
-  font-weight: bold;
-  margin-bottom: 10px;
-}}
-.user-row {{
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 3px 0;
-}}
-.user-info {{
-  display: flex;
-  align-items: center;
-  max-width: 70%;
-}}
-.rank {{
-  width: 25px;
-  text-align: right;
-  margin-right: 8px;
-}}
-.username {{
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: calc(100% - 35px);
-}}
-.message-count {{
-  font-weight: bold;
-  min-width: 80px;
-  text-align: right;
-}}
-.pagination-info {{
-  text-align: center;
-  margin-top: 10px;
-  color: #666;
-}}
-</style>
-</head>
-<body>
-<div class="ranking-container">
-  <div class="title">{title}</div>
-"""
+    # 构建HTML格式的排行文本 - 使用Telegram支持的HTML标签
+    text = f"<b>{title}</b>\n\n"
 
     # 添加用户排行
     for i, stat in enumerate(stats, start=(page-1)*15+1):
@@ -448,24 +334,11 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext):
             elif i == 3:
                 rank_prefix = "🥉 "
         
-        # 构建用户行
-        text += f"""
-  <div class="user-row">
-    <div class="user-info">
-      <div class="rank">{rank_prefix}{i}.</div>
-      <div class="username">{user_mention}</div>
-    </div>
-    <div class="message-count">消息数: {stat['total_messages']}</div>
-  </div>
-"""
+        # 构建用户行 - 使用简单的HTML格式
+        text += f"{rank_prefix}{i}. {user_mention} - <b>消息数: {stat['total_messages']}</b>\n"
 
     # 添加分页信息
-    text += f"""
-  <div class="pagination-info">第 {page}/{total_pages} 页</div>
-</div>
-</body>
-</html>
-"""
+    text += f"\n<i>第 {page}/{total_pages} 页</i>"
 
     # 更新消息内容
     await query.edit_message_text(
