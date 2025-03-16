@@ -129,8 +129,25 @@ TIME_CALIBRATION_SETTINGS = {
     
     # 是否启用时间校准功能
     'enable_calibration': True,
+    
+    # Render.com相关设置
+    'render': {
+        # 是否为Render.com环境
+        'is_render_environment': True,
+        
+        # Render.com免费版休眠时间（分钟）
+        'sleep_after_inactivity': 15,
+        
+        # 自动ping间隔（分钟）以保持活跃状态
+        'keep_alive_interval': 10,
+        
+        # 唤醒后的初始延迟（秒）
+        'wake_up_delay': 5,
+        
+        # 唤醒后是否立即执行一次检查
+        'force_check_on_wake': True
+    }
 }
-
 # 验证配置函数 (用于config_validator.py)
 def validate_config_dict():
     """
