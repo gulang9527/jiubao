@@ -38,6 +38,7 @@ async def handle_start(update: Update, context: CallbackContext):
         "📊 /tongji - 查看今日统计\n"
         "📈 /tongji30 - 查看30日统计\n"
         "🚫 /cancel - 取消当前操作\n"
+        "📊 /checkstats - 检查统计设置\n"
     )
     
     # 添加管理员命令
@@ -367,6 +368,56 @@ async def handle_rank_command(update: Update, context: CallbackContext):
     except Exception as e:
         logger.error(f"处理排行命令出错: {e}", exc_info=True)
         await update.message.reply_text("处理命令时出错，请稍后再试。")
+
+@check_command_usage
+async def handle_check_stats_settings(update: Update, context: CallbackContext):
+    """处理/checkstats命令 - 检查统计设置"""
+    bot_instance = context.application.bot_data.get('bot_instance')
+    
+    # 获取群组ID
+    group_id = update.effective_chat.id
+    
+    # 获取群组设置
+    settings = await bot_instance.db.get_group_settings(group_id)
+    
+    # 统计相关设置
+    min_bytes = settings.get('min_bytes', 0)
+    count_media = settings.get('count_media', True)
+    daily_rank_size = settings.get('daily_rank_size', 15)
+    monthly_rank_size = settings.get('monthly_rank_size', 15)
+    
+    # 检查权限
+    has_stats_perm = await bot_instance.has_permission(group_id, GroupPermission.STATS)
+    
+    # 构建消息
+    message = f"📊 统计设置检查\n\n"
+    message += f"群组ID: {group_id}\n"
+    message += f"统计权限: {'✅ 已启用' if has_stats_perm else '❌ 未启用'}\n"
+    message += f"最小字节数: {min_bytes}\n"
+    message += f"统计媒体消息: {'✅ 是' if count_media else '❌ 否'}\n"
+    message += f"日排行显示数量: {daily_rank_size}\n"
+    message += f"月排行显示数量: {monthly_rank_size}\n\n"
+    
+    # 检查数据库记录
+    try:
+        today = datetime.now().strftime('%Y-%m-%d')
+        count = await bot_instance.db.db.message_stats.count_documents({
+            'group_id': group_id,
+            'date': today
+        })
+        message += f"今日消息记录数: {count}\n"
+        
+        thirty_days_ago = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+        month_count = await bot_instance.db.db.message_stats.count_documents({
+            'group_id': group_id,
+            'date': {'$gte': thirty_days_ago, '$lte': today}
+        })
+        message += f"30天内消息记录数: {month_count}"
+    except Exception as e:
+        logger.error(f"检查数据库记录失败: {e}", exc_info=True)
+        message += "⚠️ 数据库记录查询失败"
+    
+    await update.message.reply_text(message)
 
 @handle_callback_errors
 async def handle_rank_page_callback(update: Update, context: CallbackContext):
