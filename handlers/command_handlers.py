@@ -3,6 +3,7 @@
 """
 import logging
 import html
+import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
 from utils.decorators import check_command_usage, handle_callback_errors, require_superadmin
@@ -111,12 +112,52 @@ async def handle_settings(update: Update, context: CallbackContext):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("请选择要管理的群组：", reply_markup=reply_markup)
 
-async def get_message_stats_from_db(group_id: int, limit: int = 15, skip: int = 0, context=None):
+def get_char_width(char):
+    """
+    计算字符的显示宽度
+    - 汉字、日文、韩文等全角字符宽度为2
+    - ASCII字符宽度为1
+    - 其他字符根据Unicode范围确定宽度
+    """
+    if ord(char) <= 127:  # ASCII字符
+        return 1
+    # 东亚文字(中文、日文、韩文等)
+    if any([
+        '\u4e00' <= char <= '\u9fff',  # 中文
+        '\u3040' <= char <= '\u30ff',  # 日文
+        '\uac00' <= char <= '\ud7a3',  # 韩文
+        '\u3000' <= char <= '\u303f',  # 中日韩符号
+        '\uff00' <= char <= '\uffef'   # 全角ASCII、全角中英文标点
+    ]):
+        return 2
+    # 其他Unicode字符默认宽度1
+    return 1
+
+def get_string_display_width(s):
+    """
+    计算字符串的显示宽度
+    """
+    return sum(get_char_width(c) for c in s)
+
+def truncate_string_by_width(s, max_width):
+    """
+    按显示宽度截断字符串
+    """
+    width = 0
+    for i, char in enumerate(s):
+        char_width = get_char_width(char)
+        if width + char_width > max_width - 1:  # 留一个位置给省略号
+            return s[:i] + "…"
+        width += char_width
+    return s
+
+async def get_message_stats_from_db(group_id: int, time_range: str = 'day', limit: int = 15, skip: int = 0, context=None):
     """
     从数据库获取消息统计数据
     
     参数:
         group_id: 群组ID
+        time_range: 时间范围，'day'表示24小时内，'month'表示30天内
         limit: 返回结果数量限制
         skip: 跳过的结果数量（用于分页）
         context: 可选上下文对象，用于获取bot_instance
@@ -136,9 +177,27 @@ async def get_message_stats_from_db(group_id: int, limit: int = 15, skip: int = 
             logger.error("无法获取数据库实例")
             return []
         
+        # 设置时间过滤条件
+        now = datetime.datetime.now()
+        
+        match = {
+            'group_id': group_id
+        }
+        
+        # 添加时间范围过滤条件
+        if time_range == 'day':
+            # 当天0点开始
+            today_start = datetime.datetime(now.year, now.month, now.day, 0, 0, 0)
+            match['timestamp'] = {'$gte': today_start}
+        elif time_range == 'month':
+            # 30天前的0点开始
+            thirty_days_ago = now - datetime.timedelta(days=30)
+            thirty_days_ago_start = datetime.datetime(thirty_days_ago.year, thirty_days_ago.month, thirty_days_ago.day, 0, 0, 0)
+            match['timestamp'] = {'$gte': thirty_days_ago_start}
+        
         # 聚合查询以获取每个用户的总消息数
         pipeline = [
-            {'$match': {'group_id': group_id}},
+            {'$match': match},
             {'$group': {
                 '_id': '$user_id',
                 'total_messages': {'$sum': '$total_messages'}
@@ -150,7 +209,7 @@ async def get_message_stats_from_db(group_id: int, limit: int = 15, skip: int = 
         
         # 执行聚合查询
         stats = await bot_instance.db.db.message_stats.aggregate(pipeline).to_list(None)
-        logger.info(f"获取消息统计成功: 群组={group_id}, 结果数={len(stats)}")
+        logger.info(f"获取消息统计成功: 群组={group_id}, 时间范围={time_range}, 结果数={len(stats)}")
         return stats
     except Exception as e:
         logger.error(f"获取消息统计失败: {e}", exc_info=True)
@@ -158,7 +217,7 @@ async def get_message_stats_from_db(group_id: int, limit: int = 15, skip: int = 
 
 async def format_rank_rows(stats, page, group_id, context):
     """
-    使用预计算填充方式确保"消息数"位置固定
+    格式化排行榜行数据，考虑中英文字符宽度差异
     
     参数:
         stats: 统计数据
@@ -171,39 +230,23 @@ async def format_rank_rows(stats, page, group_id, context):
     """
     import html
     
-    # 固定用户名最大长度
-    MAX_NAME_LENGTH = 10
+    # 固定用户名最大显示宽度
+    MAX_NAME_WIDTH = 24  # 12个全角字符或24个半角字符
+    # 消息数的固定位置（从行首开始的字符数）
+    FIXED_MSG_POSITION = 30
     
-    # 对于不同长度的用户名，预先计算需要的空格数
-    # 键：用户名长度，值：需要的空格数
-    SPACE_MAPPINGS = {
-        1: 15,  # 1个字符的用户名需要15个空格
-        2: 14,  # 2个字符的用户名需要14个空格
-        3: 13,
-        4: 12,
-        5: 11,
-        6: 10,
-        7: 9,
-        8: 8,
-        9: 7,
-        10: 6,
-        11: 5  # 最长用户名(含...截断)
-    }
-    
-    # 默认空格数(以防万一)
-    DEFAULT_SPACES = 5
-    
+    # 构建每一行文本
     rows = []
     for i, stat in enumerate(stats, start=(page-1)*15+1):
         # 添加奖牌图标（前三名）
         rank_prefix = ""
         if page == 1:
             if i == 1:
-                rank_prefix = "🥇"
+                rank_prefix = "🥇 "  # 金牌
             elif i == 2:
-                rank_prefix = "🥈"
+                rank_prefix = "🥈 "  # 银牌
             elif i == 3:
-                rank_prefix = "🥉"
+                rank_prefix = "🥉 "  # 铜牌
         
         # 获取用户信息
         try:
@@ -214,47 +257,30 @@ async def format_rank_rows(stats, page, group_id, context):
         except Exception:
             display_name = f'用户{stat["_id"]}'
         
-        # 截断用户名（如果超过最大长度）
-        if len(display_name) > MAX_NAME_LENGTH:
-            display_name = display_name[:MAX_NAME_LENGTH-1] + "…"
+        # 截断用户名（基于显示宽度）
+        display_name = truncate_string_by_width(display_name, MAX_NAME_WIDTH)
         
         # 创建带链接的用户名
         user_mention = f'<a href="tg://user?id={stat["_id"]}">{display_name}</a>'
         
-        # 计算序号长度(考虑排名图标)
-        # 排名可能是1位或2位数，图标占1个字符宽度
-        rank_length = len(str(i)) + (1 if rank_prefix else 0)
+        # 计算序号部分的宽度（包括排名图标）
+        # 注意：奖牌图标视为2个字符宽度
+        rank_prefix_width = 2 if rank_prefix else 0
         
-        # 计算用户名实际显示长度
-        name_length = len(display_name)
+        # 计算当前内容的显示宽度
+        # 排名前缀(如果有) + 序号 + ". " + 用户名
+        current_display_width = rank_prefix_width + len(str(i)) + 2 + get_string_display_width(display_name)
         
-        # 确定需要使用多少空格
-        # 由于排名的长度有变化，需要调整
-        # 基础排名是"X. "，占用2-3个字符
-        base_offset = 3 if i >= 10 else 2  # 两位数序号多占1个位置
+        # 计算需要添加的空格数，确保"消息数"位置固定
+        space_count = max(2, FIXED_MSG_POSITION - current_display_width)
+        space_padding = ' ' * space_count
         
-        # 调整映射的索引
-        space_index = name_length
-        
-        # 获取对应空格数
-        spaces_count = SPACE_MAPPINGS.get(space_index, DEFAULT_SPACES)
-        
-        # 再根据排名图标和序号长度调整
-        if rank_prefix:
-            spaces_count -= 1  # 减去图标占用的空间
-        if i >= 10:
-            spaces_count -= 1  # 减去双位数序号多占的空间
-        
-        # 确保至少有一个空格
-        spaces_count = max(1, spaces_count)
-        spaces = " " * spaces_count
-        
-        # 构建行
-        row = f"{rank_prefix}{i}. {user_mention}{spaces}消息数: {stat['total_messages']}"
+        # 构建一行
+        row = f"{rank_prefix}{i}. {user_mention}{space_padding}消息数: {stat['total_messages']}"
         rows.append(row)
     
     return "\n".join(rows)
-    
+
 @check_command_usage
 async def handle_rank_command(update: Update, context: CallbackContext):
     """处理 /rank 命令，显示群组消息排行榜"""
@@ -277,14 +303,14 @@ async def handle_rank_command(update: Update, context: CallbackContext):
         
         # 获取统计数据
         if command == '/tongji':
-            # 获取24小时统计
-            title = f"📊 {group_name} 24小时消息排行"
-            daily_stats = await get_message_stats_from_db(group_id, limit=50, context=context)
+            # 获取今日统计
+            title = f"📊 {group_name} 今日消息排行"
+            daily_stats = await get_message_stats_from_db(group_id, time_range='day', limit=50, context=context)
             stats = daily_stats
         else:  # /tongji30
             # 获取30天统计
             title = f"📊 {group_name} 30天消息排行"
-            monthly_stats = await get_message_stats_from_db(group_id, limit=50, context=context)
+            monthly_stats = await get_message_stats_from_db(group_id, time_range='month', limit=50, context=context)
             stats = monthly_stats
         
         # 如果没有数据，显示提示信息
@@ -311,7 +337,7 @@ async def handle_rank_command(update: Update, context: CallbackContext):
         if total_pages > 1:
             buttons = []
             if page < total_pages:
-                buttons.append(InlineKeyboardButton("下一页 ➡️", callback_data=f"rank_next_{page}"))
+                buttons.append(InlineKeyboardButton("下一页 ➡️", callback_data=f"rank_next_{page}_{command.replace('/', '')}"))
             keyboard.append(buttons)
 
         # 构建HTML格式的排行文本
@@ -353,6 +379,10 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext):
     action = data[1]
     current_page = int(data[2])
     
+    # 获取命令类型（tongji 或 tongji30）
+    command_type = data[3] if len(data) > 3 else "tongji"
+    time_range = 'day' if command_type == 'tongji' else 'month'
+    
     if action == "prev":
         page = max(1, current_page - 1)
     elif action == "next":
@@ -366,10 +396,16 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext):
     group_name = chat.title
     
     # 获取排行数据
-    title = f"📊 {group_name} 消息数量排行榜"
+    title = f"📊 {group_name} {'今日' if time_range == 'day' else '30天'}消息排行"
     
     # 从数据库获取排名前50的用户数据（按消息数量降序排序）
-    stats = await get_message_stats_from_db(group_id, limit=50, skip=(page-1)*15, context=context)
+    stats = await get_message_stats_from_db(
+        group_id, 
+        time_range=time_range, 
+        limit=15, 
+        skip=(page-1)*15, 
+        context=context
+    )
     
     # 如果没有数据，显示提示信息
     if not stats:
@@ -379,25 +415,36 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext):
         )
         return
 
-    # 计算总页数（每页15条记录）
-    total_pages = (len(stats) + 14) // 15
+    # 获取总数据量以计算总页数
+    total_stats = await get_message_stats_from_db(
+        group_id, 
+        time_range=time_range, 
+        limit=1000,  # 设置一个大值以获取所有记录数 
+        context=context
+    )
+    
+    # 计算总页数
+    total_pages = (len(total_stats) + 14) // 15
     
     # 如果请求的页码超出范围，显示最后一页
     if page > total_pages:
         page = total_pages
-        stats = await get_message_stats_from_db(group_id, limit=15, skip=(page-1)*15, context=context)
-    
-    # 只显示当前页的15条记录
-    stats = stats[:15]
+        stats = await get_message_stats_from_db(
+            group_id, 
+            time_range=time_range, 
+            limit=15, 
+            skip=(page-1)*15, 
+            context=context
+        )
 
     # 构建分页按钮
     keyboard = []
     if total_pages > 1:
         buttons = []
         if page > 1:
-            buttons.append(InlineKeyboardButton("⬅️ 上一页", callback_data=f"rank_prev_{page}"))
+            buttons.append(InlineKeyboardButton("⬅️ 上一页", callback_data=f"rank_prev_{page}_{command_type}"))
         if page < total_pages:
-            buttons.append(InlineKeyboardButton("下一页 ➡️", callback_data=f"rank_next_{page}"))
+            buttons.append(InlineKeyboardButton("下一页 ➡️", callback_data=f"rank_next_{page}_{command_type}"))
         keyboard.append(buttons)
 
     # 构建HTML格式的排行文本
@@ -638,7 +685,7 @@ async def handle_del_admin(update: Update, context: CallbackContext):
             return
             
         # 不能删除超级管理员
-        if user.get('role') == UserRole.ADMIN.value:
+        if user.get('role') == UserRole.SUPERADMIN.value:
             await update.message.reply_text("❌ 不能删除超级管理员")
             return
             
