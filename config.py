@@ -55,6 +55,7 @@ BROADCAST_SETTINGS = {
     'min_interval': 5,           # 最小轮播间隔（分钟）
     'max_broadcasts': 10,        # 每个群组最大轮播消息数
     'check_interval': 1,         # 轮播检查间隔（分钟）
+    'enable_enhanced_features': True,  # 是否启用增强功能
 }
 
 # 关键词设置
@@ -108,6 +109,27 @@ ERROR_HANDLING_SETTINGS = {
 
 # 防休眠设置
 KEEP_ALIVE_INTERVAL = 300        # 防休眠请求间隔（秒）
+
+# 时间校准和增强版轮播设置
+TIME_CALIBRATION_SETTINGS = {
+    # 时间校准检查间隔（秒）
+    'check_interval': 60,
+    
+    # 时间偏移阈值（秒），超过此值认为系统可能休眠
+    'drift_threshold': 30,
+    
+    # 系统休眠后是否自动发送错过的轮播消息
+    'send_missed_broadcasts': True,
+    
+    # 系统休眠后，一次最多发送多少条错过的轮播消息
+    'max_missed_broadcasts': 3,
+    
+    # 处理错过的轮播消息时，每条消息之间的最小间隔（秒）
+    'missed_broadcast_interval': 30,
+    
+    # 是否启用时间校准功能
+    'enable_calibration': True,
+}
 
 # 验证配置函数 (用于config_validator.py)
 def validate_config_dict():
