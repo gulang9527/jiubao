@@ -111,7 +111,7 @@ async def handle_settings(update: Update, context: CallbackContext):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("请选择要管理的群组：", reply_markup=reply_markup)
 
-async def get_message_stats_from_db(group_id: int, limit: int = 15, skip: int = 0):
+async def get_message_stats_from_db(group_id: int, limit: int = 15, skip: int = 0, context=None):
     """
     从数据库获取消息统计数据
     
@@ -119,12 +119,27 @@ async def get_message_stats_from_db(group_id: int, limit: int = 15, skip: int = 
         group_id: 群组ID
         limit: 返回结果数量限制
         skip: 跳过的结果数量（用于分页）
+        context: 上下文对象，用于获取bot_instance
         
     返回:
         消息统计数据列表
     """
     try:
-        bot_instance = context.application.bot_data.get('bot_instance')
+        bot_instance = None
+        
+        # 如果提供了上下文，从上下文获取bot_instance
+        if context and hasattr(context, 'application'):
+            bot_instance = context.application.bot_data.get('bot_instance')
+        
+        # 如果没有bot_instance，尝试其他方式获取
+        if not bot_instance:
+            # 记录日志但继续尝试执行
+            logger.warning("无法从上下文获取数据库实例，尝试直接查询")
+            
+            # 这里可以添加替代方案，如全局变量或单例模式
+            from bot import get_bot_instance
+            bot_instance = get_bot_instance()
+            
         if not bot_instance or not bot_instance.db:
             logger.error("无法获取数据库实例")
             return []
@@ -168,9 +183,11 @@ async def handle_rank_command(update: Update, context: CallbackContext):
     page = 1
     stats = await get_message_stats_from_db(group_id, limit=50)
     
-    # 如果没有数据，显示提示信息
+    # 如果没有数据，显示提示信息并设置自动删除
     if not stats:
         msg = await update.message.reply_text("暂无排行数据。")
+        
+        # 确保自动删除设置生效
         await set_message_expiry(
             context=context,
             chat_id=group_id,
