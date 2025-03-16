@@ -87,6 +87,91 @@ async def add_message_stat(self, group_id: int, user_id: int, message: Message):
         
     except Exception as e:
         logger.error(f"添加消息统计失败: {e}", exc_info=True)
+
+async def add_message_stat(self, group_id: int, user_id: int, message: Message):
+    """
+    添加消息统计
+    
+    参数:
+        group_id: 群组ID
+        user_id: 用户ID
+        message: 消息对象
+    """
+    try:
+        # 获取消息元数据
+        date = datetime.now().strftime('%Y-%m-%d')
+        message_size = len(message.text or '') if message.text else 0
+        media_type = None
+        
+        logger.info(f"开始处理消息统计 - 群组: {group_id}, 用户: {user_id}, 初始消息大小: {message_size}")
+        
+        # 检查是否是媒体消息并计算大小
+        if message.photo:
+            media_type = 'photo'
+            if message.photo:
+                message_size += message.photo[-1].file_size
+                logger.info(f"处理照片消息，文件大小: {message.photo[-1].file_size}")
+        elif message.video:
+            media_type = 'video'
+            message_size += message.video.file_size
+            logger.info(f"处理视频消息，文件大小: {message.video.file_size}")
+        elif message.document:
+            media_type = 'document'
+            message_size += message.document.file_size
+            logger.info(f"处理文档消息，文件大小: {message.document.file_size}")
+        elif message.audio:
+            media_type = 'audio'
+            message_size += message.audio.file_size
+            logger.info(f"处理音频消息，文件大小: {message.audio.file_size}")
+        elif message.voice:
+            media_type = 'voice'
+            message_size += message.voice.file_size
+            logger.info(f"处理语音消息，文件大小: {message.voice.file_size}")
+        elif message.sticker:
+            media_type = 'sticker'
+            message_size += message.sticker.file_size
+            logger.info(f"处理贴纸消息，文件大小: {message.sticker.file_size}")
+        
+        logger.info(f"消息处理结果 - 类型: {media_type or '文本'}, 最终大小: {message_size} 字节")
+        
+        # 获取群组设置，检查是否需要忽略某些消息
+        group_settings = await self.db.get_group_settings(group_id)
+        min_bytes = group_settings.get('min_bytes', 0)
+        count_media = group_settings.get('count_media', True)
+        
+        logger.info(f"群组设置 - 最小字节: {min_bytes}, 统计媒体: {count_media}")
+        
+        # 判断是否满足统计条件
+        if (message_size < min_bytes) or (media_type and not count_media):
+            logger.warning(f"消息不满足统计条件: size={message_size}, min_bytes={min_bytes}, media_type={media_type}, count_media={count_media}")
+            return
+        
+        # 准备统计数据
+        stat_data = {
+            'group_id': group_id,
+            'user_id': user_id,
+            'date': date,
+            'total_messages': 1,
+            'total_size': message_size,
+            'media_type': media_type
+        }
+        
+        logger.info(f"即将添加统计数据: {stat_data}")
+        
+        # 添加到数据库
+        await self.db.add_message_stat(stat_data)
+        logger.info(f"成功添加消息统计: group_id={group_id}, user_id={user_id}, size={message_size}")
+        
+        # 更新用户总消息数
+        await self.db.db.users.update_one(
+            {'user_id': user_id},
+            {'$inc': {'total_messages': 1}},
+            upsert=True
+        )
+        logger.info(f"已更新用户 {user_id} 的总消息数")
+        
+    except Exception as e:
+        logger.error(f"添加消息统计失败: {e}", exc_info=True)
             
     async def get_daily_stats(self, group_id: int, page: int = 1) -> Tuple[List[Dict[str, Any]], int]:
         """
