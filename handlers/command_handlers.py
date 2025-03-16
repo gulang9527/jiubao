@@ -158,8 +158,7 @@ async def get_message_stats_from_db(group_id: int, limit: int = 15, skip: int = 
 
 async def format_rank_rows(stats, page, group_id, context):
     """
-    最终有效的排行榜格式解决方案
-    把"消息数"部分放入<code>标签中确保对齐
+    使用预计算填充方式确保"消息数"位置固定
     
     参数:
         stats: 统计数据
@@ -173,14 +172,28 @@ async def format_rank_rows(stats, page, group_id, context):
     import html
     
     # 固定用户名最大长度
-    MAX_NAME_LENGTH = 12
+    MAX_NAME_LENGTH = 10
     
-    # 构建每一行文本
+    # 对于不同长度的用户名，预先计算需要的空格数
+    # 键：用户名长度，值：需要的空格数
+    SPACE_MAPPINGS = {
+        1: 15,  # 1个字符的用户名需要15个空格
+        2: 14,  # 2个字符的用户名需要14个空格
+        3: 13,
+        4: 12,
+        5: 11,
+        6: 10,
+        7: 9,
+        8: 8,
+        9: 7,
+        10: 6,
+        11: 5  # 最长用户名(含...截断)
+    }
+    
+    # 默认空格数(以防万一)
+    DEFAULT_SPACES = 5
+    
     rows = []
-    
-    # 找出消息数的最大长度以便右对齐
-    max_count_length = max(len(str(stat['total_messages'])) for stat in stats)
-    
     for i, stat in enumerate(stats, start=(page-1)*15+1):
         # 添加奖牌图标（前三名）
         rank_prefix = ""
@@ -208,15 +221,40 @@ async def format_rank_rows(stats, page, group_id, context):
         # 创建带链接的用户名
         user_mention = f'<a href="tg://user?id={stat["_id"]}">{display_name}</a>'
         
-        # 右对齐消息数
-        count = str(stat['total_messages']).rjust(max_count_length)
+        # 计算序号长度(考虑排名图标)
+        # 排名可能是1位或2位数，图标占1个字符宽度
+        rank_length = len(str(i)) + (1 if rank_prefix else 0)
         
-        # 把"消息数: XXX"部分放入<code>标签，确保对齐
-        # 构建行 - 分为两部分：排名和用户名 + 消息数(等宽字体)
-        row = f"{rank_prefix}{i}. {user_mention}    <code>消息数: {count}</code>"
+        # 计算用户名实际显示长度
+        name_length = len(display_name)
+        
+        # 确定需要使用多少空格
+        # 由于排名的长度有变化，需要调整
+        # 基础排名是"X. "，占用2-3个字符
+        base_offset = 3 if i >= 10 else 2  # 两位数序号多占1个位置
+        
+        # 调整映射的索引
+        space_index = name_length
+        
+        # 获取对应空格数
+        spaces_count = SPACE_MAPPINGS.get(space_index, DEFAULT_SPACES)
+        
+        # 再根据排名图标和序号长度调整
+        if rank_prefix:
+            spaces_count -= 1  # 减去图标占用的空间
+        if i >= 10:
+            spaces_count -= 1  # 减去双位数序号多占的空间
+        
+        # 确保至少有一个空格
+        spaces_count = max(1, spaces_count)
+        spaces = " " * spaces_count
+        
+        # 构建行
+        row = f"{rank_prefix}{i}. {user_mention}{spaces}消息数: {stat['total_messages']}"
         rows.append(row)
     
     return "\n".join(rows)
+    
 @check_command_usage
 async def handle_rank_command(update: Update, context: CallbackContext):
     """处理 /rank 命令，显示群组消息排行榜"""
