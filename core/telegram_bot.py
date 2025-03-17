@@ -211,6 +211,11 @@ class TelegramBot:
             )
             self.application.updater = None
             logger.info(f"Webhook已设置为 {webhook_url}")
+
+            # 初始化统计恢复系统
+            from recovery.statistics_recovery import StatisticsRecoverySystem
+            self.recovery_system = StatisticsRecoverySystem(self)
+            logger.info("统计恢复系统已初始化")
             
             # 验证初始化
             if not await self.verify_initialization():
@@ -223,6 +228,7 @@ class TelegramBot:
         except Exception as e:
             logger.error(f"机器人初始化失败: {e}", exc_info=True)
             return False
+
     
     async def verify_initialization(self):
         """验证初始化是否成功"""
@@ -281,7 +287,16 @@ class TelegramBot:
         if not self.application:
             logger.error("机器人未初始化")
             return False
-            
+
+        # 检查并恢复统计数据
+        try:
+            logger.info("开始检查是否需要恢复统计数据...")
+            if hasattr(self, 'recovery_system'):
+                await self.recovery_system.check_and_recover()
+        except Exception as e:
+            logger.error(f"检查恢复统计数据时出错: {e}", exc_info=True)
+            # 错误不影响机器人启动
+                    
         # 启动应用
         await self.application.initialize()
         await self.application.start()
