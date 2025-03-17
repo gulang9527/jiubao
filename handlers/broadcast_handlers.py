@@ -351,6 +351,7 @@ async def handle_broadcast_detail_callback(update: Update, context: CallbackCont
             keyboard = [
                 [InlineKeyboardButton("👁️ 预览", callback_data=f"bc_preview_{broadcast_id}_{group_id}")],
                 [InlineKeyboardButton("✏️ 编辑", callback_data=f"bc_edit_{broadcast_id}_{group_id}")],
+                [InlineKeyboardButton("🚀 强制发送", callback_data=f"bc_force_send_{broadcast_id}_{group_id}")],  # 添加强制发送按钮
                 [InlineKeyboardButton("❌ 删除", callback_data=f"bc_delete_{broadcast_id}_{group_id}")],
                 [InlineKeyboardButton("🔙 返回", callback_data=f"settings_broadcast_{group_id}")]
             ]
@@ -698,6 +699,76 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
             "请重试或联系管理员"
         )
 
+@handle_callback_errors
+async def handle_broadcast_force_send_callback(update: Update, context: CallbackContext, data: str):
+    """
+    处理强制发送轮播消息的回调
+    
+    参数:
+        update: 更新对象
+        context: 上下文对象
+        data: 回调数据
+    """
+    query = update.callback_query
+    bot_instance = context.application.bot_data.get('bot_instance')
+    
+    # 立即应答回调查询
+    await query.answer()
+    
+    # 解析回调数据
+    parts = data.split('_')
+    if len(parts) < 5:  # bc, force, send, broadcast_id, group_id
+        await query.edit_message_text("❌ 无效的回调数据")
+        return
+        
+    broadcast_id = parts[3]
+    group_id = int(parts[4])
+    
+    # 获取轮播消息详情
+    try:
+        broadcast = await bot_instance.db.get_broadcast_by_id(broadcast_id)
+        if not broadcast:
+            await query.edit_message_text(
+                "❌ 找不到轮播消息",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("返回", callback_data=f"settings_broadcast_{group_id}")
+                ]])
+            )
+            return
+            
+        # 检查轮播消息详情
+        await bot_instance.db.inspect_broadcast(broadcast_id)
+        
+        # 强制发送轮播消息
+        if bot_instance.broadcast_manager:
+            logger.info(f"强制发送轮播消息: {broadcast_id}")
+            await bot_instance.broadcast_manager.send_broadcast(broadcast)
+            # 更新最后发送时间
+            await bot_instance.db.update_broadcast(broadcast_id, {
+                'last_broadcast': datetime.now()
+            })
+            await query.edit_message_text(
+                f"✅ 已强制发送轮播消息\n\n详情ID: {broadcast_id}",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
+                ]])
+            )
+        else:
+            await query.edit_message_text(
+                "❌ 轮播管理器未初始化",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
+                ]])
+            )
+    except Exception as e:
+        logger.error(f"强制发送轮播消息出错: {e}", exc_info=True)
+        await query.edit_message_text(
+            f"❌ 强制发送出错: {str(e)}",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
+            ]])
+        )
+        
 #######################################
 # 表单输入处理
 #######################################
