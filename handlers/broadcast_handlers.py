@@ -800,7 +800,10 @@ async def handle_broadcast_form_input(update: Update, context: CallbackContext, 
                 if separator in line:
                     parts = line.split(separator, 1)  # 只分割一次，以防URL中包含分隔符
                     text, url = parts[0].strip(), parts[1].strip()
-                
+
+                    if url.startswith('@'):
+                        url = f"t.me/{url[1:]}" 
+                        
                     # 检查URL格式
                     if text and url and (url.startswith(('http://', 'https://', 't.me/'))):
                         buttons.append({'text': text, 'url': url})
