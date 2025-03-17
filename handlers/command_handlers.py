@@ -282,6 +282,9 @@ async def format_rank_rows(stats, page, group_id, context):
         # 创建带链接的用户名
         user_mention = f'<a href="tg://user?id={stat["_id"]}">{display_name}</a>'
         
+        # 检查是否有奖牌
+        has_medal = rank_prefix != ""
+        
         # 计算序号部分的宽度（包括排名图标）
         # 注意：奖牌图标是表情符号，占用2个字符宽度
         rank_prefix_width = 2 if rank_prefix else 0
@@ -289,9 +292,6 @@ async def format_rank_rows(stats, page, group_id, context):
         
         # 计算当前内容的显示宽度
         user_width = get_string_display_width(display_name)
-        
-        # 检查是否有奖牌，如果有奖牌，确保位置对齐
-        has_medal = rank_prefix != ""
         
         # 计算需要添加的空格数，确保"消息数"位置固定
         # 基础宽度: 排名前缀 + 序号 + ". " + 用户名
@@ -306,7 +306,7 @@ async def format_rank_rows(stats, page, group_id, context):
         else:
             # 对于没有奖牌的行，增加两个空格保持对齐
             row = f"  {i}. {user_mention}{space_padding}{stat['total_messages']}条"
-        rows.append(row)ser_mention}{space_padding}消息数: {stat['total_messages']}"
+        
         rows.append(row)
     
     return "\n".join(rows)
