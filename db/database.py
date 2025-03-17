@@ -1187,6 +1187,46 @@ class Database:
                 logger.warning(f"未能更新轮播消息: {broadcast_id}")
             else:
                 logger.info(f"已更新轮播消息: {broadcast_id}")
+
+    async def migrate_broadcast_datetime_fields(self):
+        """将轮播消息中的字符串时间字段转换为datetime对象"""
+        await self.ensure_connected()
+        try:
+            broadcasts = await self.db.broadcasts.find().to_list(None)
+            updated_count = 0
+            
+            for bc in broadcasts:
+                updates = {}
+                # 检查并转换start_time
+                if 'start_time' in bc and isinstance(bc['start_time'], str):
+                    try:
+                        updates['start_time'] = datetime.strptime(bc['start_time'], '%Y-%m-%d %H:%M:%S')
+                        logger.info(f"将轮播 {bc['_id']} 的start_time从字符串转换为datetime")
+                    except ValueError:
+                        logger.warning(f"无法解析start_time: {bc['start_time']} for broadcast {bc['_id']}")
+                        
+                # 检查并转换end_time
+                if 'end_time' in bc and isinstance(bc['end_time'], str):
+                    try:
+                        updates['end_time'] = datetime.strptime(bc['end_time'], '%Y-%m-%d %H:%M:%S')
+                        logger.info(f"将轮播 {bc['_id']} 的end_time从字符串转换为datetime")
+                    except ValueError:
+                        logger.warning(f"无法解析end_time: {bc['end_time']} for broadcast {bc['_id']}")
+                
+                # 如果有需要更新的字段
+                if updates:
+                    result = await self.db.broadcasts.update_one(
+                        {'_id': bc['_id']},
+                        {'$set': updates}
+                    )
+                    if result.modified_count > 0:
+                        updated_count += 1
+            
+            logger.info(f"时间字段迁移完成，共更新了 {updated_count} 条轮播消息")
+            return updated_count
+        except Exception as e:
+            logger.error(f"时间字段迁移失败: {e}", exc_info=True)
+            return 0
                 
             return result.modified_count > 0
         except Exception as e:
