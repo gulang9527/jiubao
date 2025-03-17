@@ -136,8 +136,15 @@ class EnhancedBroadcastManager:
                 logger.info(f"查询条件时间(字符串格式): {now_str}")
                 
                 # 获取应该发送的轮播消息
-                logger.info(f"开始调用 get_due_broadcasts() 获取待发送的轮播消息")
+                logger.info(f"开始调用 get_due_broadcasts() 获取待发送的轮播消息，当前时间: {now}")
                 due_broadcasts = await self.db.get_due_broadcasts()
+                
+                if due_broadcasts:
+                    logger.info(f"找到 {len(due_broadcasts)} 个需要发送的轮播消息")
+                    for b in due_broadcasts:
+                        logger.info(f"需要发送的轮播消息ID: {b.get('_id')}, 群组: {b.get('group_id')}")
+                else:
+                    logger.info("没有找到需要发送的轮播消息")
                 
                 # 添加详细日志
                 if due_broadcasts:
@@ -164,6 +171,7 @@ class EnhancedBroadcastManager:
                     group_id = broadcast.get("group_id")
                     
                     # 检查时间校准系统的下一次执行时间
+                    next_time = None
                     if self.calibration_manager:
                         next_time = await self.calibration_manager.get_next_execution_time(broadcast_id)
                         if next_time:
@@ -214,11 +222,12 @@ class EnhancedBroadcastManager:
         try:
             broadcast_id = str(broadcast["_id"])
             group_id = broadcast.get("group_id")
-            logger.info(f"发送轮播消息: {broadcast_id} 到群组 {group_id}")
+            logger.info(f"准备发送轮播消息: {broadcast_id} 到群组 {group_id}")
+            logger.info(f"轮播消息详情: {broadcast}")
             logger.info(f"轮播时间信息: 开始={broadcast.get('start_time')} ({type(broadcast.get('start_time')).__name__}), "
                        f"结束={broadcast.get('end_time')} ({type(broadcast.get('end_time')).__name__}), "
                        f"上次发送={broadcast.get('last_broadcast')}, 间隔={broadcast.get('interval')}分钟")
-            
+                
             # 获取消息内容
             text = broadcast.get("text", "")
             media = broadcast.get("media")
