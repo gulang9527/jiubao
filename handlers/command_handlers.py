@@ -219,6 +219,7 @@ async def get_message_stats_from_db(group_id: int, time_range: str = 'day', limi
                 '_id': '$user_id',
                 'total_messages': {'$sum': '$total_messages'}
             }},
+            {'$match': {'total_messages': {'$gt': 0}}},
             {'$sort': {'total_messages': -1}},
             {'$skip': skip},
             {'$limit': limit}
@@ -371,7 +372,7 @@ async def handle_rank_command(update: Update, context: CallbackContext):
         if total_pages > 1:
             buttons = []
             if page < total_pages:
-                buttons.append(InlineKeyboardButton("下一页 ➡️", callback_data=f"rank_next_{page}_{command.replace('/', '')}"))
+                buttons.append(InlineKeyboardButton("下一页 ➡️", callback_data=f"rank_next_{page+1}_{command.replace('/', '')}"))
             keyboard.append(buttons)
 
         # 构建HTML格式的排行文本
@@ -468,10 +469,11 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext, *a
     command_type = data[3] if len(data) > 3 else "tongji"
     time_range = 'day' if command_type == 'tongji' else 'month'
     
+    # 改进页码逻辑：处理上一页和下一页
     if action == "prev":
-        page = max(1, current_page - 1)
+        page = current_page - 1  # 当前显示页的上一页
     elif action == "next":
-        page = current_page + 1
+        page = current_page + 1  # 当前显示页的下一页
     else:
         page = current_page
 
