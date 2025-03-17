@@ -625,11 +625,6 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
             end_time = broadcast_data['start_time'] + timedelta(days=30)
             broadcast_data['end_time'] = end_time
             logger.info(f"设置默认结束时间: {end_time}")
-        else:
-            # 如果未设置结束时间，使用默认的30天
-            end_time = broadcast_data['start_time'] + timedelta(days=30)
-            broadcast_data['end_time'] = end_time
-            logger.info(f"设置默认结束时间: {end_time}")
     
     # 获取机器人实例
     bot_instance = context.application.bot_data.get('bot_instance')
