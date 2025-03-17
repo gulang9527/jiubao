@@ -279,8 +279,8 @@ async def format_rank_rows(stats, page, group_id, context):
         if original_width > MAX_NAME_WIDTH:
             display_name = truncate_string_by_width(display_name, MAX_NAME_WIDTH)
         
-        # 创建带链接的用户名
-        user_mention = f'<a href="tg://user?id={stat["_id"]}">{display_name}</a>'
+        # 修改这里：不再创建带链接的用户名，直接使用显示名称
+        # user_mention = f'<a href="tg://user?id={stat["_id"]}">{display_name}</a>'
         
         # 检查是否有奖牌
         has_medal = rank_prefix != ""
@@ -305,7 +305,7 @@ async def format_rank_rows(stats, page, group_id, context):
         if bot_instance and bot_instance.db:
             try:
                 # 查询该用户在该群组的当天记录是否标记为恢复数据
-                today = datetime.now().strftime('%Y-%m-%d')
+                today = datetime.datetime.now().strftime('%Y-%m-%d')
                 record = await bot_instance.db.db.message_stats.find_one({
                     'group_id': group_id,
                     'user_id': stat['_id'],
@@ -324,10 +324,10 @@ async def format_rank_rows(stats, page, group_id, context):
             
         if has_medal:
             # 对于有奖牌的行，确保序号和名字对齐
-            row = f"{rank_prefix}{i}. {user_mention}{space_padding}{message_count}"
+            row = f"{rank_prefix}{i}. {display_name}{space_padding}{message_count}"
         else:
             # 对于没有奖牌的行，增加两个空格保持对齐
-            row = f"  {i}. {user_mention}{space_padding}{message_count}"
+            row = f"  {i}. {display_name}{space_padding}{message_count}"
         
         rows.append(row)
     
