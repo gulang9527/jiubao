@@ -248,9 +248,9 @@ async def format_rank_rows(stats, page, group_id, context):
     import html
     
     # 固定用户名最大显示宽度
-    MAX_NAME_WIDTH = 20  # 减小最大宽度以确保显示正确
+    MAX_NAME_WIDTH = 20  # 保持原有宽度
     # 消息数的固定位置（从行首开始的字符数）
-    FIXED_MSG_POSITION = 28  # 相应调整固定位置
+    FIXED_MSG_POSITION = 24  # 缩短固定位置
     
     # 构建每一行文本
     rows = []
@@ -279,8 +279,8 @@ async def format_rank_rows(stats, page, group_id, context):
         if original_width > MAX_NAME_WIDTH:
             display_name = truncate_string_by_width(display_name, MAX_NAME_WIDTH)
         
-        # 修改这里：不再创建带链接的用户名，直接使用显示名称
-        # user_mention = f'<a href="tg://user?id={stat["_id"]}">{display_name}</a>'
+        # 创建带链接的用户名
+        user_mention = f'<a href="tg://user?id={stat["_id"]}">{display_name}</a>'
         
         # 检查是否有奖牌
         has_medal = rank_prefix != ""
@@ -299,45 +299,20 @@ async def format_rank_rows(stats, page, group_id, context):
         space_count = max(2, FIXED_MSG_POSITION - base_width)
         space_padding = ' ' * space_count
         
-        # 检查统计数据是否包含"recovered"标记（表示是系统恢复的估算数据）
-        is_recovered = False
-        bot_instance = context.application.bot_data.get('bot_instance')
-        if bot_instance and bot_instance.db:
-            try:
-                # 查询该用户在该群组的当天记录是否标记为恢复数据
-                today = datetime.datetime.now().strftime('%Y-%m-%d')
-                record = await bot_instance.db.db.message_stats.find_one({
-                    'group_id': group_id,
-                    'user_id': stat['_id'],
-                    'date': today,
-                    'recovered': True
-                })
-                is_recovered = record is not None
-            except Exception:
-                pass
-        
         # 构建一行，注意对奖牌emoji进行特殊处理
-        # 如果是恢复的数据，在消息数后添加星号(*)标记
         message_count = f"{stat['total_messages']}条"
-        if is_recovered:
-            message_count += "*"  # 添加星号标记
             
         if has_medal:
             # 对于有奖牌的行，确保序号和名字对齐
-            row = f"{rank_prefix}{i}. {display_name}{space_padding}{message_count}"
+            row = f"{rank_prefix}{i}. {user_mention}{space_padding}{message_count}"
         else:
             # 对于没有奖牌的行，增加两个空格保持对齐
-            row = f"  {i}. {display_name}{space_padding}{message_count}"
+            row = f"  {i}. {user_mention}{space_padding}{message_count}"
         
         rows.append(row)
     
-    # 如果有恢复的数据，添加说明
-    has_recovered = any('*' in row for row in rows)
+    # 不添加恢复数据的解释
     result = "\n".join(rows)
-    
-    if has_recovered:
-        result += "\n\n<i>* 标记的数据为系统恢复估算</i>"
-        
     return result
 
 @check_command_usage
@@ -405,8 +380,9 @@ async def handle_rank_command(update: Update, context: CallbackContext):
         # 使用格式化函数生成排行行文本
         text += await format_rank_rows(stats, page, group_id, context)
         
-        # 添加分页信息
-        text += f"\n\n<i>第 {page}/{total_pages} 页</i>"
+        # 添加分页信息，减少空行
+        if total_pages > 1:
+            text += f"\n<i>第 {page}/{total_pages} 页</i>"
 
         # 发送排行消息到群组
         reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
@@ -562,8 +538,9 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext, *a
     # 使用格式化函数生成排行行文本
     text += await format_rank_rows(stats, page, group_id, context)
     
-    # 添加分页信息
-    text += f"\n\n<i>第 {page}/{total_pages} 页</i>"
+    # 添加分页信息，减少空行
+    if total_pages > 1:
+        text += f"\n<i>第 {page}/{total_pages} 页</i>"
 
     # 更新消息内容
     await query.edit_message_text(
