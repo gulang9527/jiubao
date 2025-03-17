@@ -136,9 +136,9 @@ class EnhancedBroadcastManager:
                 logger.info(f"查询条件时间(字符串格式): {now_str}")
                 
                 # 获取应该发送的轮播消息
-                logger.info("开始调用 get_due_broadcasts() 获取待发送的轮播消息")
+                logger.info(f"开始调用 get_due_broadcasts() 获取待发送的轮播消息")
                 due_broadcasts = await self.db.get_due_broadcasts()
-                                
+                
                 # 添加详细日志
                 if due_broadcasts:
                     logger.info(f"找到 {len(due_broadcasts)} 个需要发送的轮播消息")
