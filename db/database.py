@@ -1074,40 +1074,79 @@ class Database:
         """获取所有应该发送的轮播消息"""
         await self.ensure_connected()
         now = datetime.now()
-        now_str = now.strftime('%Y-%m-%d %H:%M:%S')  # 添加字符串格式
+        logger.info(f"查询应该发送的轮播消息，当前时间: {now}")
         
         try:
-            # 获取所有活动轮播消息
-            broadcasts = await self.db.broadcasts.find({
-                '$or': [
-                    # 处理datetime对象
-                    {'start_time': {'$lte': now}, 'end_time': {'$gt': now}},
-                    # 处理字符串格式
-                    {'start_time': {'$lte': now_str}, 'end_time': {'$gt': now_str}}
-                ]
-            }).to_list(None)
+            # 获取所有活动的轮播
+            active_broadcasts = await self.db.broadcasts.find({}).to_list(None)
+            logger.info(f"找到 {len(active_broadcasts)} 个轮播消息，检查哪些需要发送")
             
-            # 手动过滤需要发送的消息
+            # 手动过滤需要发送的轮播
             due_broadcasts = []
-            for bc in broadcasts:
+            for bc in active_broadcasts:
+                logger.info(f"检查轮播 {bc['_id']}:")
+                start_time = bc.get('start_time')
+                end_time = bc.get('end_time')
                 last_broadcast = bc.get('last_broadcast')
                 interval_minutes = bc.get('interval', 0)
                 
-                # 首次发送或间隔时间已到
+                # 打印详细信息
+                logger.info(f"  - 开始时间: {start_time} ({type(start_time).__name__})")
+                logger.info(f"  - 结束时间: {end_time} ({type(end_time).__name__})")
+                logger.info(f"  - 上次发送: {last_broadcast}")
+                logger.info(f"  - 间隔: {interval_minutes}分钟")
+                
+                # 检查开始时间条件
+                start_time_ok = False
+                if isinstance(start_time, datetime) and start_time <= now:
+                    start_time_ok = True
+                elif isinstance(start_time, str):
+                    try:
+                        parsed_start = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+                        if parsed_start <= now:
+                            start_time_ok = True
+                    except ValueError:
+                        logger.warning(f"无法解析开始时间字符串: {start_time}")
+                
+                # 检查结束时间条件
+                end_time_ok = False
+                if isinstance(end_time, datetime) and end_time > now:
+                    end_time_ok = True
+                elif isinstance(end_time, str):
+                    try:
+                        parsed_end = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+                        if parsed_end > now:
+                            end_time_ok = True
+                    except ValueError:
+                        logger.warning(f"无法解析结束时间字符串: {end_time}")
+                
+                # 检查间隔条件
+                interval_ok = False
                 if last_broadcast is None:
-                    due_broadcasts.append(bc)
+                    interval_ok = True
                 elif isinstance(last_broadcast, datetime):
-                    # 计算时间差
+                    # 计算时间差(分钟)
                     time_diff = (now - last_broadcast).total_seconds() / 60
                     if time_diff >= interval_minutes:
-                        due_broadcasts.append(bc)
+                        interval_ok = True
+                
+                # 汇总结果
+                logger.info(f"  - 条件检查结果: 开始时间={start_time_ok}, 结束时间={end_time_ok}, 间隔={interval_ok}")
+                
+                if start_time_ok and end_time_ok and interval_ok:
+                    logger.info(f"  - 结果: 需要发送")
+                    # 转换字符串时间为datetime对象
+                    if isinstance(start_time, str):
+                        bc['start_time'] = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+                    if isinstance(end_time, str):
+                        bc['end_time'] = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+                    due_broadcasts.append(bc)
+                else:
+                    logger.info(f"  - 结果: 不需要发送")
             
-            logger.info(f"找到 {len(due_broadcasts)} 个需要发送的轮播消息")
-            for b in due_broadcasts:
-                logger.info(f"轮播ID: {b['_id']}, 开始时间: {b.get('start_time')}, 上次发送: {b.get('last_broadcast')}")
-            
+            logger.info(f"总共找到 {len(due_broadcasts)} 个需要发送的轮播消息")
             return due_broadcasts
-            
+        
         except Exception as e:
             logger.error(f"获取应发送轮播消息失败: {e}", exc_info=True)
             return []
