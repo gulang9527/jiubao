@@ -1147,25 +1147,27 @@ class Database:
             logger.error(f"获取应发送轮播消息失败: {e}", exc_info=True)
             return []
 
-    async def update_broadcast_time(self, broadcast_id: str, last_broadcast: datetime):
+    async def update_broadcast(self, broadcast_id: str, update_data: Dict[str, Any]):
         """
-        更新轮播消息的最后发送时间
+        更新轮播消息
         
         参数:
             broadcast_id: 轮播消息ID
-            last_broadcast: 最后发送时间
+            update_data: 要更新的数据
         """
         await self.ensure_connected()
         try:
             obj_id = ObjectId(broadcast_id)
-            update_data = {'last_broadcast': last_broadcast, 'updated_at': datetime.now()}
+            update_data['updated_at'] = datetime.now()
             
             # 确保时间字段是datetime对象
-            if 'start_time' in update_data and isinstance(update_data['start_time'], str):
-                update_data['start_time'] = datetime.strptime(update_data['start_time'], '%Y-%m-%d %H:%M:%S')
-                
-            if 'end_time' in update_data and isinstance(update_data['end_time'], str):
-                update_data['end_time'] = datetime.strptime(update_data['end_time'], '%Y-%m-%d %H:%M:%S')
+            for field in ['start_time', 'end_time', 'last_broadcast']:
+                if field in update_data and isinstance(update_data[field], str):
+                    try:
+                        update_data[field] = datetime.strptime(update_data[field], '%Y-%m-%d %H:%M:%S')
+                        logger.info(f"将更新数据中的 {field} 从字符串转换为datetime")
+                    except ValueError:
+                        logger.warning(f"无法解析更新数据中的 {field}: {update_data[field]}")
             
             result = await self.db.broadcasts.update_one(
                 {'_id': obj_id},
