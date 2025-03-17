@@ -1077,20 +1077,20 @@ class Database:
         logger.info(f"查询应该发送的轮播消息，当前时间: {now}")
         
         try:
+            # 首先进行时间标准化
+            await self.normalize_broadcast_datetimes()
+            
+            # 详细记录当前查询的时间信息
+            logger.info(f"查询条件: 开始时间 <= {now}，结束时间 > {now}，满足间隔要求")
+            
             # 查询条件：
             # 1. 开始时间小于等于当前时间
             # 2. 结束时间大于当前时间
             # 3. 上次发送时间为空或与当前时间相差超过间隔时间
             query = {
                 '$and': [
-                    {'$or': [
-                        {'start_time': {'$lte': now}},
-                        {'start_time': {'$type': 'string'}}
-                    ]},
-                    {'$or': [
-                        {'end_time': {'$gt': now}},
-                        {'end_time': {'$type': 'string'}}
-                    ]},
+                    {'start_time': {'$lte': now}},
+                    {'end_time': {'$gt': now}},
                     {'$or': [
                         {'last_broadcast': {'$exists': False}},
                         {'last_broadcast': None}
@@ -1100,18 +1100,13 @@ class Database:
             
             # 先尝试找出没有发送过的轮播消息
             not_sent_broadcasts = await self.db.broadcasts.find(query).to_list(None)
+            logger.info(f"找到 {len(not_sent_broadcasts)} 个未发送过的轮播消息")
             
             # 再查找已发送过但达到间隔时间的轮播消息
             interval_query = {
                 '$and': [
-                    {'$or': [
-                        {'start_time': {'$lte': now}},
-                        {'start_time': {'$type': 'string'}}
-                    ]},
-                    {'$or': [
-                        {'end_time': {'$gt': now}},
-                        {'end_time': {'$type': 'string'}}
-                    ]},
+                    {'start_time': {'$lte': now}},
+                    {'end_time': {'$gt': now}},
                     {'last_broadcast': {'$exists': True, '$ne': None}}
                 ]
             }
@@ -1125,28 +1120,38 @@ class Database:
                 
                 if isinstance(last_broadcast, datetime) and interval_minutes > 0:
                     time_diff = (now - last_broadcast).total_seconds() / 60
+                    logger.info(f"轮播ID: {bc['_id']}, 距上次发送: {time_diff:.2f}分钟, 设定间隔: {interval_minutes}分钟")
                     if time_diff >= interval_minutes:
+                        logger.info(f"轮播ID: {bc['_id']} 已达到发送间隔，添加到待发送列表")
                         due_interval_broadcasts.append(bc)
+                else:
+                    logger.warning(f"轮播ID: {bc['_id']} 的last_broadcast不是datetime类型或interval不存在")
+            
+            logger.info(f"找到 {len(due_interval_broadcasts)} 个已达到间隔时间的轮播消息")
             
             # 合并两类需要发送的轮播消息
             due_broadcasts = not_sent_broadcasts + due_interval_broadcasts
             
-            # 转换所有字符串时间为datetime对象
-            for bc in due_broadcasts:
-                for field in ['start_time', 'end_time']:
-                    if field in bc and isinstance(bc[field], str):
-                        try:
-                            bc[field] = datetime.strptime(bc[field], '%Y-%m-%d %H:%M:%S')
-                        except ValueError:
-                            logger.warning(f"无法解析{field}字符串: {bc[field]}")
-            
             logger.info(f"总共找到 {len(due_broadcasts)} 个需要发送的轮播消息")
+            if due_broadcasts:
+                for bc in due_broadcasts:
+                    bc_id = str(bc['_id'])
+                    group_id = bc.get('group_id')
+                    start_time = bc.get('start_time')
+                    end_time = bc.get('end_time')
+                    last_broadcast = bc.get('last_broadcast')
+                    
+                    logger.info(f"待发送轮播: ID={bc_id}, 群组={group_id}, "
+                               f"start={start_time}({type(start_time).__name__}), "
+                               f"end={end_time}({type(end_time).__name__}), "
+                               f"last={last_broadcast}({type(last_broadcast).__name__} if last_broadcast else 'None')")
+            
             return due_broadcasts
         
         except Exception as e:
             logger.error(f"获取应发送轮播消息失败: {e}", exc_info=True)
             return []
-
+        
     async def update_broadcast(self, broadcast_id: str, update_data: Dict[str, Any]):
         """
         更新轮播消息
