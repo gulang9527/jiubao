@@ -175,8 +175,7 @@ class TelegramBot:
                 })
                 logger.info(f"已设置群组权限: {group['group_id']}")
                 
-            # 设置Web服务和Webhook
-            webhook_domain = os.getenv('WEBHOOK_DOMAIN', 'your-render-app-name.onrender.com')
+            # 初始化应用程序
             self.application = Application.builder().token(TELEGRAM_TOKEN).build()
             
             # 将bot实例存储在application的bot_data中，以便于在回调函数中访问
@@ -186,12 +185,16 @@ class TelegramBot:
             from handlers import register_all_handlers
             register_all_handlers(self.application, self.callback_handler)
             
+            # 初始化应用程序 - 移到这里，在设置webhook之前
+            await self.application.initialize()
+            
             # 设置Web应用
             self.web_app = web.Application()
             self.web_app.router.add_get('/', self.handle_healthcheck)
             self.web_app.router.add_get('/health', self.handle_healthcheck)
             
             # 设置Webhook
+            webhook_domain = os.getenv('WEBHOOK_DOMAIN', 'your-render-app-name.onrender.com')
             webhook_url = f"https://{webhook_domain}/webhook/{TELEGRAM_TOKEN}"
             webhook_path = f"/webhook/{TELEGRAM_TOKEN}"
             self.web_app.router.add_post(webhook_path, self._handle_webhook)
@@ -297,8 +300,7 @@ class TelegramBot:
             logger.error(f"检查恢复统计数据时出错: {e}", exc_info=True)
             # 错误不影响机器人启动
                     
-        # 启动应用
-        await self.application.initialize()
+        # 启动应用 - 已在初始化时进行，这里只需要调用start
         await self.application.start()
         self.running = True
         
@@ -538,6 +540,11 @@ class TelegramBot:
             # 解析更新数据
             update_data = await request.json()
             logger.info(f"收到webhook更新: {update_data}")
+            
+            # 检查应用程序是否已初始化和启动
+            if not self.running or not hasattr(self.application, '_initialized') or not self.application._initialized:
+                logger.warning("应用程序尚未完全初始化，暂时无法处理更新")
+                return web.Response(status=503, text="Bot not fully initialized yet")
             
             # 创建更新对象
             update = Update.de_json(update_data, self.application.bot)
