@@ -1210,6 +1210,57 @@ class Database:
             logger.error(f"获取轮播消息失败: {e}", exc_info=True)
             return None
 
+    async def inspect_broadcast(self, broadcast_id: str):
+        """
+        检查特定轮播消息的详情，用于调试
+        
+        参数:
+            broadcast_id: 轮播消息ID
+        """
+        await self.ensure_connected()
+        try:
+            obj_id = ObjectId(broadcast_id)
+            broadcast = await self.db.broadcasts.find_one({'_id': obj_id})
+            
+            if not broadcast:
+                logger.error(f"找不到轮播消息: {broadcast_id}")
+                return False
+                
+            # 打印详细信息
+            logger.info(f"========== 轮播消息检查 ==========")
+            logger.info(f"ID: {broadcast_id}")
+            logger.info(f"群组ID: {broadcast.get('group_id')}")
+            
+            # 检查时间字段
+            now = datetime.now()
+            for field in ['start_time', 'end_time', 'last_broadcast']:
+                value = broadcast.get(field)
+                if value:
+                    logger.info(f"{field}: {value} (类型: {type(value).__name__})")
+                    
+                    if isinstance(value, datetime):
+                        if field == 'start_time':
+                            logger.info(f"  start_time {'≤' if value <= now else '>'} 当前时间")
+                        elif field == 'end_time':
+                            logger.info(f"  end_time {'>' if value > now else '≤'} 当前时间")
+                        elif field == 'last_broadcast' and broadcast.get('interval'):
+                            time_diff = (now - value).total_seconds() / 60
+                            interval = broadcast.get('interval')
+                            logger.info(f"  距上次发送: {time_diff:.2f}分钟, 配置间隔: {interval}分钟")
+                            logger.info(f"  是否应该发送: {'是' if time_diff >= interval else '否'}")
+                else:
+                    logger.info(f"{field}: 未设置")
+                    
+            # 检查其他关键字段
+            logger.info(f"interval: {broadcast.get('interval')}")
+            logger.info(f"repeat_type: {broadcast.get('repeat_type')}")
+            logger.info(f"===================================")
+            
+            return True
+        except Exception as e:
+            logger.error(f"检查轮播消息失败: {e}", exc_info=True)
+            return False
+
     async def update_broadcast(self, broadcast_id: str, update_data: Dict[str, Any]):
         """
         更新轮播消息
