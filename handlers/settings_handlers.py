@@ -818,7 +818,7 @@ async def process_min_bytes_setting(bot_instance, state, message):
         
         # 通知用户完成
         from utils.message_utils import send_auto_delete_message
-        await send_auto_delete_message(context.bot, message.chat.id, f"✅ 最小统计字节数已设置为 {value} 字节")
+        await send_auto_delete_message(bot_instance.application.bot, message.chat.id, f"✅ 最小统计字节数已设置为 {value} 字节")
         
         # 可以选择性地添加一个inline键盘，用于返回到设置页面
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -858,7 +858,7 @@ async def process_daily_rank_setting(bot_instance, state, message):
         
         # 通知用户完成
         from utils.message_utils import send_auto_delete_message
-        await send_auto_delete_message(context.bot, message.chat.id, f"✅ 日排行显示数量已设置为 {value}")
+        await send_auto_delete_message(bot_instance.application.bot, message.chat.id, f"✅ 日排行显示数量已设置为 {value}")
         
         # 可以选择性地添加一个inline键盘，用于返回到设置页面
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -898,7 +898,7 @@ async def process_monthly_rank_setting(bot_instance, state, message):
         
         # 通知用户完成
         from utils.message_utils import send_auto_delete_message
-        await send_auto_delete_message(context.bot, message.chat.id, f"✅ 月排行显示数量已设置为 {value}")
+        await send_auto_delete_message(bot_instance.application.bot, message.chat.id,f"✅ 月排行显示数量已设置为 {value}")
         
         # 可以选择性地添加一个inline键盘，用于返回到设置页面
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -938,7 +938,7 @@ async def process_auto_delete_timeout(bot_instance, state, message):
         
         # 通知用户完成
         from utils.message_utils import send_auto_delete_message
-        await send_auto_delete_message(context.bot, message.chat.id, f"✅ 自动删除超时时间已设置为 {format_duration(timeout)}")
+        await send_auto_delete_message(bot_instance.application.bot, message.chat.id, f"✅ 自动删除超时时间已设置为 {format_duration(timeout)}")
         
         # 可以选择性地添加一个inline键盘，用于返回到设置页面
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -1031,7 +1031,7 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
         
         # 通知用户完成
         from utils.message_utils import send_auto_delete_message
-        await send_auto_delete_message(context.bot, message.chat.id, f"✅ 「{type_name}」的自动删除超时时间已设置为 {format_duration(timeout)}")
+        await send_auto_delete_message(bot_instance.application.bot, message.chat.id, f"✅ 「{type_name}」的自动删除超时时间已设置为 {format_duration(timeout)}")
         
         # 添加返回按钮
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
