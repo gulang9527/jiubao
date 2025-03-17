@@ -955,6 +955,13 @@ class Database:
             # 添加时间戳
             broadcast_data['updated_at'] = datetime.now()
             
+            # 提取和保存固定的时间部分
+            if broadcast_data.get('start_time') and isinstance(broadcast_data['start_time'], datetime):
+                # 保存小时:分钟格式的调度时间
+                schedule_time = f"{broadcast_data['start_time'].hour}:{broadcast_data['start_time'].minute:02d}"
+                broadcast_data['schedule_time'] = schedule_time
+                logger.info(f"设置轮播消息的固定调度时间为: {schedule_time}")
+                
             result = await self.db.broadcasts.insert_one({
                 **broadcast_data,
                 'created_at': datetime.now()
