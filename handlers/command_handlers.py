@@ -187,14 +187,14 @@ async def get_message_stats_from_db(group_id: int, time_range: str = 'day', limi
         
         # 添加时间范围过滤条件
         if time_range == 'day':
-            # 当天0点开始
-            today_start = datetime.datetime(now.year, now.month, now.day, 0, 0, 0)
-            match['timestamp'] = {'$gte': today_start}
+            # 当天
+            today = datetime.datetime.now().strftime('%Y-%m-%d')
+            match['date'] = today
         elif time_range == 'month':
-            # 30天前的0点开始
-            thirty_days_ago = now - datetime.timedelta(days=30)
-            thirty_days_ago_start = datetime.datetime(thirty_days_ago.year, thirty_days_ago.month, thirty_days_ago.day, 0, 0, 0)
-            match['timestamp'] = {'$gte': thirty_days_ago_start}
+            # 30天前的日期（YYYY-MM-DD格式）
+            thirty_days_ago = (now - datetime.timedelta(days=30)).strftime('%Y-%m-%d')
+            today = now.strftime('%Y-%m-%d')
+            match['date'] = {'$gte': thirty_days_ago, '$lte': today}
         
         # 聚合查询以获取每个用户的总消息数
         pipeline = [
