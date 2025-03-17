@@ -1055,10 +1055,16 @@ class Database:
         """
         await self.ensure_connected()
         now = datetime.now()
+        now_str = now.strftime('%Y-%m-%d %H:%M:%S')
+        
         try:
             return await self.db.broadcasts.find({
-                'start_time': {'$lte': now},
-                'end_time': {'$gt': now}
+                '$or': [
+                    # 处理datetime对象
+                    {'start_time': {'$lte': now}, 'end_time': {'$gt': now}},
+                    # 处理字符串格式
+                    {'start_time': {'$lte': now_str}, 'end_time': {'$gt': now_str}}
+                ]
             }).to_list(None)
         except Exception as e:
             logger.error(f"获取活动轮播消息失败: {e}", exc_info=True)
@@ -1068,34 +1074,40 @@ class Database:
         """获取所有应该发送的轮播消息"""
         await self.ensure_connected()
         now = datetime.now()
+        now_str = now.strftime('%Y-%m-%d %H:%M:%S')  # 添加字符串格式
+        
         try:
-            pipeline = [
-                {
-                    '$match': {
-                        'start_time': {'$lte': now},
-                        'end_time': {'$gt': now}
-                    }
-                },
-                {
-                    '$addFields': {
-                        'shouldSend': {
-                            '$or': [
-                                {'$eq': [{'$ifNull': ['$last_broadcast', None]}, None]},
-                                {'$gte': [
-                                    {'$subtract': [now, '$last_broadcast']},
-                                    {'$multiply': ['$interval', 60000]}  # 分钟转换为毫秒
-                                ]}
-                            ]
-                        }
-                    }
-                },
-                {
-                    '$match': {
-                        'shouldSend': True
-                    }
-                }
-            ]
-            return await self.db.broadcasts.aggregate(pipeline).to_list(None)
+            # 获取所有活动轮播消息
+            broadcasts = await self.db.broadcasts.find({
+                '$or': [
+                    # 处理datetime对象
+                    {'start_time': {'$lte': now}, 'end_time': {'$gt': now}},
+                    # 处理字符串格式
+                    {'start_time': {'$lte': now_str}, 'end_time': {'$gt': now_str}}
+                ]
+            }).to_list(None)
+            
+            # 手动过滤需要发送的消息
+            due_broadcasts = []
+            for bc in broadcasts:
+                last_broadcast = bc.get('last_broadcast')
+                interval_minutes = bc.get('interval', 0)
+                
+                # 首次发送或间隔时间已到
+                if last_broadcast is None:
+                    due_broadcasts.append(bc)
+                elif isinstance(last_broadcast, datetime):
+                    # 计算时间差
+                    time_diff = (now - last_broadcast).total_seconds() / 60
+                    if time_diff >= interval_minutes:
+                        due_broadcasts.append(bc)
+            
+            logger.info(f"找到 {len(due_broadcasts)} 个需要发送的轮播消息")
+            for b in due_broadcasts:
+                logger.info(f"轮播ID: {b['_id']}, 开始时间: {b.get('start_time')}, 上次发送: {b.get('last_broadcast')}")
+            
+            return due_broadcasts
+            
         except Exception as e:
             logger.error(f"获取应发送轮播消息失败: {e}", exc_info=True)
             return []
@@ -1110,25 +1122,29 @@ class Database:
         """
         await self.ensure_connected()
         try:
-            # 验证 broadcast_id 是否为有效的 ObjectId
-            try:
-                obj_id = ObjectId(broadcast_id)
-            except Exception as e:
-                logger.error(f"无效的轮播消息ID: {broadcast_id}, 错误: {e}")
-                raise ValueError(f"无效的轮播消息ID: {broadcast_id}")
+            obj_id = ObjectId(broadcast_id)
+            update_data['updated_at'] = datetime.now()
+            
+            # 确保时间字段是datetime对象
+            if 'start_time' in update_data and isinstance(update_data['start_time'], str):
+                update_data['start_time'] = datetime.strptime(update_data['start_time'], '%Y-%m-%d %H:%M:%S')
                 
-            await self.db.broadcasts.update_one(
+            if 'end_time' in update_data and isinstance(update_data['end_time'], str):
+                update_data['end_time'] = datetime.strptime(update_data['end_time'], '%Y-%m-%d %H:%M:%S')
+            
+            result = await self.db.broadcasts.update_one(
                 {'_id': obj_id},
-                {
-                    '$set': {
-                        'last_broadcast': last_broadcast,
-                        'updated_at': datetime.now()
-                    }
-                }
+                {'$set': update_data}
             )
-            logger.info(f"已更新轮播消息时间: {broadcast_id}")
+            
+            if result.modified_count == 0:
+                logger.warning(f"未能更新轮播消息: {broadcast_id}")
+            else:
+                logger.info(f"已更新轮播消息: {broadcast_id}")
+                
+            return result.modified_count > 0
         except Exception as e:
-            logger.error(f"更新轮播消息时间失败: {e}", exc_info=True)
+            logger.error(f"更新轮播消息失败: {e}", exc_info=True)
             raise
 
     async def get_broadcast_by_id(self, broadcast_id: str) -> Optional[Dict[str, Any]]:
