@@ -130,12 +130,15 @@ class EnhancedBroadcastManager:
             try:
                 # 获取当前时间
                 now = datetime.now()
-                logger.info(f"开始处理轮播消息，当前时间: {now}")
+                logger.info(f"当前时间: {now}, 准备查询应发送的轮播消息")
+                # 获取当前时间格式化字符串，用于比较
+                now_str = now.strftime('%Y-%m-%d %H:%M:%S')
+                logger.info(f"查询条件时间(字符串格式): {now_str}")
                 
                 # 获取应该发送的轮播消息
                 logger.info("开始调用 get_due_broadcasts() 获取待发送的轮播消息")
                 due_broadcasts = await self.db.get_due_broadcasts()
-                
+                                
                 # 添加详细日志
                 if due_broadcasts:
                     logger.info(f"找到 {len(due_broadcasts)} 个需要发送的轮播消息")
@@ -161,14 +164,16 @@ class EnhancedBroadcastManager:
                     group_id = broadcast.get("group_id")
                     
                     # 检查时间校准系统的下一次执行时间
-                    next_time = None
                     if self.calibration_manager:
                         next_time = await self.calibration_manager.get_next_execution_time(broadcast_id)
                         if next_time:
-                            logger.info(f"轮播 {broadcast_id} 的校准执行时间: {next_time}")
+                            time_diff = (next_time - now).total_seconds()
+                            logger.info(f"轮播 {broadcast_id} 的校准执行时间: {next_time}, 与当前时间相差: {time_diff:.2f}秒")
                             if next_time > now:
                                 logger.info(f"根据时间校准系统，轮播 {broadcast_id} 的执行时间 {next_time} 尚未到达，跳过")
                                 continue
+                            else:
+                                logger.info(f"轮播 {broadcast_id} 的执行时间已到达，准备发送")
                         else:
                             logger.info(f"轮播 {broadcast_id} 在时间校准系统中没有下一次执行时间记录")
                     
