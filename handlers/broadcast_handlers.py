@@ -592,8 +592,7 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
     if start_time_str and start_time_str.lower() != 'now':
         try:
             # 验证时间格式并转换为datetime对象
-            start_time = datetime.strptime(start_time_str, '%Y-%m-%d %H:%M:%S')
-            broadcast_data['start_time'] = start_time
+            broadcast_data['start_time'] = datetime.strptime(start_time_str, '%Y-%m-%d %H:%M:%S')
         except ValueError:
             await update.callback_query.answer("❌ 时间格式不正确")
             await show_broadcast_options(update, context)
@@ -601,7 +600,7 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
     else:
         # 立即开始
         broadcast_data['start_time'] = datetime.now()
-
+    
     # 处理结束时间
     if form_data.get('repeat_type') == 'once':
         # 单次发送时，结束时间与开始时间相同
@@ -610,13 +609,22 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
         # 重复发送时，使用设置的结束时间或者默认30天
         if form_data.get('end_time'):
             try:
-                end_time = datetime.strptime(form_data.get('end_time'), '%Y-%m-%d %H:%M:%S')
+                # 确保结束时间是datetime对象
+                if isinstance(form_data.get('end_time'), str):
+                    end_time = datetime.strptime(form_data.get('end_time'), '%Y-%m-%d %H:%M:%S')
+                else:
+                    end_time = form_data.get('end_time')
                 broadcast_data['end_time'] = end_time
             except ValueError:
                 # 如果结束时间格式错误，使用默认的30天
                 end_time = broadcast_data['start_time'] + timedelta(days=30)
                 broadcast_data['end_time'] = end_time
                 logger.info(f"结束时间格式错误，设置默认结束时间: {end_time}")
+        else:
+            # 如果未设置结束时间，使用默认的30天
+            end_time = broadcast_data['start_time'] + timedelta(days=30)
+            broadcast_data['end_time'] = end_time
+            logger.info(f"设置默认结束时间: {end_time}")
         else:
             # 如果未设置结束时间，使用默认的30天
             end_time = broadcast_data['start_time'] + timedelta(days=30)
