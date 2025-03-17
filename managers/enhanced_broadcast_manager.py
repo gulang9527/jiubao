@@ -130,6 +130,7 @@ class EnhancedBroadcastManager:
             try:
                 # 获取当前时间
                 now = datetime.now()
+                logger.info(f"开始处理轮播消息，当前时间: {now}")
                 
                 # 获取应该发送的轮播消息
                 due_broadcasts = await self.db.get_due_broadcasts()
@@ -139,7 +140,8 @@ class EnhancedBroadcastManager:
                     logger.info(f"找到 {len(due_broadcasts)} 个需要发送的轮播消息")
                     for b in due_broadcasts:
                         logger.info(f"轮播ID: {b['_id']}, 群组: {b.get('group_id')}, "
-                                   f"开始时间: {b.get('start_time')}, "
+                                   f"开始时间: {b.get('start_time')} ({type(b.get('start_time')).__name__}), "
+                                   f"结束时间: {b.get('end_time')} ({type(b.get('end_time')).__name__}), "
                                    f"上次发送: {b.get('last_broadcast')}, "
                                    f"间隔: {b.get('interval')}分钟")
                 else:
@@ -153,6 +155,8 @@ class EnhancedBroadcastManager:
                     next_time = None
                     if self.calibration_manager:
                         next_time = await self.calibration_manager.get_next_execution_time(broadcast_id)
+                        if next_time:
+                            logger.info(f"轮播 {broadcast_id} 的校准执行时间: {next_time}")
                     
                     # 如果有预期的下一次执行时间，检查是否到期
                     if next_time and next_time > now:
@@ -176,6 +180,9 @@ class EnhancedBroadcastManager:
             broadcast_id = str(broadcast["_id"])
             group_id = broadcast.get("group_id")
             logger.info(f"发送轮播消息: {broadcast_id} 到群组 {group_id}")
+            logger.info(f"轮播时间信息: 开始={broadcast.get('start_time')} ({type(broadcast.get('start_time')).__name__}), "
+                       f"结束={broadcast.get('end_time')} ({type(broadcast.get('end_time')).__name__}), "
+                       f"上次发送={broadcast.get('last_broadcast')}, 间隔={broadcast.get('interval')}分钟")
             
             # 获取消息内容
             text = broadcast.get("text", "")
