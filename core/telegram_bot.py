@@ -503,7 +503,7 @@ class TelegramBot:
 
     # 添加简单的限流机制
     _last_health_check_time = None
-    _health_check_min_interval = 1.0  # 最小间隔1秒
+    _health_check_min_interval = 10.0  # 最小间隔1秒
     
     async def handle_healthcheck(self, request):
         """健康检查处理函数"""
@@ -512,15 +512,16 @@ class TelegramBot:
         client_ip = request.remote
         user_agent = request.headers.get('User-Agent', 'Unknown')
         
-        # 记录请求信息
-        logger.info(f"健康检查请求 - IP: {client_ip}, User-Agent: {user_agent}, 路径: {request.path}")
+        # 记录请求信息，但降低日志级别或减少日志输出
+        if self._last_health_check_time is None or current_time - self._last_health_check_time > 60:
+            logger.info(f"健康检查请求 - IP: {client_ip}, User-Agent: {user_agent}")
         
-        # 限流逻辑
+        # 更严格的限流逻辑
         if self._last_health_check_time is not None:
             time_diff = current_time - self._last_health_check_time
             if time_diff < self._health_check_min_interval:
-                logger.warning(f"健康检查请求频率过高: {time_diff:.2f}秒，暂时延迟响应")
-                await asyncio.sleep(0.5)  # 适当延迟，避免资源耗尽
+                logger.debug(f"健康检查请求频率过高: {time_diff:.2f}秒，延迟响应")
+                await asyncio.sleep(2.0)  # 更长的延迟时间
         
         self._last_health_check_time = current_time
         
