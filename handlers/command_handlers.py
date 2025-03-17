@@ -478,7 +478,7 @@ async def handle_check_stats_settings(update: Update, context: CallbackContext):
     await update.message.reply_text(message)
 
 @handle_callback_errors
-async def handle_rank_page_callback(update: Update, context: CallbackContext):
+async def handle_rank_page_callback(update: Update, context: CallbackContext, *args, **kwargs):
     """处理排行榜分页回调"""
     query = update.callback_query
     await query.answer()
