@@ -133,47 +133,68 @@ class EnhancedBroadcastManager:
                 logger.info(f"开始处理轮播消息，当前时间: {now}")
                 
                 # 获取应该发送的轮播消息
+                logger.info("开始调用 get_due_broadcasts() 获取待发送的轮播消息")
                 due_broadcasts = await self.db.get_due_broadcasts()
                 
                 # 添加详细日志
                 if due_broadcasts:
                     logger.info(f"找到 {len(due_broadcasts)} 个需要发送的轮播消息")
                     for b in due_broadcasts:
-                        logger.info(f"准备发送轮播 - ID: {b['_id']}, 群组: {b.get('group_id')}, "
-                                  f"开始时间: {b.get('start_time')} ({type(b.get('start_time')).__name__}), "
-                                  f"结束时间: {b.get('end_time')} ({type(b.get('end_time')).__name__}), "
-                                  f"上次发送: {b.get('last_broadcast')}, "
-                                  f"间隔: {b.get('interval')}分钟")
+                        b_id = str(b['_id'])
+                        logger.info(f"【轮播ID: {b_id}】")
+                        logger.info(f"  - 群组ID: {b.get('group_id')}")
+                        logger.info(f"  - 开始时间: {b.get('start_time')} ({type(b.get('start_time')).__name__})")
+                        logger.info(f"  - 结束时间: {b.get('end_time')} ({type(b.get('end_time')).__name__})")
+                        logger.info(f"  - 上次发送: {b.get('last_broadcast')} ({type(b.get('last_broadcast') or 'None').__name__})")
+                        logger.info(f"  - 间隔分钟: {b.get('interval')}")
+                        logger.info(f"  - 重复类型: {b.get('repeat_type')}")
+                        logger.info(f"  - 内容类型: {'有媒体' if b.get('media') else '纯文本'}")
                 else:
                     logger.info("没有找到需要发送的轮播消息")
+                    logger.info("检查可能的原因:")
+                    logger.info("1. 时间条件未满足 - 当前时间不在轮播设定的时间范围内")
+                    logger.info("2. 间隔条件未满足 - 距离上次发送未到设定的间隔时间")
+                    logger.info("3. 数据格式问题 - 时间字段格式不一致，无法正确比较")
                 
                 for broadcast in due_broadcasts:
-                    # 检查是否在合理的时间范围内
                     broadcast_id = str(broadcast["_id"])
+                    group_id = broadcast.get("group_id")
                     
-                    # 如果有时间校准管理器，获取下一次执行时间
+                    # 检查时间校准系统的下一次执行时间
                     next_time = None
                     if self.calibration_manager:
                         next_time = await self.calibration_manager.get_next_execution_time(broadcast_id)
                         if next_time:
                             logger.info(f"轮播 {broadcast_id} 的校准执行时间: {next_time}")
-                    
-                    # 如果有预期的下一次执行时间，检查是否到期
-                    if next_time and next_time > now:
-                        logger.debug(f"轮播消息 {broadcast_id} 的下一次执行时间是 {next_time}，尚未到期")
-                        continue
+                            if next_time > now:
+                                logger.info(f"根据时间校准系统，轮播 {broadcast_id} 的执行时间 {next_time} 尚未到达，跳过")
+                                continue
+                        else:
+                            logger.info(f"轮播 {broadcast_id} 在时间校准系统中没有下一次执行时间记录")
                     
                     # 检查群组的轮播功能开关
-                    group_id = broadcast.get("group_id")
+                    logger.info(f"正在检查群组 {group_id} 的轮播功能开关")
                     group = await self.db.get_group(group_id)
                     if group:
                         feature_switches = group.get("feature_switches", {})
-                        if not feature_switches.get("broadcast", True):
+                        broadcast_enabled = feature_switches.get("broadcast", True)
+                        logger.info(f"群组 {group_id} 的轮播功能状态: {'开启' if broadcast_enabled else '关闭'}")
+                        if not broadcast_enabled:
                             logger.info(f"群组 {group_id} 的轮播功能已关闭，跳过发送")
                             continue
+                    else:
+                        logger.warning(f"找不到群组 {group_id} 的信息，可能已被删除")
+                        continue
+                    
+                    # 准备发送轮播消息
+                    logger.info(f"准备发送轮播消息 {broadcast_id} 到群组 {group_id}")
                     
                     # 发送轮播消息
-                    await self.send_broadcast(broadcast)
+                    try:
+                        await self.send_broadcast(broadcast)
+                        logger.info(f"成功发送轮播消息 {broadcast_id} 到群组 {group_id}")
+                    except Exception as e:
+                        logger.error(f"发送轮播消息 {broadcast_id} 时出错: {e}", exc_info=True)
                     
             except Exception as e:
                 logger.error(f"处理轮播消息时出错: {e}", exc_info=True)
