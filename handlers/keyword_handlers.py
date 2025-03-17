@@ -583,7 +583,10 @@ async def handle_keyword_form_input(update: Update, context: CallbackContext, in
                     parts = line.split(separator, 1)  # 只分割一次，以防URL中包含分隔符
                     text, url = parts[0].strip(), parts[1].strip()
                     logger.info(f"解析行 {i}: 分隔符='{separator}', 文本='{text}', URL='{url}'")
-                    
+
+                    if url.startswith('@'):
+                        url = f"t.me/{url[1:]}" 
+                        
                     # 检查URL格式
                     if text and url and (url.startswith(('http://', 'https://', 't.me/'))):
                         buttons.append({'text': text, 'url': url})
