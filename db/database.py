@@ -1077,72 +1077,68 @@ class Database:
         logger.info(f"查询应该发送的轮播消息，当前时间: {now}")
         
         try:
-            # 获取所有活动的轮播
-            active_broadcasts = await self.db.broadcasts.find({}).to_list(None)
-            logger.info(f"找到 {len(active_broadcasts)} 个轮播消息，检查哪些需要发送")
+            # 查询条件：
+            # 1. 开始时间小于等于当前时间
+            # 2. 结束时间大于当前时间
+            # 3. 上次发送时间为空或与当前时间相差超过间隔时间
+            query = {
+                '$and': [
+                    {'$or': [
+                        {'start_time': {'$lte': now}},
+                        {'start_time': {'$type': 'string'}}
+                    ]},
+                    {'$or': [
+                        {'end_time': {'$gt': now}},
+                        {'end_time': {'$type': 'string'}}
+                    ]},
+                    {'$or': [
+                        {'last_broadcast': {'$exists': False}},
+                        {'last_broadcast': None}
+                    ]}
+                ]
+            }
             
-            # 手动过滤需要发送的轮播
-            due_broadcasts = []
-            for bc in active_broadcasts:
-                logger.info(f"检查轮播 {bc['_id']}:")
-                start_time = bc.get('start_time')
-                end_time = bc.get('end_time')
+            # 先尝试找出没有发送过的轮播消息
+            not_sent_broadcasts = await self.db.broadcasts.find(query).to_list(None)
+            
+            # 再查找已发送过但达到间隔时间的轮播消息
+            interval_query = {
+                '$and': [
+                    {'$or': [
+                        {'start_time': {'$lte': now}},
+                        {'start_time': {'$type': 'string'}}
+                    ]},
+                    {'$or': [
+                        {'end_time': {'$gt': now}},
+                        {'end_time': {'$type': 'string'}}
+                    ]},
+                    {'last_broadcast': {'$exists': True, '$ne': None}}
+                ]
+            }
+            interval_broadcasts = await self.db.broadcasts.find(interval_query).to_list(None)
+            
+            # 手动过滤那些达到间隔时间的轮播消息
+            due_interval_broadcasts = []
+            for bc in interval_broadcasts:
                 last_broadcast = bc.get('last_broadcast')
                 interval_minutes = bc.get('interval', 0)
                 
-                # 打印详细信息
-                logger.info(f"  - 开始时间: {start_time} ({type(start_time).__name__})")
-                logger.info(f"  - 结束时间: {end_time} ({type(end_time).__name__})")
-                logger.info(f"  - 上次发送: {last_broadcast}")
-                logger.info(f"  - 间隔: {interval_minutes}分钟")
-                
-                # 检查开始时间条件
-                start_time_ok = False
-                if isinstance(start_time, datetime) and start_time <= now:
-                    start_time_ok = True
-                elif isinstance(start_time, str):
-                    try:
-                        parsed_start = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
-                        if parsed_start <= now:
-                            start_time_ok = True
-                    except ValueError:
-                        logger.warning(f"无法解析开始时间字符串: {start_time}")
-                
-                # 检查结束时间条件
-                end_time_ok = False
-                if isinstance(end_time, datetime) and end_time > now:
-                    end_time_ok = True
-                elif isinstance(end_time, str):
-                    try:
-                        parsed_end = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
-                        if parsed_end > now:
-                            end_time_ok = True
-                    except ValueError:
-                        logger.warning(f"无法解析结束时间字符串: {end_time}")
-                
-                # 检查间隔条件
-                interval_ok = False
-                if last_broadcast is None:
-                    interval_ok = True
-                elif isinstance(last_broadcast, datetime):
-                    # 计算时间差(分钟)
+                if isinstance(last_broadcast, datetime) and interval_minutes > 0:
                     time_diff = (now - last_broadcast).total_seconds() / 60
                     if time_diff >= interval_minutes:
-                        interval_ok = True
-                
-                # 汇总结果
-                logger.info(f"  - 条件检查结果: 开始时间={start_time_ok}, 结束时间={end_time_ok}, 间隔={interval_ok}")
-                
-                if start_time_ok and end_time_ok and interval_ok:
-                    logger.info(f"  - 结果: 需要发送")
-                    # 转换字符串时间为datetime对象
-                    if isinstance(start_time, str):
-                        bc['start_time'] = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
-                    if isinstance(end_time, str):
-                        bc['end_time'] = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
-                    due_broadcasts.append(bc)
-                else:
-                    logger.info(f"  - 结果: 不需要发送")
+                        due_interval_broadcasts.append(bc)
+            
+            # 合并两类需要发送的轮播消息
+            due_broadcasts = not_sent_broadcasts + due_interval_broadcasts
+            
+            # 转换所有字符串时间为datetime对象
+            for bc in due_broadcasts:
+                for field in ['start_time', 'end_time']:
+                    if field in bc and isinstance(bc[field], str):
+                        try:
+                            bc[field] = datetime.strptime(bc[field], '%Y-%m-%d %H:%M:%S')
+                        except ValueError:
+                            logger.warning(f"无法解析{field}字符串: {bc[field]}")
             
             logger.info(f"总共找到 {len(due_broadcasts)} 个需要发送的轮播消息")
             return due_broadcasts
@@ -1270,4 +1266,38 @@ class Database:
             return updated_count
         except Exception as e:
             logger.error(f"时间字段迁移失败: {e}", exc_info=True)
+            return 0
+
+    async def normalize_broadcast_datetimes(self):
+        """将所有轮播消息的时间字段标准化为datetime对象"""
+        await self.ensure_connected()
+        logger.info("开始标准化所有轮播消息时间字段")
+        try:
+            broadcasts = await self.db.broadcasts.find().to_list(None)
+            normalized_count = 0
+            
+            for bc in broadcasts:
+                updates = {}
+                fields_to_check = ['start_time', 'end_time', 'last_broadcast']
+                
+                for field in fields_to_check:
+                    if field in bc and isinstance(bc[field], str):
+                        try:
+                            updates[field] = datetime.strptime(bc[field], '%Y-%m-%d %H:%M:%S')
+                            logger.info(f"将轮播 {bc['_id']} 的 {field} 从字符串转换为datetime")
+                        except ValueError:
+                            logger.warning(f"无法解析 {field}: {bc[field]} for broadcast {bc['_id']}")
+                
+                if updates:
+                    result = await self.db.broadcasts.update_one(
+                        {'_id': bc['_id']},
+                        {'$set': updates}
+                    )
+                    if result.modified_count > 0:
+                        normalized_count += 1
+            
+            logger.info(f"时间字段标准化完成，共更新了 {normalized_count} 条轮播消息")
+            return normalized_count
+        except Exception as e:
+            logger.error(f"时间字段标准化失败: {e}", exc_info=True)
             return 0
