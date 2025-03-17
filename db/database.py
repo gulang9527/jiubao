@@ -1192,6 +1192,31 @@ class Database:
             logger.error(f"更新轮播消息失败: {e}", exc_info=True)
             raise
 
+    async def update_broadcast_time(self, broadcast_id: str, last_broadcast: datetime):
+        """
+        更新轮播消息的最后发送时间
+        
+        参数:
+            broadcast_id: 轮播消息ID
+            last_broadcast: 最后发送时间
+        """
+        await self.ensure_connected()
+        try:
+            obj_id = ObjectId(broadcast_id)
+            result = await self.db.broadcasts.update_one(
+                {'_id': obj_id},
+                {'$set': {'last_broadcast': last_broadcast}}
+            )
+            
+            if result.modified_count == 0:
+                logger.warning(f"未能更新轮播消息的最后发送时间: {broadcast_id}")
+            else:
+                logger.info(f"已更新轮播消息的最后发送时间: {broadcast_id}")
+                
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"更新轮播消息最后发送时间失败: {e}", exc_info=True)
+            return False
     async def get_broadcast_by_id(self, broadcast_id: str) -> Optional[Dict[str, Any]]:
         """
         通过ID获取轮播消息
