@@ -11,8 +11,7 @@ from handlers.command_handlers import (
     handle_add_superadmin, handle_del_superadmin, handle_auth_group,
     handle_deauth_group, handle_check_config, handle_cancel,
     handle_easy_keyword, handle_easy_broadcast, handle_add_default_keywords,
-    handle_rank_page_callback, handle_check_stats_settings,
-    handle_rank_page_callback
+    handle_rank_page_callback, handle_check_stats_settings
 )
 from handlers.message_handlers import handle_message
 from handlers.callback_handlers import handle_callback
@@ -113,6 +112,8 @@ def register_all_handlers(application, callback_handler):
 
     # 排行榜翻页回调注册
     callback_handler.register("rank_page_", handle_rank_page_callback)
+    callback_handler.register("rank_next_", handle_rank_page_callback)  # 添加这行以处理下一页回调
+    callback_handler.register("rank_prev_", handle_rank_page_callback)  # 添加这行以处理上一页回调
 
     # 添加错误处理程序
     def error_handler(update, context):
