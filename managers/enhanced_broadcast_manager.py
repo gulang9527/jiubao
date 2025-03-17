@@ -134,8 +134,16 @@ class EnhancedBroadcastManager:
                 # 获取应该发送的轮播消息
                 due_broadcasts = await self.db.get_due_broadcasts()
                 
+                # 添加详细日志
                 if due_broadcasts:
                     logger.info(f"找到 {len(due_broadcasts)} 个需要发送的轮播消息")
+                    for b in due_broadcasts:
+                        logger.info(f"轮播ID: {b['_id']}, 群组: {b.get('group_id')}, "
+                                   f"开始时间: {b.get('start_time')}, "
+                                   f"上次发送: {b.get('last_broadcast')}, "
+                                   f"间隔: {b.get('interval')}分钟")
+                else:
+                    logger.info("没有找到需要发送的轮播消息")
                 
                 for broadcast in due_broadcasts:
                     # 检查是否在合理的时间范围内
