@@ -302,10 +302,11 @@ async def format_rank_rows(stats, page, group_id, context):
         # 构建一行，注意对奖牌emoji进行特殊处理
         if has_medal:
             # 对于有奖牌的行，确保序号和名字对齐
-            row = f"{rank_prefix}{i}. {user_mention}{space_padding}消息数: {stat['total_messages']}"
+            row = f"{rank_prefix}{i}. {user_mention}{space_padding}{stat['total_messages']}条"
         else:
             # 对于没有奖牌的行，增加两个空格保持对齐
-            row = f"  {i}. {user_mention}{space_padding}消息数: {stat['total_messages']}"
+            row = f"  {i}. {user_mention}{space_padding}{stat['total_messages']}条"
+        rows.append(row)ser_mention}{space_padding}消息数: {stat['total_messages']}"
         rows.append(row)
     
     return "\n".join(rows)
