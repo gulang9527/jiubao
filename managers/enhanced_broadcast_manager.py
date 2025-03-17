@@ -139,11 +139,11 @@ class EnhancedBroadcastManager:
                 if due_broadcasts:
                     logger.info(f"找到 {len(due_broadcasts)} 个需要发送的轮播消息")
                     for b in due_broadcasts:
-                        logger.info(f"轮播ID: {b['_id']}, 群组: {b.get('group_id')}, "
-                                   f"开始时间: {b.get('start_time')} ({type(b.get('start_time')).__name__}), "
-                                   f"结束时间: {b.get('end_time')} ({type(b.get('end_time')).__name__}), "
-                                   f"上次发送: {b.get('last_broadcast')}, "
-                                   f"间隔: {b.get('interval')}分钟")
+                        logger.info(f"准备发送轮播 - ID: {b['_id']}, 群组: {b.get('group_id')}, "
+                                  f"开始时间: {b.get('start_time')} ({type(b.get('start_time')).__name__}), "
+                                  f"结束时间: {b.get('end_time')} ({type(b.get('end_time')).__name__}), "
+                                  f"上次发送: {b.get('last_broadcast')}, "
+                                  f"间隔: {b.get('interval')}分钟")
                 else:
                     logger.info("没有找到需要发送的轮播消息")
                 
@@ -162,6 +162,15 @@ class EnhancedBroadcastManager:
                     if next_time and next_time > now:
                         logger.debug(f"轮播消息 {broadcast_id} 的下一次执行时间是 {next_time}，尚未到期")
                         continue
+                    
+                    # 检查群组的轮播功能开关
+                    group_id = broadcast.get("group_id")
+                    group = await self.db.get_group(group_id)
+                    if group:
+                        feature_switches = group.get("feature_switches", {})
+                        if not feature_switches.get("broadcast", True):
+                            logger.info(f"群组 {group_id} 的轮播功能已关闭，跳过发送")
+                            continue
                     
                     # 发送轮播消息
                     await self.send_broadcast(broadcast)
