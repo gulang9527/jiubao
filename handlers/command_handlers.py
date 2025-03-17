@@ -299,17 +299,46 @@ async def format_rank_rows(stats, page, group_id, context):
         space_count = max(2, FIXED_MSG_POSITION - base_width)
         space_padding = ' ' * space_count
         
+        # 检查统计数据是否包含"recovered"标记（表示是系统恢复的估算数据）
+        is_recovered = False
+        bot_instance = context.application.bot_data.get('bot_instance')
+        if bot_instance and bot_instance.db:
+            try:
+                # 查询该用户在该群组的当天记录是否标记为恢复数据
+                today = datetime.now().strftime('%Y-%m-%d')
+                record = await bot_instance.db.db.message_stats.find_one({
+                    'group_id': group_id,
+                    'user_id': stat['_id'],
+                    'date': today,
+                    'recovered': True
+                })
+                is_recovered = record is not None
+            except Exception:
+                pass
+        
         # 构建一行，注意对奖牌emoji进行特殊处理
+        # 如果是恢复的数据，在消息数后添加星号(*)标记
+        message_count = f"{stat['total_messages']}条"
+        if is_recovered:
+            message_count += "*"  # 添加星号标记
+            
         if has_medal:
             # 对于有奖牌的行，确保序号和名字对齐
-            row = f"{rank_prefix}{i}. {user_mention}{space_padding}{stat['total_messages']}条"
+            row = f"{rank_prefix}{i}. {user_mention}{space_padding}{message_count}"
         else:
             # 对于没有奖牌的行，增加两个空格保持对齐
-            row = f"  {i}. {user_mention}{space_padding}{stat['total_messages']}条"
+            row = f"  {i}. {user_mention}{space_padding}{message_count}"
         
         rows.append(row)
     
-    return "\n".join(rows)
+    # 如果有恢复的数据，添加说明
+    has_recovered = any('*' in row for row in rows)
+    result = "\n".join(rows)
+    
+    if has_recovered:
+        result += "\n\n<i>* 标记的数据为系统恢复估算</i>"
+        
+    return result
 
 @check_command_usage
 async def handle_rank_command(update: Update, context: CallbackContext):
