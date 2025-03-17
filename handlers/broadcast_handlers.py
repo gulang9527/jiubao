@@ -626,9 +626,6 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
             broadcast_data['end_time'] = end_time
             logger.info(f"设置默认结束时间: {end_time}")
     
-    # 获取机器人实例
-    bot_instance = context.application.bot_data.get('bot_instance')
-    
     try:
         # 检查是否是编辑模式
         if form_data.get('is_editing') and form_data.get('broadcast_id'):
@@ -637,11 +634,26 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
             logger.info(f"正在更新轮播消息: {broadcast_id}")
             await bot_instance.db.update_broadcast(broadcast_id, broadcast_data)
             logger.info(f"轮播消息更新成功: {broadcast_id}")
+            
+            if hasattr(bot_instance, 'calibration_manager') and bot_instance.calibration_manager:
+                broadcast = await bot_instance.db.get_broadcast_by_id(broadcast_id)
+                if broadcast:
+                    await bot_instance.calibration_manager.register_broadcast(broadcast)
+                    logger.info(f"已更新轮播消息 {broadcast_id} 在时间校准系统中的注册")
         else:
             # 添加新的轮播消息
             logger.info("正在添加新的轮播消息")
-            await bot_instance.db.add_broadcast(broadcast_data)
+            result = await bot_instance.db.add_broadcast(broadcast_data)
             logger.info("轮播消息添加成功")
+            
+            if hasattr(bot_instance, 'calibration_manager') and bot_instance.calibration_manager:
+                # 对于新添加的消息，我们需要获取生成的 broadcast_id
+                if result:  # 确认添加成功并返回了ID
+                    broadcast_id = str(result)
+                    broadcast = await bot_instance.db.get_broadcast_by_id(broadcast_id)
+                    if broadcast:
+                        await bot_instance.calibration_manager.register_broadcast(broadcast)
+                        logger.info(f"已注册新轮播消息 {broadcast_id} 到时间校准系统")
         
         # 清理表单数据
         if 'broadcast_form' in context.user_data:
