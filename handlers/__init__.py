@@ -77,7 +77,8 @@ def register_all_handlers(application, callback_handler):
         handle_broadcast_detail_callback,
         handle_broadcast_preview_callback,
         handle_broadcast_delete_callback,
-        handle_broadcast_confirm_delete_callback
+        handle_broadcast_confirm_delete_callback,
+        handle_broadcast_force_send_callback
     )
     
     # 注册设置相关回调前缀
@@ -101,6 +102,8 @@ def register_all_handlers(application, callback_handler):
     callback_handler.register("bc_preview_", handle_broadcast_preview_callback)
     callback_handler.register("bc_delete_", handle_broadcast_delete_callback)
     callback_handler.register("bc_confirm_delete_", handle_broadcast_confirm_delete_callback)
+    # 添加强制发送回调注册
+    callback_handler.register("bc_force_send_", handle_broadcast_force_send_callback)
 
     # 注册轮播消息编辑相关回调前缀
     from handlers.broadcast_modify_handlers import (
