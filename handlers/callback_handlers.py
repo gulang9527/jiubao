@@ -6,7 +6,7 @@ from typing import Optional, Any, Dict, List
 
 from telegram import Update
 from telegram.ext import CallbackContext
-
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from utils.decorators import handle_callback_errors
 
 logger = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ async def handle_manageable_groups_callback(update: Update, context: CallbackCon
     # 获取用户可管理的群组
     try:
         # 获取用户权限
-        admin_groups = await bot_instance.db.get_admin_groups(user_id)
+        manageable_groups = await bot_instance.db.get_manageable_groups(user_id)
         superadmin = await bot_instance.db.is_superadmin(user_id)
         
         # 如果是超级管理员，获取所有授权群组
