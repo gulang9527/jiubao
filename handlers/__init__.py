@@ -14,7 +14,9 @@ from handlers.command_handlers import (
     handle_rank_page_callback, handle_check_stats_settings
 )
 from handlers.message_handlers import handle_message
-from handlers.callback_handlers import handle_callback
+from handlers.callback_handlers import (
+    handle_callback, handle_manageable_groups_callback
+)
 
 logger = logging.getLogger(__name__)
 
@@ -77,8 +79,7 @@ def register_all_handlers(application, callback_handler):
         handle_broadcast_detail_callback,
         handle_broadcast_preview_callback,
         handle_broadcast_delete_callback,
-        handle_broadcast_confirm_delete_callback,
-        handle_broadcast_force_send_callback
+        handle_broadcast_confirm_delete_callback
     )
     
     # 注册设置相关回调前缀
@@ -102,8 +103,6 @@ def register_all_handlers(application, callback_handler):
     callback_handler.register("bc_preview_", handle_broadcast_preview_callback)
     callback_handler.register("bc_delete_", handle_broadcast_delete_callback)
     callback_handler.register("bc_confirm_delete_", handle_broadcast_confirm_delete_callback)
-    # 添加强制发送回调注册
-    callback_handler.register("bc_force_send_", handle_broadcast_force_send_callback)
 
     # 注册轮播消息编辑相关回调前缀
     from handlers.broadcast_modify_handlers import (
@@ -117,6 +116,9 @@ def register_all_handlers(application, callback_handler):
     callback_handler.register("rank_page_", handle_rank_page_callback)
     callback_handler.register("rank_next_", handle_rank_page_callback)  # 添加这行以处理下一页回调
     callback_handler.register("rank_prev_", handle_rank_page_callback)  # 添加这行以处理上一页回调
+    
+    # 注册群组列表回调
+    callback_handler.register("show_manageable_groups", handle_manageable_groups_callback)
 
     # 添加错误处理程序
     def error_handler(update, context):
