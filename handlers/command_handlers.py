@@ -142,15 +142,31 @@ def get_string_display_width(s):
 
 def truncate_string_by_width(s, max_width):
     """
-    按显示宽度截断字符串
+    按显示宽度截断字符串，确保在任何情况下都不会超过最大宽度
+    
+    参数:
+        s: 输入字符串
+        max_width: 最大显示宽度
+        
+    返回:
+        截断后的字符串，如果截断则添加"…"符号
     """
+    if not s:
+        return s
+        
     width = 0
+    result = []
+    
     for i, char in enumerate(s):
         char_width = get_char_width(char)
-        if width + char_width > max_width - 1:  # 留一个位置给省略号
-            return s[:i] + "…"
+        # 检查添加当前字符是否会超出最大宽度(减去省略号的宽度1)
+        if width + char_width > max_width - 1:
+            return ''.join(result) + "…"
+        
         width += char_width
-    return s
+        result.append(char)
+        
+    return ''.join(result)
 
 async def get_message_stats_from_db(group_id: int, time_range: str = 'day', limit: int = 15, skip: int = 0, context=None):
     """
@@ -232,9 +248,9 @@ async def format_rank_rows(stats, page, group_id, context):
     import html
     
     # 固定用户名最大显示宽度
-    MAX_NAME_WIDTH = 24  # 12个全角字符或24个半角字符
+    MAX_NAME_WIDTH = 20  # 减小最大宽度以确保显示正确
     # 消息数的固定位置（从行首开始的字符数）
-    FIXED_MSG_POSITION = 30
+    FIXED_MSG_POSITION = 28  # 相应调整固定位置
     
     # 构建每一行文本
     rows = []
@@ -258,26 +274,38 @@ async def format_rank_rows(stats, page, group_id, context):
         except Exception:
             display_name = f'用户{stat["_id"]}'
         
-        # 截断用户名（基于显示宽度）
-        display_name = truncate_string_by_width(display_name, MAX_NAME_WIDTH)
+        # 确保必须截断超长用户名
+        original_width = get_string_display_width(display_name)
+        if original_width > MAX_NAME_WIDTH:
+            display_name = truncate_string_by_width(display_name, MAX_NAME_WIDTH)
         
         # 创建带链接的用户名
         user_mention = f'<a href="tg://user?id={stat["_id"]}">{display_name}</a>'
         
         # 计算序号部分的宽度（包括排名图标）
-        # 注意：奖牌图标视为2个字符宽度
+        # 注意：奖牌图标是表情符号，占用2个字符宽度
         rank_prefix_width = 2 if rank_prefix else 0
+        rank_num_width = len(str(i))
         
         # 计算当前内容的显示宽度
-        # 排名前缀(如果有) + 序号 + ". " + 用户名
-        current_display_width = rank_prefix_width + len(str(i)) + 2 + get_string_display_width(display_name)
+        user_width = get_string_display_width(display_name)
+        
+        # 检查是否有奖牌，如果有奖牌，确保位置对齐
+        has_medal = rank_prefix != ""
         
         # 计算需要添加的空格数，确保"消息数"位置固定
-        space_count = max(2, FIXED_MSG_POSITION - current_display_width)
+        # 基础宽度: 排名前缀 + 序号 + ". " + 用户名
+        base_width = rank_prefix_width + rank_num_width + 2 + user_width
+        space_count = max(2, FIXED_MSG_POSITION - base_width)
         space_padding = ' ' * space_count
         
-        # 构建一行
-        row = f"{rank_prefix}{i}. {user_mention}{space_padding}消息数: {stat['total_messages']}"
+        # 构建一行，注意对奖牌emoji进行特殊处理
+        if has_medal:
+            # 对于有奖牌的行，确保序号和名字对齐
+            row = f"{rank_prefix}{i}. {user_mention}{space_padding}消息数: {stat['total_messages']}"
+        else:
+            # 对于没有奖牌的行，增加两个空格保持对齐
+            row = f"  {i}. {user_mention}{space_padding}消息数: {stat['total_messages']}"
         rows.append(row)
     
     return "\n".join(rows)
