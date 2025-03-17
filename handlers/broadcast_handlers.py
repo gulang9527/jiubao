@@ -742,17 +742,41 @@ async def handle_broadcast_force_send_callback(update: Update, context: Callback
         # 强制发送轮播消息
         if bot_instance.broadcast_manager:
             logger.info(f"强制发送轮播消息: {broadcast_id}")
-            await bot_instance.broadcast_manager.send_broadcast(broadcast)
-            # 更新最后发送时间
-            await bot_instance.db.update_broadcast(broadcast_id, {
-                'last_broadcast': datetime.now()
-            })
-            await query.edit_message_text(
-                f"✅ 已强制发送轮播消息\n\n详情ID: {broadcast_id}",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
-                ]])
-            )
+            try:
+                await bot_instance.broadcast_manager.send_broadcast(broadcast)
+                
+                # 手动更新最后发送时间，以防send_broadcast中的update_broadcast_time失败
+                try:
+                    # 更新最后发送时间
+                    await bot_instance.db.update_broadcast(broadcast_id, {
+                        'last_broadcast': datetime.now()
+                    })
+                except Exception as e:
+                    logger.error(f"更新轮播消息最后发送时间失败: {e}", exc_info=True)
+                
+                await query.edit_message_text(
+                    f"✅ 已强制发送轮播消息\n\n详情ID: {broadcast_id}",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
+                    ]])
+                )
+            except Exception as e:
+                error_message = str(e)
+                # 检查是否是群组权限问题
+                if "kicked" in error_message.lower() or "forbidden" in error_message.lower():
+                    await query.edit_message_text(
+                        f"❌ 发送失败: 机器人在群组中没有权限\n\n请确保机器人在群组中并有足够权限",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
+                        ]])
+                    )
+                else:
+                    await query.edit_message_text(
+                        f"❌ 发送失败: {error_message}\n\n请检查日志获取详细信息",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
+                        ]])
+                    )
         else:
             await query.edit_message_text(
                 "❌ 轮播管理器未初始化",
