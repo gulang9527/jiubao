@@ -1162,7 +1162,7 @@ class Database:
         await self.ensure_connected()
         try:
             obj_id = ObjectId(broadcast_id)
-            update_data['updated_at'] = datetime.now()
+            update_data = {'last_broadcast': last_broadcast, 'updated_at': datetime.now()}
             
             # 确保时间字段是datetime对象
             if 'start_time' in update_data and isinstance(update_data['start_time'], str):
