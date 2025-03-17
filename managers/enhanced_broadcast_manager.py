@@ -131,20 +131,31 @@ class EnhancedBroadcastManager:
                 # 获取当前时间
                 now = datetime.now()
                 logger.info(f"当前时间: {now}, 准备查询应发送的轮播消息")
-                # 获取当前时间格式化字符串，用于比较
-                now_str = now.strftime('%Y-%m-%d %H:%M:%S')
-                logger.info(f"查询条件时间(字符串格式): {now_str}")
                 
                 # 获取应该发送的轮播消息
-                logger.info(f"开始调用 get_due_broadcasts() 获取待发送的轮播消息，当前时间: {now}")
+                logger.info(f"开始调用 get_due_broadcasts() 获取待发送的轮播消息")
                 due_broadcasts = await self.db.get_due_broadcasts()
                 
                 if due_broadcasts:
                     logger.info(f"找到 {len(due_broadcasts)} 个需要发送的轮播消息")
                     for b in due_broadcasts:
-                        logger.info(f"需要发送的轮播消息ID: {b.get('_id')}, 群组: {b.get('group_id')}")
+                        b_id = str(b['_id'])
+                        logger.info(f"待发送轮播: ID={b_id}, 群组={b.get('group_id')}, "
+                                   f"开始时间={b.get('start_time')}, 结束时间={b.get('end_time')}, "
+                                   f"上次发送时间={b.get('last_broadcast')}, 间隔={b.get('interval')}分钟")
                 else:
                     logger.info("没有找到需要发送的轮播消息")
+                    possible_broadcasts = await self.db.db.broadcasts.find({}).to_list(None)
+                    if possible_broadcasts:
+                        logger.info(f"数据库中有 {len(possible_broadcasts)} 条轮播消息，但没有符合发送条件的")
+                        # 随机抽取一个轮播消息进行详细检查
+                        if len(possible_broadcasts) > 0:
+                            sample = possible_broadcasts[0]
+                            sample_id = str(sample['_id'])
+                            logger.info(f"随机抽查一条轮播消息 ID={sample_id}")
+                            await self.db.inspect_broadcast(sample_id)
+                    else:
+                        logger.info("数据库中没有轮播消息")
                 
                 # 添加详细日志
                 if due_broadcasts:
