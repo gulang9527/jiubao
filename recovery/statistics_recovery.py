@@ -149,20 +149,20 @@ class StatisticsRecoverySystem:
     async def check_bot_admin_in_group(self, group_id: int) -> bool:
         """
         检查机器人在群组中是否有管理员权限
-        
-        参数:
-            group_id: 群组ID
-            
-        返回:
-            是否有管理员权限
         """
         try:
+            # 检查应用程序是否已初始化
+            if not hasattr(self.bot.application, 'bot') or not getattr(self.bot.application.bot, '_initialized', False):
+                logger.warning(f"机器人应用未完全初始化，无法检查群组 {group_id} 的权限")
+                return True  # 假设有权限，后续会自动适应
+                
             bot_id = self.bot.application.bot.id
             member = await self.bot.application.bot.get_chat_member(group_id, bot_id)
             return member.status in ['administrator', 'creator']
         except Exception as e:
             logger.error(f"检查机器人权限失败: {e}")
-            return False
+            # 出错时默认允许恢复，避免因权限检查失败而跳过恢复
+            return True
     
     async def recover_group_statistics(self, group_id: int, start_time: datetime, end_time: datetime) -> int:
         """
