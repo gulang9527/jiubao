@@ -187,8 +187,16 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
                 form_data['repeat_interval'] = 0
             elif repeat_type == 'hourly':
                 form_data['repeat_interval'] = 60  # 默认间隔60分钟
+            elif repeat_type == 'hourly_fixed':
+                form_data['repeat_interval'] = 60  # 固定时间每小时发送
+                form_data['repeat_type'] = 'hourly'  # 基础类型是hourly
+                form_data['use_fixed_time'] = True  # 标记使用固定时间
             elif repeat_type == 'daily':
                 form_data['repeat_interval'] = 1440  # 默认间隔24小时
+            elif repeat_type == 'daily_fixed':
+                form_data['repeat_interval'] = 1440  # 固定时间每天发送
+                form_data['repeat_type'] = 'daily'  # 基础类型是daily
+                form_data['use_fixed_time'] = True  # 标记使用固定时间
             elif repeat_type == 'custom':
                 # 提示用户设置自定义间隔
                 keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
@@ -601,7 +609,16 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
     else:
         # 立即开始
         broadcast_data['start_time'] = datetime.now()
-    
+
+    # 处理固定时间发送
+    if form_data.get('use_fixed_time'):
+        # 保存调度时间
+        if 'start_time' in broadcast_data and isinstance(broadcast_data['start_time'], datetime):
+            start_time = broadcast_data['start_time']
+            schedule_time = f"{start_time.hour}:{start_time.minute:02d}"
+            broadcast_data['schedule_time'] = schedule_time
+            logger.info(f"设置固定调度时间: {schedule_time}")
+        
     # 处理结束时间
     if form_data.get('repeat_type') == 'once':
         # 单次发送时，结束时间与开始时间相同
@@ -1358,12 +1375,17 @@ async def show_schedule_options(update: Update, context: CallbackContext):
     # 构建重复类型选择按钮
     keyboard = [
         [InlineKeyboardButton("单次发送", callback_data="bcform_set_repeat_once")],
-        [InlineKeyboardButton("每小时发送", callback_data="bcform_set_repeat_hourly")],
-        [InlineKeyboardButton("每天发送", callback_data="bcform_set_repeat_daily")],
+        [InlineKeyboardButton("每小时固定时间发送", callback_data="bcform_set_repeat_hourly_fixed")],
+        [InlineKeyboardButton("每天固定时间发送", callback_data="bcform_set_repeat_daily_fixed")],
         [InlineKeyboardButton("自定义间隔", callback_data="bcform_set_repeat_custom")],
         [InlineKeyboardButton("返回", callback_data="bcform_content_received")],
         [InlineKeyboardButton("❌ 取消", callback_data="bcform_cancel")]
     ]
+    
+    await update.callback_query.edit_message_text(
+        "📢 设置轮播计划\n\n请选择轮播消息的发送方式：",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
     
     await update.callback_query.edit_message_text(
         "📢 设置轮播计划\n\n请选择轮播消息的重复类型：",
