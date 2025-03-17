@@ -71,8 +71,17 @@ class EnhancedBroadcastManager:
         
     async def force_check(self):
         """强制执行一次轮播检查，用于系统唤醒后"""
-        logger.info("强制执行轮播检查")
+        logger.info("强制执行轮播检查开始")
         self._force_check_event.set()
+        
+        # 添加显式调用
+        try:
+            logger.info("直接调用_process_broadcasts进行轮播检查")
+            await self._process_broadcasts()
+        except Exception as e:
+            logger.error(f"强制轮播检查出错: {e}", exc_info=True)
+        
+        logger.info("强制执行轮播检查结束")
         
     async def _broadcast_loop(self):
         """轮播消息检查循环"""
