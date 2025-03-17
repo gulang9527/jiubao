@@ -591,7 +591,7 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
     start_time_str = form_data.get('start_time')
     if start_time_str and start_time_str.lower() != 'now':
         try:
-            # 验证时间格式
+            # 验证时间格式并转换为datetime对象
             start_time = datetime.strptime(start_time_str, '%Y-%m-%d %H:%M:%S')
             broadcast_data['start_time'] = start_time
         except ValueError:
@@ -623,10 +623,22 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
             broadcast_data['end_time'] = end_time
             logger.info(f"设置默认结束时间: {end_time}")
     
-    # 添加轮播消息
+    # 获取机器人实例
     bot_instance = context.application.bot_data.get('bot_instance')
+    
     try:
-        await bot_instance.db.add_broadcast(broadcast_data)
+        # 检查是否是编辑模式
+        if form_data.get('is_editing') and form_data.get('broadcast_id'):
+            # 编辑现有的轮播消息
+            broadcast_id = form_data['broadcast_id']
+            logger.info(f"正在更新轮播消息: {broadcast_id}")
+            await bot_instance.db.update_broadcast(broadcast_id, broadcast_data)
+            logger.info(f"轮播消息更新成功: {broadcast_id}")
+        else:
+            # 添加新的轮播消息
+            logger.info("正在添加新的轮播消息")
+            await bot_instance.db.add_broadcast(broadcast_data)
+            logger.info("轮播消息添加成功")
         
         # 清理表单数据
         if 'broadcast_form' in context.user_data:
@@ -644,17 +656,25 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
             repeat_text = f"每 {broadcast_data['interval']} 分钟发送" 
         
         # 显示成功消息
-        await update.callback_query.edit_message_text(
-            "✅ 轮播消息添加成功！\n\n"
+        message_text = ""
+        if form_data.get('is_editing'):
+            message_text = "✅ 轮播消息修改成功！\n\n"
+        else:
+            message_text = "✅ 轮播消息添加成功！\n\n"
+            
+        message_text += (
             f"重复类型: {repeat_text}\n"
             f"开始时间: {format_datetime(broadcast_data['start_time'])}\n"
             f"结束时间: {format_datetime(broadcast_data['end_time'])}"
         )
+        
+        await update.callback_query.edit_message_text(message_text)
+        
     except Exception as e:
-        logger.error(f"添加轮播消息错误: {e}")
-        await update.callback_query.answer("❌ 添加轮播消息失败")
+        logger.error(f"添加/更新轮播消息错误: {e}", exc_info=True)
+        await update.callback_query.answer("❌ 操作失败")
         await update.callback_query.edit_message_text(
-            f"❌ 添加轮播消息失败: {str(e)}\n\n"
+            f"❌ 操作失败: {str(e)}\n\n"
             "请重试或联系管理员"
         )
 
