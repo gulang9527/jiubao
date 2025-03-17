@@ -99,6 +99,11 @@ class TelegramBot:
                 if not await self.db.connect(MONGODB_URI, MONGODB_DB):
                     logger.error("数据库连接失败")
                     return False
+                
+                # 标准化轮播消息时间字段
+                logger.info("开始标准化轮播消息时间字段...")
+                await self.db.normalize_broadcast_datetimes()
+                logger.info("标准化轮播消息时间字段完成")
             except Exception as e:
                 logger.error(f"数据库连接错误: {e}", exc_info=True)
                 return False
