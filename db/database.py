@@ -1187,6 +1187,11 @@ class Database:
                 logger.warning(f"未能更新轮播消息: {broadcast_id}")
             else:
                 logger.info(f"已更新轮播消息: {broadcast_id}")
+                
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"更新轮播消息失败: {e}", exc_info=True)
+            raise
 
     async def migrate_broadcast_datetime_fields(self):
         """将轮播消息中的字符串时间字段转换为datetime对象"""
@@ -1227,8 +1232,3 @@ class Database:
         except Exception as e:
             logger.error(f"时间字段迁移失败: {e}", exc_info=True)
             return 0
-                
-            return result.modified_count > 0
-        except Exception as e:
-            logger.error(f"更新轮播消息失败: {e}", exc_info=True)
-            raise
