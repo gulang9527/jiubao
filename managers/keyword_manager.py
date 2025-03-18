@@ -13,15 +13,31 @@ class KeywordManager:
     """
     关键词管理器，处理关键词匹配和回复
     """
-    def __init__(self, db):
+    def __init__(self, db, apply_defaults=True):
         """
         初始化关键词管理器
         
         参数:
             db: 数据库实例
+            apply_defaults: 是否应用默认设置
         """
         self.db = db
         self._built_in_handlers = {}  # 内置关键词处理函数
+        
+        # 只在首次初始化时应用默认设置
+        if apply_defaults:
+            asyncio.create_task(self._apply_default_settings())
+            
+    async def _apply_default_settings(self):
+        """应用默认关键词设置"""
+        try:
+            from config import KEYWORD_SETTINGS
+            logger.info("应用默认关键词设置...")
+            
+            # 应用默认设置的逻辑
+            # 这里根据需要添加关键词的默认设置
+        except Exception as e:
+            logger.error(f"应用默认关键词设置失败: {e}", exc_info=True)
         
     def register_built_in_handler(self, pattern: str, handler: Callable):
         """
