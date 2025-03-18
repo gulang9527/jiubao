@@ -750,6 +750,21 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
             f"结束时间: {format_datetime(broadcast_data['end_time'])}"
         )
         
+        # 添加返回按钮
+        keyboard = [
+            [InlineKeyboardButton("返回轮播设置", callback_data=f"settings_broadcast_{form_data['group_id']}")]
+        ]
+        await update.callback_query.edit_message_text(
+            message_text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+            
+        message_text += (
+            f"重复类型: {repeat_text}\n"
+            f"开始时间: {format_datetime(broadcast_data['start_time'])}\n"
+            f"结束时间: {format_datetime(broadcast_data['end_time'])}"
+        )
+        
         await update.callback_query.edit_message_text(message_text)
         
     except Exception as e:
