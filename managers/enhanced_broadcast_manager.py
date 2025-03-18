@@ -231,6 +231,37 @@ class EnhancedBroadcastManager:
                     
             except Exception as e:
                 logger.error(f"处理轮播消息时出错: {e}", exc_info=True)
+
+    async def recalibrate_broadcast_time(self, broadcast_id):
+        """重新校准轮播消息回到原始设定的固定时间点"""
+        try:
+            broadcast = await self.db.get_broadcast_by_id(broadcast_id)
+            if not broadcast:
+                logger.error(f"找不到轮播消息: {broadcast_id}")
+                return False
+                
+            # 检查是否有调度时间
+            schedule_time = broadcast.get('schedule_time')
+            if not schedule_time:
+                # 如果没有固定调度时间，则从开始时间提取
+                start_time = broadcast.get('start_time')
+                if not start_time:
+                    logger.error(f"轮播 {broadcast_id} 没有开始时间，无法校准")
+                    return False
+                    
+                schedule_time = f"{start_time.hour}:{start_time.minute:02d}"
+                # 保存到数据库
+                await self.db.update_broadcast(broadcast_id, {'schedule_time': schedule_time})
+                logger.info(f"从开始时间提取并设置轮播 {broadcast_id} 的调度时间为 {schedule_time}")
+            
+            # 将更新标志设置为已启用固定时间
+            await self.db.update_broadcast(broadcast_id, {'use_fixed_time': True})
+            
+            logger.info(f"已重置轮播 {broadcast_id} 的时间调度，下次将按固定时间 {schedule_time} 发送")
+            return True
+        except Exception as e:
+            logger.error(f"重置轮播时间调度失败: {e}", exc_info=True)
+            return False
     
     async def send_broadcast(self, broadcast):
         """
