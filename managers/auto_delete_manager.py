@@ -33,6 +33,7 @@ class MessageType(enum.Enum):
     SUCCESS = 'success'
     HELP = 'help'
     INTERACTION = 'interaction'
+    FEEDBACK = 'feedback'
 
 # 默认超时时间（秒）
 DEFAULT_TIMEOUTS = {
