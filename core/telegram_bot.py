@@ -118,19 +118,19 @@ class TelegramBot:
             self.callback_handler = CallbackHandler()
             
             self.settings_manager = SettingsManager(self.db)
-            await self.settings_manager.start()
+            await self.settings_manager.start(apply_defaults_if_missing=apply_defaults)
             
-            self.keyword_manager = KeywordManager(self.db)
+            self.keyword_manager = KeywordManager(self.db, apply_defaults=apply_defaults)
             
             # 注册内置关键词处理函数
             self.keyword_manager.register_built_in_handler('日排行', self._handle_daily_rank)
             self.keyword_manager.register_built_in_handler('月排行', self._handle_monthly_rank)
             self.stats_manager = StatsManager(self.db)
             logger.info(f"StatsManager方法列表: {[method for method in dir(self.stats_manager) if not method.startswith('_')]}")
-
+            
             # 初始化 自动删除管理器
             from managers.auto_delete_manager import AutoDeleteManager
-            self.auto_delete_manager = AutoDeleteManager(self.db)
+            self.auto_delete_manager = AutoDeleteManager(self.db, apply_defaults=apply_defaults)
             logger.info("自动删除管理器已初始化")
             
             # 尝试初始化增强版轮播功能
@@ -142,26 +142,18 @@ class TelegramBot:
                     # 导入增强版轮播管理器
                     from managers.enhanced_broadcast_manager import EnhancedBroadcastManager
                     # 创建增强版轮播管理器
-                    self.broadcast_manager = EnhancedBroadcastManager(self.db, self)
-                    # 导入时间校准管理器
-                    from managers.time_calibration import TimeCalibrationManager
-                    # 创建时间校准管理器
-                    self.calibration_manager = TimeCalibrationManager(self.db, self.broadcast_manager)
-                    # 设置轮播管理器的校准管理器
-                    self.broadcast_manager.calibration_manager = self.calibration_manager
-                    # 启动时间校准管理器
-                    await self.calibration_manager.start()
-                    logger.info("增强版轮播管理器和时间校准管理器已初始化")
+                    self.broadcast_manager = EnhancedBroadcastManager(self.db, self, apply_defaults=apply_defaults)
+                    # ...其他初始化代码保持不变...
                 else:
                     # 使用原始版轮播管理器
                     from managers.broadcast_manager import BroadcastManager
-                    self.broadcast_manager = BroadcastManager(self.db, self)
+                    self.broadcast_manager = BroadcastManager(self.db, self, apply_defaults=apply_defaults)
                     logger.info("使用原始版轮播管理器")
             except Exception as e:
                 logger.error(f"初始化增强版轮播功能出错: {e}", exc_info=True)
                 # 使用原始版本的轮播管理器
                 from managers.broadcast_manager import BroadcastManager
-                self.broadcast_manager = BroadcastManager(self.db, self)
+                self.broadcast_manager = BroadcastManager(self.db, self, apply_defaults=apply_defaults)
                 logger.warning("使用原始版本的轮播管理器")
                         
             # 设置超级管理员
