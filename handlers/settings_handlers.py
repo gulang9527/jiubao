@@ -211,11 +211,13 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
             
         message_type = parts[1]
         
-        # 获取正确的超时时间，应该在回调数据的特定位置
+        # 正确地提取群组ID和超时时间
         try:
-            timeout = int(parts[3])
+            group_id = int(parts[2])  # 群组ID在第3个位置
+            timeout = int(parts[3])   # 超时时间在第4个位置
+            chat_id = group_id        # 使用群组ID作为chat_id
         except (ValueError, IndexError):
-            await query.edit_message_text("❌ 无效的超时时间参数")
+            await query.edit_message_text("❌ 无效的参数")
             return
         
         # 获取当前设置以检查 auto_delete_timeouts 是否存在
