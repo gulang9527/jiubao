@@ -195,31 +195,15 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
         message_type = parts[1]
         timeout = int(parts[3])
         
-        # 获取当前设置
+        # 只更新特定类型的超时时间，不修改整个设置对象
+        update_data = {f'auto_delete_timeouts.{message_type}': timeout}
+        
+        # 保存设置 - 使用增量更新
+        await bot_instance.db.update_group_settings_field(group_id, update_data)
+        
+        # 重新获取最新设置，确保显示正确的数据
         settings = await bot_instance.db.get_group_settings(group_id)
         
-        # 初始化 auto_delete_timeouts 如果它不存在
-        if 'auto_delete_timeouts' not in settings:
-            settings['auto_delete_timeouts'] = {
-                'default': settings.get('auto_delete_timeout', 300),
-                'keyword': settings.get('auto_delete_timeout', 300),
-                'broadcast': settings.get('auto_delete_timeout', 300),
-                'ranking': settings.get('auto_delete_timeout', 300),
-                'command': settings.get('auto_delete_timeout', 300)
-            }
-            
-        # 更新特定类型的超时时间
-        settings['auto_delete_timeouts'][message_type] = timeout
-        
-        # 保存设置
-        await bot_instance.db.update_group_settings(group_id, settings)
-        
-        # 重新获取最新设置
-        settings = await bot_instance.db.get_group_settings(group_id)
-        
-        # 显示更新后的设置
-        await show_auto_delete_settings(bot_instance, query, group_id, settings)
-
     elif action == "custom_type_timeout":
         # 设置自定义类型超时
         if len(parts) < 3:
