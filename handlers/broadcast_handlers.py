@@ -359,7 +359,8 @@ async def handle_broadcast_detail_callback(update: Update, context: CallbackCont
             keyboard = [
                 [InlineKeyboardButton("👁️ 预览", callback_data=f"bc_preview_{broadcast_id}_{group_id}")],
                 [InlineKeyboardButton("✏️ 编辑", callback_data=f"bc_edit_{broadcast_id}_{group_id}")],
-                [InlineKeyboardButton("🚀 强制发送", callback_data=f"bc_force_send_{broadcast_id}_{group_id}")],  # 添加强制发送按钮
+                [InlineKeyboardButton("🚀 强制发送", callback_data=f"bc_force_send_{broadcast_id}_{group_id}")],
+                [InlineKeyboardButton("⏰ 重置为固定时间", callback_data=f"bc_recalibrate_{broadcast_id}_{group_id}")],  # 新增重置按钮
                 [InlineKeyboardButton("❌ 删除", callback_data=f"bc_delete_{broadcast_id}_{group_id}")],
                 [InlineKeyboardButton("🔙 返回", callback_data=f"settings_broadcast_{group_id}")]
             ]
@@ -805,6 +806,56 @@ async def handle_broadcast_force_send_callback(update: Update, context: Callback
         logger.error(f"强制发送轮播消息出错: {e}", exc_info=True)
         await query.edit_message_text(
             f"❌ 强制发送出错: {str(e)}",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
+            ]])
+        )
+
+@handle_callback_errors
+async def handle_broadcast_recalibrate_callback(update: Update, context: CallbackContext, data: str):
+    """
+    处理重置轮播消息时间调度的回调
+    
+    参数:
+        update: 更新对象
+        context: 上下文对象
+        data: 回调数据
+    """
+    query = update.callback_query
+    bot_instance = context.application.bot_data.get('bot_instance')
+    
+    # 立即应答回调查询
+    await query.answer()
+    
+    # 解析回调数据
+    parts = data.split('_')
+    if len(parts) < 5:  # bc, recalibrate, broadcast_id, group_id
+        await query.edit_message_text("❌ 无效的回调数据")
+        return
+        
+    broadcast_id = parts[3]
+    group_id = int(parts[4])
+    
+    # 执行重置
+    if bot_instance.broadcast_manager:
+        success = await bot_instance.broadcast_manager.recalibrate_broadcast_time(broadcast_id)
+        if success:
+            await query.edit_message_text(
+                "✅ 已重置轮播消息时间调度，下次将按固定时间发送",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
+                ]])
+            )
+        else:
+            await query.edit_message_text(
+                "❌ 重置轮播消息调度失败",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
+                ]])
+            )
+    else:
+        await query.edit_message_text(
+            "❌ 轮播管理器未初始化",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
             ]])
