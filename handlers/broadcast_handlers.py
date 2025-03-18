@@ -872,12 +872,18 @@ async def handle_broadcast_recalibrate_callback(update: Update, context: Callbac
     
     # 解析回调数据
     parts = data.split('_')
-    if len(parts) < 5:  # bc, recalibrate, broadcast_id, group_id
+    if len(parts) >= 6 and parts[0] == "bc" and parts[1] == "recalibrate" and parts[3] == "custom":
+        broadcast_id = parts[2]
+        custom_type = parts[4]
+        group_id = int(parts[5])
+        logger.info(f"处理特殊轮播校准回调: custom_{custom_type}, broadcast_id: {broadcast_id}")
+        # 特殊处理逻辑...
+    elif len(parts) < 5:  # bc, recalibrate, broadcast_id, group_id
         await query.edit_message_text("❌ 无效的回调数据")
         return
-        
-    broadcast_id = parts[3]
-    group_id = int(parts[4])
+    else:
+        broadcast_id = parts[3]
+        group_id = int(parts[4])
     
     # 执行重置
     if bot_instance.broadcast_manager:
