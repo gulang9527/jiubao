@@ -201,6 +201,10 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
         # 获取当前设置以检查 auto_delete_timeouts 是否存在
         settings = await bot_instance.db.get_group_settings(group_id)
         
+        # 记录操作前的自动删除状态
+        auto_delete_enabled = settings.get('auto_delete', False)
+        logger.info(f"设置超时时间前的自动删除状态: {auto_delete_enabled}")
+        
         # 如果 auto_delete_timeouts 不存在，先创建它
         if 'auto_delete_timeouts' not in settings:
             default_timeout = settings.get('auto_delete_timeout', 300)
@@ -214,14 +218,28 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
                 }
             })
         
-        # 然后更新特定类型的超时时间
+        # 只更新特定类型的超时时间，不修改自动删除开关状态
+        logger.info(f"只更新 {message_type} 的超时时间为 {timeout}，保持自动删除状态不变")
         await bot_instance.db.update_group_settings_field(
             group_id, 
             {f'auto_delete_timeouts.{message_type}': timeout}
         )
         
+        # 如果自动删除状态被意外修改，确保它保持原来的值
+        current_settings = await bot_instance.db.get_group_settings(group_id)
+        current_auto_delete = current_settings.get('auto_delete', False)
+        
+        if current_auto_delete != auto_delete_enabled:
+            logger.warning(f"自动删除状态被意外修改，从 {auto_delete_enabled} 变为 {current_auto_delete}，正在恢复...")
+            await bot_instance.db.update_group_settings_field(group_id, {'auto_delete': auto_delete_enabled})
+        
         # 重新获取最新设置
         settings = await bot_instance.db.get_group_settings(group_id)
+        
+        # 验证设置是否正确保存
+        final_auto_delete = settings.get('auto_delete', False)
+        final_timeout = settings.get('auto_delete_timeouts', {}).get(message_type)
+        logger.info(f"设置后的状态: auto_delete={final_auto_delete}, {message_type}_timeout={final_timeout}")
         
         # 显示更新后的设置
         await show_auto_delete_settings(bot_instance, query, group_id, settings)
@@ -997,6 +1015,10 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
         # 获取当前设置以检查 auto_delete_timeouts 是否存在
         settings = await bot_instance.db.get_group_settings(group_id)
         
+        # 记录操作前的自动删除状态
+        auto_delete_enabled = settings.get('auto_delete', False)
+        logger.info(f"设置超时时间前的自动删除状态: {auto_delete_enabled}")
+        
         # 如果 auto_delete_timeouts 不存在，先创建它
         if 'auto_delete_timeouts' not in settings:
             default_timeout = settings.get('auto_delete_timeout', 300)
@@ -1011,17 +1033,26 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
                 }
             })
             
-        # 更新特定类型的超时时间并记录日志
+        # 只更新特定类型的超时时间，不修改自动删除开关状态
         logger.info(f"即将更新 {message_type} 的超时时间: {timeout}")
         await bot_instance.db.update_group_settings_field(
             group_id, 
             {f'auto_delete_timeouts.{message_type}': timeout}
         )
         
+        # 如果自动删除状态被意外修改，确保它保持原来的值
+        current_settings = await bot_instance.db.get_group_settings(group_id)
+        current_auto_delete = current_settings.get('auto_delete', False)
+        
+        if current_auto_delete != auto_delete_enabled:
+            logger.warning(f"自动删除状态被意外修改，从 {auto_delete_enabled} 变为 {current_auto_delete}，正在恢复...")
+            await bot_instance.db.update_group_settings_field(group_id, {'auto_delete': auto_delete_enabled})
+        
         # 验证保存成功
         updated_settings = await bot_instance.db.get_group_settings(group_id)
         actual_timeout = updated_settings.get('auto_delete_timeouts', {}).get(message_type)
-        logger.info(f"从数据库验证的 {message_type} 超时时间: {actual_timeout}")
+        final_auto_delete = updated_settings.get('auto_delete', False)
+        logger.info(f"从数据库验证的 {message_type} 超时时间: {actual_timeout}, 自动删除状态: {final_auto_delete}")
         
         # 获取类型名称
         type_names = {
