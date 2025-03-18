@@ -94,7 +94,7 @@ class TelegramBot:
             except ConfigValidationError as e:
                 logger.error(f"配置验证失败: {e}")
                 return False
-                
+                    
             logger.info("开始初始化机器人")
             
             # 连接数据库
@@ -104,6 +104,10 @@ class TelegramBot:
                     logger.error("数据库连接失败")
                     return False
                 
+                # 注册数据库到上下文
+                from managers.app_context import register_db
+                register_db(self.db)
+                
                 # 标准化轮播消息时间字段
                 logger.info("开始标准化轮播消息时间字段...")
                 await self.db.normalize_broadcast_datetimes()
@@ -111,7 +115,7 @@ class TelegramBot:
             except Exception as e:
                 logger.error(f"数据库连接错误: {e}", exc_info=True)
                 return False
-
+    
             # 获取初始化标志，检查机器人是否已经初始化过
             initialized = await self.db.get_system_flag("bot_initialized")
             apply_defaults = not initialized
@@ -128,11 +132,17 @@ class TelegramBot:
             # 初始化设置管理器
             self.settings_manager = SettingsManager(self.db)
             await self.settings_manager.start(apply_defaults_if_missing=apply_defaults)
+            # 注册到上下文
+            from managers.app_context import register_settings_manager
+            register_settings_manager(self.settings_manager)
             logger.info("设置管理器已初始化")
             
             # 初始化关键词管理器
             from managers.keyword_manager import KeywordManager
             self.keyword_manager = KeywordManager(self.db, apply_defaults=apply_defaults)
+            # 注册到上下文
+            from managers.app_context import register_keyword_manager
+            register_keyword_manager(self.keyword_manager)
             
             # 注册内置关键词处理函数
             self.keyword_manager.register_built_in_handler('日排行', self._handle_daily_rank)
@@ -141,10 +151,16 @@ class TelegramBot:
             
             # 初始化统计管理器
             self.stats_manager = StatsManager(self.db)
+            # 注册到上下文
+            from managers.app_context import register_stats_manager
+            register_stats_manager(self.stats_manager)
             logger.info("统计管理器已初始化")
             
             # 初始化自动删除管理器
             self.auto_delete_manager = AutoDeleteManager(self.db, apply_defaults=apply_defaults)
+            # 注册到上下文
+            from managers.app_context import register_auto_delete_manager
+            register_auto_delete_manager(self.auto_delete_manager)
             logger.info("自动删除管理器已初始化")
             
             # 初始化应用程序
@@ -152,6 +168,10 @@ class TelegramBot:
             
             # 将bot实例存储在application的bot_data中，以便于在回调函数中访问
             self.application.bot_data['bot_instance'] = self
+            
+            # 注册机器人实例到上下文
+            from managers.app_context import register_bot_instance
+            register_bot_instance(self)
             
             # 为自动删除管理器设置机器人实例
             self.auto_delete_manager.set_bot(self.application.bot)
@@ -165,6 +185,9 @@ class TelegramBot:
             
             # 初始化恢复管理器（需要在应用程序初始化之后）
             self.recovery_manager = RecoveryManager(self)
+            # 注册到上下文
+            from managers.app_context import register_recovery_manager
+            register_recovery_manager(self.recovery_manager)
             await self.recovery_manager.start()
             logger.info("恢复管理器已初始化")
             
