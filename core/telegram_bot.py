@@ -107,6 +107,11 @@ class TelegramBot:
             except Exception as e:
                 logger.error(f"数据库连接错误: {e}", exc_info=True)
                 return False
+
+            # 获取初始化标志，检查机器人是否已经初始化过
+            initialized = await self.db.get_system_flag("bot_initialized")
+            apply_defaults = not initialized
+            logger.info(f"机器人初始化状态: {'已初始化' if initialized else '首次初始化'}")
                 
             # 初始化各个管理器
             self.error_handler = ErrorHandler(logger)
@@ -163,22 +168,6 @@ class TelegramBot:
             for admin_id in DEFAULT_SUPERADMINS:
                 await self.db.add_user({'user_id': admin_id, 'role': UserRole.SUPERADMIN.value})
                 logger.info(f"已设置超级管理员: {admin_id}")
-                
-            # 设置默认群组
-            default_groups = [{
-                'group_id': -1001234567890,
-                'permissions': [perm.value for perm in GroupPermission],  
-                'feature_switches': {'keywords': True, 'stats': True, 'broadcast': True, 'auto_delete': True}
-            }]
-            
-            for group in default_groups:
-                await self.db.add_group({
-                    'group_id': group['group_id'],
-                    'permissions': group['permissions'],
-                    'settings': {'auto_delete': False, 'auto_delete_timeout': config.AUTO_DELETE_SETTINGS['default_timeout']},
-                    'feature_switches': group['feature_switches']
-                })
-                logger.info(f"已设置群组权限: {group['group_id']}")
                 
             # 初始化应用程序
             self.application = Application.builder().token(TELEGRAM_TOKEN).build()
@@ -248,16 +237,18 @@ class TelegramBot:
             if not user or user['role'] != UserRole.SUPERADMIN.value:
                 logger.error(f"超级管理员 {admin_id} 初始化失败")
                 return False
-                
-        # 验证群组
+        
+        # 验证完成，设置初始化标志
+        initialized = await self.db.get_system_flag("bot_initialized")
+        if not initialized:
+            await self.db.set_system_flag("bot_initialized", True)
+            logger.info("已设置机器人初始化标志")
+        
+        # 修改群组验证逻辑 - 不再要求必须有群组
         groups = await self.db.find_all_groups()
-        if not groups:
-            logger.error("没有找到任何已授权的群组")
-            return False
-            
         logger.info("初始化验证成功")
         logger.info(f"超级管理员: {DEFAULT_SUPERADMINS}")
-        logger.info(f"已授权群组: {[g['group_id'] for g in groups]}")
+        logger.info(f"已授权群组数量: {len(groups)}")
         return True
         
     @classmethod
