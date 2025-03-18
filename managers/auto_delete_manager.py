@@ -82,6 +82,16 @@ class AutoDeleteManager:
         self._init_tasks()
         
         logger.info("自动删除管理器初始化完成")
+
+        def set_bot(self, bot):
+        """
+        设置机器人实例
+        
+        参数:
+            bot: 机器人实例
+        """
+        self._bot = bot
+        logger.info("已为自动删除管理器设置机器人实例")
     
     async def _apply_default_settings(self):
         """应用默认自动删除设置"""
@@ -857,61 +867,163 @@ class ErrorTracker:
         """
         return self.error_history[-count:] if self.error_history else []
 
-class ErrorTracker:
+# 消息辅助函数
+async def send_auto_delete_message(bot, chat_id: int, text: str, 
+                                 reply_markup=None,
+                                 message_type: str = MessageType.DEFAULT.value,
+                                 reply_to_message_id: Optional[int] = None,
+                                 parse_mode: Optional[str] = None,
+                                 disable_web_page_preview: bool = False,
+                                 timeout: Optional[int] = None) -> Optional[Message]:
     """
-    错误跟踪器
-    用于跟踪和记录系统中的错误
-    """
+    发送自动删除消息
     
-    def __init__(self):
-        """初始化错误跟踪器"""
-        self.errors = []
-        self.max_errors = 100  # 最多保存100条错误记录
+    参数:
+        bot: 机器人实例
+        chat_id: 聊天ID
+        text: 消息文本
+        reply_markup: 回复标记
+        message_type: 消息类型
+        reply_to_message_id: 回复的消息ID
+        parse_mode: 解析模式
+        disable_web_page_preview: 是否禁用网页预览
+        timeout: 自定义超时时间
         
-    def record_error(self, error_type: str, exception: Exception, context: Optional[Dict[str, Any]] = None):
-        """
-        记录错误
+    返回:
+        已发送的消息对象
+    """
+    try:
+        # 直接发送消息
+        message = await bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            reply_markup=reply_markup,
+            reply_to_message_id=reply_to_message_id,
+            parse_mode=parse_mode,
+            disable_web_page_preview=disable_web_page_preview
+        )
         
-        参数:
-            error_type: 错误类型
-            exception: 异常对象
-            context: 错误上下文信息
-        """
-        error_info = {
-            'type': error_type,
-            'message': str(exception),
-            'timestamp': datetime.now(),
-            'context': context or {}
-        }
+        # 获取机器人实例，然后通过机器人实例获取auto_delete_manager
+        # 这种方式避免了循环导入
+        if hasattr(bot, 'application') and hasattr(bot.application, 'bot_data'):
+            bot_instance = bot.application.bot_data.get('bot_instance')
+            if bot_instance and hasattr(bot_instance, 'auto_delete_manager'):
+                await bot_instance.auto_delete_manager.schedule_delete(
+                    message, message_type, chat_id, timeout
+                )
         
-        self.errors.append(error_info)
+        return message
+    except Exception as e:
+        logger.error(f"发送自动删除消息出错: {e}", exc_info=True)
+        return None
+
+async def send_error_message(bot, chat_id: int, text: str) -> Optional[Message]:
+    """发送错误消息（30秒后自动删除）"""
+    return await send_auto_delete_message(
+        bot, chat_id, f"❌ {text}", message_type=MessageType.ERROR.value, timeout=30
+    )
+
+async def send_warning_message(bot, chat_id: int, text: str) -> Optional[Message]:
+    """发送警告消息（30秒后自动删除）"""
+    return await send_auto_delete_message(
+        bot, chat_id, f"⚠️ {text}", message_type=MessageType.WARNING.value, timeout=30
+    )
+
+async def send_success_message(bot, chat_id: int, text: str) -> Optional[Message]:
+    """发送成功消息（30秒后自动删除）"""
+    return await send_auto_delete_message(
+        bot, chat_id, f"✅ {text}", message_type=MessageType.SUCCESS.value, timeout=30
+    )
+
+async def send_help_message(bot, chat_id: int, text: str, 
+                          reply_markup=None) -> Optional[Message]:
+    """发送帮助消息（5分钟后自动删除）"""
+    return await send_auto_delete_message(
+        bot, chat_id, text, reply_markup, MessageType.HELP.value, timeout=300
+    )
+
+async def send_interaction_message(bot, chat_id: int, text: str, 
+                                 reply_markup=None) -> Optional[Message]:
+    """发送交互消息（3分钟后自动删除）"""
+    return await send_auto_delete_message(
+        bot, chat_id, text, reply_markup, MessageType.INTERACTION.value, timeout=180
+    )
+
+async def cancel_interaction(message: Message, text: str = "❌ 操作已取消") -> bool:
+    """
+    取消交互并快速删除消息
+    
+    参数:
+        message: 要编辑的消息
+        text: 取消操作文本
         
-        # 如果错误记录超过最大数量，删除最旧的记录
-        if len(self.errors) > self.max_errors:
-            self.errors = self.errors[-self.max_errors:]
-            
-        logger.error(f"已记录错误: {error_type} - {exception}")
+    返回:
+        是否成功
+    """
+    try:
+        # 不再通过导入获取auto_delete_manager，而是通过bot实例
+        if message.bot and hasattr(message.bot, 'application') and hasattr(message.bot.application, 'bot_data'):
+            bot_instance = message.bot.application.bot_data.get('bot_instance')
+            if bot_instance and hasattr(bot_instance, 'auto_delete_manager'):
+                # 移除内联键盘
+                await message.edit_text(text, reply_markup=None)
+                
+                # 取消之前的删除任务
+                await bot_instance.auto_delete_manager.cancel_delete(message)
+                
+                # 3秒后删除
+                await asyncio.sleep(3)
+                await message.delete()
+                return True
+        else:
+            # 如果无法获取bot实例，仍然尝试删除消息
+            await message.edit_text(text, reply_markup=None)
+            await asyncio.sleep(3)
+            await message.delete()
+            return True
+    except Exception as e:
+        logger.error(f"取消交互出错: {e}", exc_info=True)
+        return False
+
+def is_auto_delete_exempt(role: str, message_text: Optional[str] = None) -> bool:
+    """
+    检查是否豁免自动删除
+    
+    参数:
+        role: 用户角色
+        message_text: 消息文本
         
-    def get_recent_errors(self, count: int = 10) -> List[Dict[str, Any]]:
-        """
-        获取最近的错误记录
+    返回:
+        是否豁免
+    """
+    # 管理员和超级管理员豁免自动删除
+    if role in ['admin', 'superadmin']:
+        return True
+    
+    # 如果是命令消息且以 /start 或 /help 开头，豁免删除
+    if message_text and message_text.startswith(('/start', '/help')):
+        return True
         
-        参数:
-            count: 返回的错误记录数量
-            
-        返回:
-            最近的错误记录列表
-        """
-        return self.errors[-count:]
+    return False
+
+def validate_delete_timeout(timeout) -> int:
+    """
+    验证并规范化删除超时时间
+    
+    参数:
+        timeout: 超时时间
         
-    def get_errors_by_type(self, error_type: str) -> List[Dict[str, Any]]:
-        """
-        获取特定类型的错误记录
-        
-        参数:
-            error_type: 错误类型
-            
-        返回:
-            指定类型的错误记录列表
-        """
-        return [e for e in self.errors if e['type'] == error_type]
+    返回:
+        规范化后的超时时间
+    """
+    try:
+        timeout_int = int(timeout)
+        # 确保超时时间在合理范围内
+        if timeout_int < 5:
+            return 5
+        elif timeout_int > 86400:  # 最长1天
+            return 86400
+        else:
+            return timeout_int
+    except (ValueError, TypeError):
+        return 300  # 默认5分钟
