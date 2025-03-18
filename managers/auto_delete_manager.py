@@ -83,15 +83,15 @@ class AutoDeleteManager:
         
         logger.info("自动删除管理器初始化完成")
 
-        def set_bot(self, bot):
-        """
-        设置机器人实例
-        
-        参数:
-            bot: 机器人实例
-        """
-        self._bot = bot
-        logger.info("已为自动删除管理器设置机器人实例")
+    def set_bot(self, bot):
+    """
+    设置机器人实例
+    
+    参数:
+        bot: 机器人实例
+    """
+    self._bot = bot
+    logger.info("已为自动删除管理器设置机器人实例")
     
     async def _apply_default_settings(self):
         """应用默认自动删除设置"""
