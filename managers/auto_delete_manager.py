@@ -854,3 +854,62 @@ class ErrorTracker:
             最近的错误列表
         """
         return self.error_history[-count:] if self.error_history else []
+
+class ErrorTracker:
+    """
+    错误跟踪器
+    用于跟踪和记录系统中的错误
+    """
+    
+    def __init__(self):
+        """初始化错误跟踪器"""
+        self.errors = []
+        self.max_errors = 100  # 最多保存100条错误记录
+        
+    def record_error(self, error_type: str, exception: Exception, context: Optional[Dict[str, Any]] = None):
+        """
+        记录错误
+        
+        参数:
+            error_type: 错误类型
+            exception: 异常对象
+            context: 错误上下文信息
+        """
+        error_info = {
+            'type': error_type,
+            'message': str(exception),
+            'timestamp': datetime.now(),
+            'context': context or {}
+        }
+        
+        self.errors.append(error_info)
+        
+        # 如果错误记录超过最大数量，删除最旧的记录
+        if len(self.errors) > self.max_errors:
+            self.errors = self.errors[-self.max_errors:]
+            
+        logger.error(f"已记录错误: {error_type} - {exception}")
+        
+    def get_recent_errors(self, count: int = 10) -> List[Dict[str, Any]]:
+        """
+        获取最近的错误记录
+        
+        参数:
+            count: 返回的错误记录数量
+            
+        返回:
+            最近的错误记录列表
+        """
+        return self.errors[-count:]
+        
+    def get_errors_by_type(self, error_type: str) -> List[Dict[str, Any]]:
+        """
+        获取特定类型的错误记录
+        
+        参数:
+            error_type: 错误类型
+            
+        返回:
+            指定类型的错误记录列表
+        """
+        return [e for e in self.errors if e['type'] == error_type]
