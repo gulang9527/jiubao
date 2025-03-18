@@ -51,6 +51,7 @@ def register_all_handlers(application, callback_handler):
     application.add_handler(MessageHandler(filters.Document.ALL, handle_message))
     application.add_handler(MessageHandler(filters.ANIMATION, handle_message))
     application.add_handler(CommandHandler("checkstats", handle_check_stats_settings))
+    application.add_handler(CommandHandler("cleanupinvalidgroups", handle_cleanup_invalid_groups))
             
     
     # 添加简化的关键词和广播处理器
