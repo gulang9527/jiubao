@@ -1,14 +1,9 @@
 """
 机器人主程序入口文件，处理初始化、启动、停止等操作
+增强版本：集成自动删除、错误处理和恢复机制
 """
 import sys
 import os
-
-# 添加项目根目录到Python路径
-current_dir = os.path.dirname(os.path.abspath(__file__))  # 获取当前文件所在目录
-parent_dir = os.path.dirname(current_dir)                # 获取父目录（项目根目录）
-sys.path.insert(0, parent_dir)                           # 将项目根目录添加到Python路径
-
 import signal
 import asyncio
 import logging
@@ -16,22 +11,31 @@ import time
 import aiohttp
 from aiohttp import web
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
-from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application
-from telegram.error import BadRequest
+from typing import Optional, Dict, Any, List, Union
+from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from telegram.ext import Application, ContextTypes, CallbackContext
+from telegram.error import BadRequest, Forbidden, TelegramError, TimedOut, RetryAfter
+
+# 添加项目根目录到Python路径
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.insert(0, parent_dir)
+
 from db.database import Database
 from db.models import UserRole, GroupPermission
 from core.callback_handler import CallbackHandler
-from core.error_handler import ErrorHandler
+from managers.auto_delete_manager import (
+    AutoDeleteManager, MessageType, send_auto_delete_message, 
+    send_error_message, send_warning_message, send_success_message,
+    send_help_message, send_interaction_message, cancel_interaction,
+    validate_delete_timeout, ErrorTracker, RecoveryManager
+)
 from managers.settings_manager import SettingsManager
 from managers.stats_manager import StatsManager
-from managers.broadcast_manager import BroadcastManager
-from managers.keyword_manager import KeywordManager
-from utils.message_utils import validate_delete_timeout
 from config import (
     TELEGRAM_TOKEN, MONGODB_URI, MONGODB_DB, DEFAULT_SUPERADMINS,
-    DEFAULT_SETTINGS, BROADCAST_SETTINGS, KEYWORD_SETTINGS
+    DEFAULT_SETTINGS, BROADCAST_SETTINGS, KEYWORD_SETTINGS, 
+    WEB_HOST, WEB_PORT
 )
 
 # 配置日志
@@ -47,8 +51,13 @@ logger = logging.getLogger(__name__)
 
 class TelegramBot:
     """
-    Telegram机器人核心类，负责机器人的生命周期管理
+    增强版Telegram机器人核心类，负责机器人的生命周期管理
+    整合了自动删除、错误处理和恢复机制
     """
+    # 健康检查限流配置
+    _last_health_check_time = None
+    _health_check_min_interval = 10.0
+    
     def __init__(self):
         """初始化机器人实例"""
         self.db = None
@@ -64,12 +73,12 @@ class TelegramBot:
         self.keyword_manager = None
         self.broadcast_manager = None
         self.stats_manager = None
-        self.error_handler = None
+        self.error_tracker = None
         self.callback_handler = None
         self.auto_delete_manager = None
+        self.recovery_manager = None
+        self.recovery_system = None
         
-        # 时间校准管理器
-        self.calibration_manager = None
         # 最后活动时间，用于检测系统休眠
         self.last_active_time = datetime.now()
         
@@ -86,12 +95,6 @@ class TelegramBot:
                 return False
                 
             logger.info("开始初始化机器人")
-            
-            # 加载配置
-            from config import (
-                TELEGRAM_TOKEN, MONGODB_URI, MONGODB_DB, DEFAULT_SUPERADMINS,
-                DEFAULT_SETTINGS, BROADCAST_SETTINGS, KEYWORD_SETTINGS
-            )
             
             # 连接数据库
             try:
@@ -112,26 +115,57 @@ class TelegramBot:
             initialized = await self.db.get_system_flag("bot_initialized")
             apply_defaults = not initialized
             logger.info(f"机器人初始化状态: {'已初始化' if initialized else '首次初始化'}")
-                
-            # 初始化各个管理器
-            self.error_handler = ErrorHandler(logger)
-            self.callback_handler = CallbackHandler()
             
+            # 初始化错误跟踪器
+            self.error_tracker = ErrorTracker()
+            logger.info("错误跟踪器已初始化")
+            
+            # 初始化回调处理器
+            self.callback_handler = CallbackHandler()
+            logger.info("回调处理器已初始化")
+            
+            # 初始化设置管理器
             self.settings_manager = SettingsManager(self.db)
             await self.settings_manager.start(apply_defaults_if_missing=apply_defaults)
+            logger.info("设置管理器已初始化")
             
+            # 初始化关键词管理器
+            from managers.keyword_manager import KeywordManager
             self.keyword_manager = KeywordManager(self.db, apply_defaults=apply_defaults)
             
             # 注册内置关键词处理函数
             self.keyword_manager.register_built_in_handler('日排行', self._handle_daily_rank)
             self.keyword_manager.register_built_in_handler('月排行', self._handle_monthly_rank)
-            self.stats_manager = StatsManager(self.db)
-            logger.info(f"StatsManager方法列表: {[method for method in dir(self.stats_manager) if not method.startswith('_')]}")
+            logger.info("关键词管理器已初始化")
             
-            # 初始化 自动删除管理器
-            from managers.auto_delete_manager import AutoDeleteManager
+            # 初始化统计管理器
+            self.stats_manager = StatsManager(self.db)
+            logger.info("统计管理器已初始化")
+            
+            # 初始化自动删除管理器
             self.auto_delete_manager = AutoDeleteManager(self.db, apply_defaults=apply_defaults)
             logger.info("自动删除管理器已初始化")
+            
+            # 初始化应用程序
+            self.application = Application.builder().token(TELEGRAM_TOKEN).build()
+            
+            # 将bot实例存储在application的bot_data中，以便于在回调函数中访问
+            self.application.bot_data['bot_instance'] = self
+            
+            # 为自动删除管理器设置机器人实例
+            self.auto_delete_manager.set_bot(self.application.bot)
+            
+            # 注册处理函数
+            from handlers import register_all_handlers
+            register_all_handlers(self.application, self.callback_handler)
+            
+            # 初始化应用程序
+            await self.application.initialize()
+            
+            # 初始化恢复管理器（需要在应用程序初始化之后）
+            self.recovery_manager = RecoveryManager(self)
+            await self.recovery_manager.start()
+            logger.info("恢复管理器已初始化")
             
             # 尝试初始化增强版轮播功能
             try:
@@ -143,7 +177,7 @@ class TelegramBot:
                     from managers.enhanced_broadcast_manager import EnhancedBroadcastManager
                     # 创建增强版轮播管理器
                     self.broadcast_manager = EnhancedBroadcastManager(self.db, self, apply_defaults=apply_defaults)
-                    # ...其他初始化代码保持不变...
+                    logger.info("增强版轮播管理器已初始化")
                 else:
                     # 使用原始版轮播管理器
                     from managers.broadcast_manager import BroadcastManager
@@ -154,30 +188,17 @@ class TelegramBot:
                 # 使用原始版本的轮播管理器
                 from managers.broadcast_manager import BroadcastManager
                 self.broadcast_manager = BroadcastManager(self.db, self, apply_defaults=apply_defaults)
-                logger.warning("使用原始版本的轮播管理器")
+                logger.warning("降级使用原始版本的轮播管理器")
                         
             # 设置超级管理员
             for admin_id in DEFAULT_SUPERADMINS:
                 await self.db.add_user({'user_id': admin_id, 'role': UserRole.SUPERADMIN.value})
                 logger.info(f"已设置超级管理员: {admin_id}")
-                
-            # 初始化应用程序
-            self.application = Application.builder().token(TELEGRAM_TOKEN).build()
-            
-            # 将bot实例存储在application的bot_data中，以便于在回调函数中访问
-            self.application.bot_data['bot_instance'] = self
-            
-            # 注册处理函数
-            from handlers import register_all_handlers
-            register_all_handlers(self.application, self.callback_handler)
-            
-            # 初始化应用程序 - 移到这里，在设置webhook之前
-            await self.application.initialize()
             
             # 设置Web应用
             self.web_app = web.Application()
-            self.web_app.router.add_get('/', self.handle_healthcheck)
-            self.web_app.router.add_get('/health', self.handle_healthcheck)
+            self.web_app.router.add_get('/', self._handle_healthcheck)
+            self.web_app.router.add_get('/health', self._handle_healthcheck)
             
             # 设置Webhook
             webhook_domain = os.getenv('WEBHOOK_DOMAIN', 'your-render-app-name.onrender.com')
@@ -188,7 +209,6 @@ class TelegramBot:
             # 启动Web服务器
             self.web_runner = web.AppRunner(self.web_app)
             await self.web_runner.setup()
-            from config import WEB_HOST, WEB_PORT
             site = web.TCPSite(self.web_runner, WEB_HOST, WEB_PORT)
             await site.start()
             logger.info(f"Web服务器已在 {WEB_HOST}:{WEB_PORT} 启动")
@@ -207,7 +227,7 @@ class TelegramBot:
             logger.info("统计恢复系统已初始化")
             
             # 验证初始化
-            if not await self.verify_initialization():
+            if not await self._verify_initialization():
                 logger.error("初始化验证失败")
                 return False
                 
@@ -219,10 +239,8 @@ class TelegramBot:
             return False
 
     
-    async def verify_initialization(self):
+    async def _verify_initialization(self):
         """验证初始化是否成功"""
-        from config import DEFAULT_SUPERADMINS
-        
         # 验证超级管理员
         for admin_id in DEFAULT_SUPERADMINS:
             user = await self.db.get_user(admin_id)
@@ -236,7 +254,7 @@ class TelegramBot:
             await self.db.set_system_flag("bot_initialized", True)
             logger.info("已设置机器人初始化标志")
         
-        # 修改群组验证逻辑 - 不再要求必须有群组
+        # 记录群组数量
         groups = await self.db.find_all_groups()
         logger.info("初始化验证成功")
         logger.info(f"超级管理员: {DEFAULT_SUPERADMINS}")
@@ -252,7 +270,7 @@ class TelegramBot:
                 logger.error("机器人初始化失败")
                 return
                     
-            await bot.handle_signals()
+            await bot._handle_signals()
                 
             if not await bot.start():
                 logger.error("机器人启动失败")
@@ -282,13 +300,24 @@ class TelegramBot:
         # 检查并恢复统计数据
         try:
             logger.info("开始检查是否需要恢复统计数据...")
-            if hasattr(self, 'recovery_system'):
+            if self.recovery_system:
                 await self.recovery_system.check_and_recover()
         except Exception as e:
             logger.error(f"检查恢复统计数据时出错: {e}", exc_info=True)
             # 错误不影响机器人启动
-                    
-        # 启动应用 - 已在初始化时进行，这里只需要调用start
+        
+        # 设置活动时间监控中间件
+        async def activity_middleware(update: Update, context: CallbackContext):
+            # 更新活动时间
+            self.last_active_time = datetime.now()
+            if self.recovery_manager:
+                self.recovery_manager.update_activity()
+            return await update.next_handler(update, context)
+                
+        # 添加活动中间件
+        self.application.add_handler(activity_middleware, -999)  # 优先级最高
+            
+        # 启动应用
         await self.application.start()
         self.running = True
         
@@ -307,6 +336,11 @@ class TelegramBot:
         if self.shutdown_event:
             self.shutdown_event.set()
             
+        # 关闭恢复管理器
+        if self.recovery_manager:
+            logger.info("关闭恢复管理器")
+            await self.recovery_manager.shutdown()
+        
         # 停止设置管理器
         if self.settings_manager:
             logger.info("开始关闭设置管理器")
@@ -322,25 +356,13 @@ class TelegramBot:
             logger.info("开始关闭自动删除管理器")
             await self.auto_delete_manager.shutdown()
 
-        # 关闭时间校准管理器
-        if hasattr(self, 'calibration_manager') and self.calibration_manager:
-            logger.info("开始关闭时间校准管理器")
-            try:
-                await self.calibration_manager.stop()
-                logger.info("时间校准管理器已关闭")
-            except Exception as e:
-                logger.error(f"关闭时间校准管理器时出错: {e}", exc_info=True)
-        
-        # 修改关闭轮播管理器的部分:
+        # 关闭轮播管理器
         if self.broadcast_manager:
             logger.info("开始关闭轮播管理器")
             try:
                 # 检查是否是增强版轮播管理器
                 if hasattr(self.broadcast_manager, 'stop'):
                     await self.broadcast_manager.stop()
-                else:
-                    # 原始版本无需特殊关闭
-                    pass
                 logger.info("轮播管理器已关闭")
             except Exception as e:
                 logger.error(f"关闭轮播管理器时出错: {e}", exc_info=True)
@@ -385,9 +407,8 @@ class TelegramBot:
                 self.last_active_time = datetime.now()
                 
                 # 处理广播
-                if self.broadcast_manager:
-                    if hasattr(self.broadcast_manager, 'process_broadcasts'):
-                        await self.broadcast_manager.process_broadcasts()
+                if self.broadcast_manager and hasattr(self.broadcast_manager, 'process_broadcasts'):
+                    await self.broadcast_manager.process_broadcasts()
                     
                 # 每分钟检查一次
                 await asyncio.sleep(60)
@@ -397,11 +418,14 @@ class TelegramBot:
                 if drift > 120:  # 如果偏移超过2分钟
                     logger.warning(f"检测到系统可能休眠，时间偏移: {drift:.2f}秒")
                     # 如果使用增强版轮播管理器，它会自动处理
-                    if hasattr(self.broadcast_manager, 'force_check'):
+                    if self.broadcast_manager and hasattr(self.broadcast_manager, 'force_check'):
                         await self.broadcast_manager.force_check()
                 
+            except asyncio.CancelledError:
+                logger.info("轮播任务被取消")
+                break
             except Exception as e:
-                logger.error(f"轮播任务出错: {e}")
+                logger.error(f"轮播任务出错: {e}", exc_info=True)
                 await asyncio.sleep(60)
 
     def _check_time_drift(self):
@@ -428,13 +452,15 @@ class TelegramBot:
         async def cleanup_routine():
             while self.running:
                 try:
-                    from config import DEFAULT_SETTINGS
                     # 清理旧的统计数据
                     await self.db.cleanup_old_stats(days=DEFAULT_SETTINGS.get('cleanup_days', 30))
                     # 每天运行一次
                     await asyncio.sleep(24 * 60 * 60)
+                except asyncio.CancelledError:
+                    logger.info("清理任务被取消")
+                    break
                 except Exception as e:
-                    logger.error(f"清理任务出错: {e}")
+                    logger.error(f"清理任务出错: {e}", exc_info=True)
                     # 出错时一小时后重试
                     await asyncio.sleep(1 * 60 * 60)
                     
@@ -442,8 +468,6 @@ class TelegramBot:
 
     async def _start_ping_task(self):
         """启动自我ping任务，防止Render休眠"""
-        import aiohttp  # 确保在文件顶部有导入aiohttp
-        
         while self.running:
             try:
                 # 每10分钟访问一次自己的健康检查端点
@@ -455,11 +479,14 @@ class TelegramBot:
                 
                 # 每10分钟ping一次
                 await asyncio.sleep(10 * 60)
+            except asyncio.CancelledError:
+                logger.info("Ping任务被取消")
+                break
             except Exception as e:
-                logger.error(f"自我ping任务出错: {e}")
+                logger.error(f"自我ping任务出错: {e}", exc_info=True)
                 await asyncio.sleep(5 * 60)  # 出错后5分钟再试
     
-    async def handle_signals(self):
+    async def _handle_signals(self):
         """处理系统信号"""
         try:
             for sig in (signal.SIGTERM, signal.SIGINT):
@@ -490,14 +517,9 @@ class TelegramBot:
         # 然后执行正常关闭流程，但保持数据库连接
         logger.info("开始关闭应用程序，但保持数据库连接")
         await self.stop(close_db=False) 
-
-    # 添加简单的限流机制
-    _last_health_check_time = None
-    _health_check_min_interval = 10.0  # 最小间隔1秒
     
-    async def handle_healthcheck(self, request):
+    async def _handle_healthcheck(self, request):
         """健康检查处理函数"""
-        
         current_time = time.time()
         client_ip = request.remote
         user_agent = request.headers.get('User-Agent', 'Unknown')
@@ -506,12 +528,12 @@ class TelegramBot:
         if self._last_health_check_time is None or current_time - self._last_health_check_time > 60:
             logger.info(f"健康检查请求 - IP: {client_ip}, User-Agent: {user_agent}")
         
-        # 更严格的限流逻辑
+        # 限流逻辑
         if self._last_health_check_time is not None:
             time_diff = current_time - self._last_health_check_time
             if time_diff < self._health_check_min_interval:
                 logger.debug(f"健康检查请求频率过高: {time_diff:.2f}秒，延迟响应")
-                await asyncio.sleep(2.0)  # 更长的延迟时间
+                await asyncio.sleep(2.0)  # 延迟响应
         
         self._last_health_check_time = current_time
         
@@ -527,7 +549,7 @@ class TelegramBot:
                 
             # 解析更新数据
             update_data = await request.json()
-            logger.info(f"收到webhook更新: {update_data}")
+            logger.debug(f"收到webhook更新: {update_data}")
             
             # 检查应用程序是否已初始化和启动
             if not self.running or not hasattr(self.application, '_initialized') or not self.application._initialized:
@@ -539,14 +561,20 @@ class TelegramBot:
             if update:
                 # 处理更新
                 await self.application.process_update(update)
-                logger.info("成功处理更新")
+                logger.debug("成功处理更新")
             else:
                 logger.warning("收到无效的更新数据")
                 
             return web.Response(status=200)
             
+        except BadRequest as e:
+            logger.error(f"处理webhook BadRequest错误: {e}", exc_info=True)
+            return web.Response(status=400, text=str(e))
+        except Forbidden as e:
+            logger.error(f"处理webhook Forbidden错误: {e}", exc_info=True)
+            return web.Response(status=403, text=str(e))
         except Exception as e:
-            logger.error(f"处理webhook错误: {e}", exc_info=True)
+            logger.error(f"处理webhook一般错误: {e}", exc_info=True)
             return web.Response(status=500)
 
     async def is_superadmin(self, user_id: int) -> bool:
@@ -645,7 +673,6 @@ class TelegramBot:
             
             # 执行命令
             await handle_rank_command(fake_update, context)
-            # 返回'日排行'而不是'daily_rank_executed'，因为这是我们确定存在的关键词
             return "日排行"
         except Exception as e:
             logger.error(f"处理日排行关键词出错: {e}", exc_info=True)
@@ -682,15 +709,122 @@ class TelegramBot:
             
             # 执行命令
             await handle_rank_command(fake_update, context)
-            # 返回'月排行'而不是'monthly_rank_executed'
             return "月排行"
         except Exception as e:
             logger.error(f"处理月排行关键词出错: {e}", exc_info=True)
             return None
     
-    async def _schedule_delete(self, message, timeout: int):
+    # 消息发送方法，统一接口到auto_delete_manager
+    
+    async def send_auto_delete_message(self, chat_id: int, text: str, 
+                                     reply_markup: Optional[InlineKeyboardMarkup] = None,
+                                     message_type: str = MessageType.DEFAULT.value,
+                                     reply_to_message_id: Optional[int] = None,
+                                     parse_mode: Optional[str] = None,
+                                     disable_web_page_preview: bool = False,
+                                     timeout: Optional[int] = None) -> Optional[Message]:
+        """发送将自动删除的消息"""
+        return await send_auto_delete_message(
+            self.application.bot,
+            chat_id,
+            text,
+            reply_markup,
+            message_type,
+            reply_to_message_id,
+            parse_mode,
+            disable_web_page_preview,
+            timeout
+        )
+    
+    async def send_error_message(self, chat_id: int, text: str) -> Optional[Message]:
+        """发送错误消息（30秒后自动删除）"""
+        return await send_error_message(self.application.bot, chat_id, text)
+    
+    async def send_warning_message(self, chat_id: int, text: str) -> Optional[Message]:
+        """发送警告消息（30秒后自动删除）"""
+        return await send_warning_message(self.application.bot, chat_id, text)
+    
+    async def send_success_message(self, chat_id: int, text: str) -> Optional[Message]:
+        """发送成功消息（30秒后自动删除）"""
+        return await send_success_message(self.application.bot, chat_id, text)
+    
+    async def send_help_message(self, chat_id: int, text: str, 
+                              reply_markup: Optional[InlineKeyboardMarkup] = None) -> Optional[Message]:
+        """发送帮助消息（5分钟后自动删除）"""
+        return await send_help_message(self.application.bot, chat_id, text, reply_markup)
+    
+    async def send_interaction_message(self, chat_id: int, text: str, 
+                                     reply_markup: Optional[InlineKeyboardMarkup] = None) -> Optional[Message]:
+        """发送交互消息（3分钟后自动删除）"""
+        return await send_interaction_message(self.application.bot, chat_id, text, reply_markup)
+    
+    async def cancel_interaction(self, message: Message, text: str = "❌ 操作已取消") -> bool:
+        """取消交互并快速删除消息"""
+        return await cancel_interaction(message, text)
+    
+    # 设置更新方法
+    
+    async def update_group_settings_field(self, group_id: int, field_updates: Dict[str, Any]):
         """
-        计划删除消息 - 兼容现有代码的接口
+        安全更新群组设置字段
+        
+        参数:
+            group_id: 群组ID
+            field_updates: 要更新的字段及其值
+        """
+        try:
+            # 验证字段值
+            validated_updates = {}
+            
+            # 验证自动删除开关
+            if 'auto_delete' in field_updates:
+                validated_updates['auto_delete'] = bool(field_updates['auto_delete'])
+            
+            # 验证各类超时时间
+            timeout_fields = ['auto_delete_timeout']
+            for field in timeout_fields:
+                if field in field_updates:
+                    timeout = validate_delete_timeout(field_updates[field])
+                    validated_updates[field] = timeout
+            
+            # 验证超时时间字典
+            if 'auto_delete_timeouts' in field_updates:
+                timeouts = field_updates['auto_delete_timeouts']
+                if isinstance(timeouts, dict):
+                    validated_timeouts = {}
+                    for key, value in timeouts.items():
+                        validated_timeouts[key] = validate_delete_timeout(value)
+                    validated_updates['auto_delete_timeouts'] = validated_timeouts
+            else:
+                # 如果不是整个字典替换，检查是否有部分更新（例如auto_delete_timeouts.command）
+                for key in list(field_updates.keys()):
+                    if key.startswith('auto_delete_timeouts.'):
+                        # 提取类型名
+                        type_name = key.split('.')[1]
+                        # 验证时间
+                        timeout = validate_delete_timeout(field_updates[key])
+                        # 添加到验证过的更新
+                        validated_updates[key] = timeout
+            
+            # 使用验证后的值更新数据库
+            await self.db.update_group_settings_field(group_id, validated_updates)
+            logger.info(f"已更新群组 {group_id} 的设置: {validated_updates}")
+            return True
+        except Exception as e:
+            logger.error(f"更新群组设置字段失败: {e}", exc_info=True)
+            # 出错时，记录到错误跟踪器
+            if self.error_tracker:
+                self.error_tracker.record_error("settings_update", e, {
+                    'group_id': group_id,
+                    'field_updates': field_updates
+                })
+            return False
+
+    # 统一接口方法，将老代码中的_schedule_delete重定向到auto_delete_manager
+    
+    async def schedule_delete(self, message: Message, timeout: int = 300):
+        """
+        计划删除消息（兼容接口）
         
         参数:
             message: 要删除的消息
@@ -698,15 +832,18 @@ class TelegramBot:
         """
         if self.auto_delete_manager:
             # 使用自动删除管理器
-            group_id = message.chat.id if message.chat else None
-            await self.auto_delete_manager.schedule_delete(message, 'default', group_id, timeout)
+            chat_id = message.chat.id if message.chat else None
+            return await self.auto_delete_manager.schedule_delete(message, 'default', chat_id, timeout)
         else:
-            # 旧的实现方式，以防自动删除管理器不可用
-            await asyncio.sleep(timeout)
+            # 应急情况：自动删除管理器不可用时的备用实现
             try:
+                await asyncio.sleep(timeout)
                 await message.delete()
+                return True
             except Exception as e:
                 logger.error(f"删除消息失败: {e}")
+                return False
+
 
 # 启动函数
 if __name__ == '__main__':
