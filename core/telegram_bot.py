@@ -15,6 +15,8 @@ from typing import Optional, Dict, Any, List, Union
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from telegram.ext import Application, ContextTypes, CallbackContext
 from telegram.error import BadRequest, Forbidden, TelegramError, TimedOut, RetryAfter
+from telegram.ext import MessageHandler, filters
+from managers.recovery_manager import RecoveryManager
 
 # 添加项目根目录到Python路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -50,6 +52,21 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+class ActivityMiddleware:
+    """活动时间监控中间件类"""
+    
+    def __init__(self, bot_instance=None):
+        self.bot_instance = bot_instance
+    
+    async def __call__(self, update, context, *args, **kwargs):
+        """每次收到更新时执行此方法"""
+        if self.bot_instance:
+            self.bot_instance.last_active_time = datetime.now()
+            if self.bot_instance.recovery_manager:
+                self.bot_instance.recovery_manager.update_activity()
+        return await context.next_handler(update, context)
+        
 class TelegramBot:
     """
     增强版Telegram机器人核心类，负责机器人的生命周期管理
@@ -320,7 +337,7 @@ class TelegramBot:
         if not self.application:
             logger.error("机器人未初始化")
             return False
-
+    
         # 检查并恢复统计数据
         try:
             logger.info("开始检查是否需要恢复统计数据...")
@@ -330,16 +347,17 @@ class TelegramBot:
             logger.error(f"检查恢复统计数据时出错: {e}", exc_info=True)
             # 错误不影响机器人启动
         
-        # 设置活动时间监控中间件
-        async def activity_middleware(update: Update, context: CallbackContext):
+        # 添加活动时间更新处理器
+        async def activity_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # 更新活动时间
             self.last_active_time = datetime.now()
             if self.recovery_manager:
                 self.recovery_manager.update_activity()
-            return await update.next_handler(update, context)
-                
-        # 添加活动中间件
-        self.application.middleware.append(ActivityMiddleware())
+            # 不阻止更新继续传递给其他处理器
+            return None
+        
+        # 将处理器添加到最高优先级组
+        self.application.add_handler(MessageHandler(filters.ALL, activity_handler), group=-999)
             
         # 启动应用
         await self.application.start()
