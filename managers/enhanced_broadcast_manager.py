@@ -15,13 +15,14 @@ logger = logging.getLogger(__name__)
 class EnhancedBroadcastManager:
     """增强版轮播消息管理器"""
     
-    def __init__(self, db, bot_instance):
+    def __init__(self, db, bot_instance, apply_defaults=True):
         """
         初始化轮播消息管理器
         
         参数:
             db: 数据库实例
             bot_instance: 机器人实例
+            apply_defaults: 是否应用默认设置
         """
         self.db = db
         self.bot_instance = bot_instance
@@ -33,6 +34,21 @@ class EnhancedBroadcastManager:
         self._check_interval = 30  # 默认每30秒检查一次
         self._last_check_time = datetime.now()
         self._startup_time = datetime.now()  # 记录启动时间，用于休眠检测
+        
+        # 只在首次初始化时应用默认设置
+        if apply_defaults:
+            asyncio.create_task(self._apply_default_settings())
+            
+    async def _apply_default_settings(self):
+        """应用默认轮播设置"""
+        try:
+            from config import BROADCAST_SETTINGS
+            logger.info("应用默认增强轮播设置...")
+            
+            # 应用默认设置的逻辑
+            # 这里根据需要添加增强轮播的默认设置
+        except Exception as e:
+            logger.error(f"应用默认增强轮播设置失败: {e}", exc_info=True)
         
     async def start(self):
         """启动轮播消息管理器"""
