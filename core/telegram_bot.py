@@ -594,7 +594,7 @@ class TelegramBot:
             logger.debug(f"收到webhook更新: {update_data}")
             
             # 检查应用程序是否已初始化和启动
-            if not self.running or not hasattr(self.application, '_initialized') or not self.application._initialized:
+            if not self.running or self.application is None:
                 logger.warning("应用程序尚未完全初始化，暂时无法处理更新")
                 return web.Response(status=503, text="Bot not fully initialized yet")
             
