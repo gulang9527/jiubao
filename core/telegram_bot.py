@@ -30,6 +30,7 @@ from managers.auto_delete_manager import (
     send_help_message, send_interaction_message, cancel_interaction,
     validate_delete_timeout, ErrorTracker, RecoveryManager
 )
+from managers.recovery_manager import RecoveryManager
 from managers.settings_manager import SettingsManager
 from managers.stats_manager import StatsManager
 from config import (
