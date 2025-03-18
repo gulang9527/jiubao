@@ -971,3 +971,26 @@ async def handle_add_default_keywords(update: Update, context: CallbackContext):
         count += 1
     
     await update.message.reply_text(f"✅ 已为 {count} 个群组添加默认关键词")
+
+@check_command_usage
+@require_superadmin
+async def handle_cleanup_invalid_groups(update: Update, context: CallbackContext):
+    """处理/cleanupinvalidgroups命令 - 清理无效的群组"""
+    bot_instance = context.application.bot_data.get('bot_instance')
+    
+    try:
+        # 确认操作
+        await update.message.reply_text(
+            "⚠️ 此操作将删除所有无效的群组记录，包括:\n"
+            "- 群组ID为0或空的记录\n"
+            "- 群组ID为正数的记录\n"
+            "- 群组ID为默认值(-1001234567890)的记录\n\n"
+            "请回复 'confirm' 确认执行，或 'cancel' 取消操作"
+        )
+        
+        # 设置等待确认状态
+        context.user_data['waiting_for_cleanup_confirm'] = True
+        return
+    except Exception as e:
+        logger.error(f"清理无效群组命令出错: {e}", exc_info=True)
+        await update.message.reply_text(f"❌ 命令处理出错: {str(e)}")
