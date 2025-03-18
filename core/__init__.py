@@ -1,7 +1,6 @@
 """
 核心模块初始化文件
 """
-from core.telegram_bot import TelegramBot
 from core.callback_handler import CallbackHandler
 from core.error_handler import ErrorHandler
 from core.state_machine import (
@@ -20,3 +19,5 @@ __all__ = [
     'FormStateMachine',
     'StateMachineManager'
 ]
+
+from core.telegram_bot import TelegramBot
