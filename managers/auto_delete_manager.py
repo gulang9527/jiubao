@@ -17,16 +17,57 @@ class AutoDeleteManager:
     负责处理消息的自动删除功能
     """
     
-    def __init__(self, db):
+    def __init__(self, db, apply_defaults=True):
         """
         初始化自动删除管理器
         
         参数:
             db: 数据库实例
+            apply_defaults: 是否应用默认设置
         """
         self.db = db
         self.delete_tasks = {}  # 存储删除任务 {message_id: task}
+        
+        # 只在首次初始化时应用默认设置
+        if apply_defaults:
+            asyncio.create_task(self._apply_default_settings())
+        
         logger.info("自动删除管理器初始化完成")
+        
+    async def _apply_default_settings(self):
+        """应用默认自动删除设置"""
+        try:
+            from config import AUTO_DELETE_SETTINGS
+            logger.info("应用默认自动删除设置...")
+            
+            # 获取所有群组
+            groups = await self.db.find_all_groups()
+            
+            for group in groups:
+                group_id = group.get('group_id')
+                settings = await self.db.get_group_settings(group_id)
+                
+                # 只在设置不存在时应用默认值
+                if 'auto_delete' not in settings:
+                    settings['auto_delete'] = AUTO_DELETE_SETTINGS.get('default_enabled', False)
+                
+                if 'auto_delete_timeout' not in settings:
+                    settings['auto_delete_timeout'] = AUTO_DELETE_SETTINGS.get('default_timeout', 300)
+                
+                # 确保 auto_delete_timeouts 存在
+                if 'auto_delete_timeouts' not in settings:
+                    settings['auto_delete_timeouts'] = {
+                        'default': settings.get('auto_delete_timeout', 300),
+                        'keyword': settings.get('auto_delete_timeout', 300),
+                        'broadcast': settings.get('auto_delete_timeout', 300),
+                        'ranking': settings.get('auto_delete_timeout', 300),
+                        'command': settings.get('auto_delete_timeout', 300)
+                    }
+                
+                await self.db.update_group_settings(group_id, settings)
+                logger.info(f"已更新群组 {group_id} 的自动删除设置")
+        except Exception as e:
+            logger.error(f"应用默认自动删除设置失败: {e}", exc_info=True)
         
     async def schedule_delete(self, message: Message, message_type: str = 'default', group_id: Optional[int] = None, custom_timeout: Optional[int] = None):
         """
