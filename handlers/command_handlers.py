@@ -61,6 +61,7 @@ async def handle_start(update: Update, context: CallbackContext):
             "✅ /authgroup <群组ID> - 授权群组\n"
             "❌ /deauthgroup <群组ID> - 取消群组授权\n"
             "🔍 /checkconfig - 检查当前配置\n"
+            "🧹 /cleanupinvalidgroups - 清理无效群组\n"
         )
         
     welcome_text += "\n如需帮助，请联系管理员。"
