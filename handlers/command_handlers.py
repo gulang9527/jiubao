@@ -236,7 +236,7 @@ async def get_message_stats_from_db(group_id: int, time_range: str = 'day', limi
 
 async def format_rank_rows(stats, page, group_id, context):
     """
-    格式化排行榜行数据，考虑中英文字符宽度差异
+    格式化排行榜行数据，考虑中英文字符宽度差异，使用普通文本（非链接）显示用户名
     
     参数:
         stats: 统计数据
@@ -281,8 +281,8 @@ async def format_rank_rows(stats, page, group_id, context):
         if original_width > MAX_NAME_WIDTH:
             display_name = truncate_string_by_width(display_name, MAX_NAME_WIDTH)
         
-        # 创建带链接的用户名
-        user_mention = f'<a href="tg://user?id={stat["_id"]}">{display_name}</a>'
+        # 使用普通文本显示用户名（不带链接）
+        # 移除了之前的用户链接代码: user_mention = f'<a href="tg://user?id={stat["_id"]}">{display_name}</a>'
         
         # 检查是否有奖牌
         has_medal = rank_prefix != ""
@@ -306,10 +306,10 @@ async def format_rank_rows(stats, page, group_id, context):
             
         if has_medal:
             # 对于有奖牌的行，确保序号和名字对齐
-            row = f"{rank_prefix}{i}. {user_mention}{space_padding}{message_count}"
+            row = f"{rank_prefix}{i}. {display_name}{space_padding}{message_count}"
         else:
             # 对于没有奖牌的行，增加两个空格保持对齐
-            row = f"  {i}. {user_mention}{space_padding}{message_count}"
+            row = f"  {i}. {display_name}{space_padding}{message_count}"
         
         rows.append(row)
     
