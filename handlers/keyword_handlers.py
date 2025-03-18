@@ -885,10 +885,14 @@ async def submit_keyword_form(update: Update, context: CallbackContext):
             del context.user_data['waiting_for']
         
         # 显示成功消息
+        keyboard = [
+            [InlineKeyboardButton("返回关键词设置", callback_data=f"settings_keywords_{form_data['group_id']}")]
+        ]
         await update.callback_query.edit_message_text(
             "✅ 关键词添加成功！\n\n"
             f"关键词: {pattern}\n"
-            f"匹配类型: {'精确匹配' if keyword_data['type'] == 'exact' else '正则匹配'}"
+            f"匹配类型: {'精确匹配' if keyword_data['type'] == 'exact' else '正则匹配'}",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
     except Exception as e:
         logger.error(f"添加关键词错误: {e}")
