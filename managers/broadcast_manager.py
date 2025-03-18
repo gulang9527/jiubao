@@ -14,16 +14,32 @@ class BroadcastManager:
     """
     轮播消息管理器，处理定时消息的发送
     """
-    def __init__(self, db, bot_instance):
+    def __init__(self, db, bot_instance, apply_defaults=True):
         """
         初始化轮播消息管理器
         
         参数:
             db: 数据库实例
             bot_instance: 机器人实例
+            apply_defaults: 是否应用默认设置
         """
         self.db = db
         self.bot = bot_instance
+        
+        # 只在首次初始化时应用默认设置
+        if apply_defaults:
+            asyncio.create_task(self._apply_default_settings())
+            
+    async def _apply_default_settings(self):
+        """应用默认轮播设置"""
+        try:
+            from config import BROADCAST_SETTINGS
+            logger.info("应用默认轮播设置...")
+            
+            # 应用默认设置的逻辑
+            # 这里根据需要添加轮播消息的默认设置
+        except Exception as e:
+            logger.error(f"应用默认轮播设置失败: {e}", exc_info=True)
         
     async def add_broadcast(self, broadcast_data: Dict[str, Any]) -> Optional[str]:
         """
