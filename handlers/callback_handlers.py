@@ -42,14 +42,6 @@ async def handle_callback(update: Update, context: CallbackContext):
 
 @handle_callback_errors
 async def handle_manageable_groups_callback(update: Update, context: CallbackContext, data: str = None):
-    """
-    处理显示可管理群组的回调
-    
-    参数:
-        update: 更新对象
-        context: 上下文对象
-        data: 回调数据
-    """
     query = update.callback_query
     bot_instance = context.application.bot_data.get('bot_instance')
     
@@ -61,19 +53,12 @@ async def handle_manageable_groups_callback(update: Update, context: CallbackCon
     
     # 获取用户可管理的群组
     try:
-        # 获取用户权限
+        # 获取用户可管理的群组 - 修改这里
         manageable_groups = await bot_instance.db.get_manageable_groups(user_id)
-        superadmin = await bot_instance.db.is_superadmin(user_id)
+        # 检查是否为超级管理员 - 修改这里
+        superadmin = await bot_instance.is_superadmin(user_id)
         
-        # 如果是超级管理员，获取所有授权群组
-        if superadmin:
-            authorized_groups = await bot_instance.db.get_all_authorized_groups()
-        else:
-            authorized_groups = []
-            
-        # 合并管理员群组和授权群组
-        manageable_groups = admin_groups + [g for g in authorized_groups if g not in admin_groups]
-        
+        # 无需使用 get_all_authorized_groups - 直接使用已有的方法
         if not manageable_groups:
             # 没有可管理的群组
             await query.edit_message_text(
@@ -85,9 +70,15 @@ async def handle_manageable_groups_callback(update: Update, context: CallbackCon
         # 构建群组选择按钮
         keyboard = []
         for group in manageable_groups:
-            group_id = group['id']
-            group_title = group.get('title', f"群组 {group_id}")
-            keyboard.append([InlineKeyboardButton(group_title, callback_data=f"settings_*_group_{group_id}")])
+            group_id = group['group_id']
+            # 尝试获取群组名称
+            try:
+                group_info = await context.bot.get_chat(group_id)
+                group_title = group_info.title or f"群组 {group_id}"
+            except Exception:
+                group_title = f"群组 {group_id}"
+                
+            keyboard.append([InlineKeyboardButton(group_title, callback_data=f"settings_select_{group_id}")])
         
         # 添加一个返回按钮
         keyboard.append([InlineKeyboardButton("返回", callback_data="settings")])
