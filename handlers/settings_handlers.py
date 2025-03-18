@@ -168,9 +168,12 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
     if action == "toggle":
         # 切换自动删除开关
         current_value = settings.get('auto_delete', False)
-        settings['auto_delete'] = not current_value
-        logger.info(f"切换自动删除状态，从 {current_value} 到 {settings['auto_delete']}")
-        await bot_instance.db.update_group_settings(group_id, settings)
+        new_value = not current_value
+        logger.info(f"切换自动删除状态，从 {current_value} 到 {new_value}")
+        
+        # 使用增量更新
+        await bot_instance.db.update_group_settings_field(group_id, {'auto_delete': new_value})
+        
         # 重新获取最新设置
         settings = await bot_instance.db.get_group_settings(group_id)
         await show_auto_delete_settings(bot_instance, query, group_id, settings)
