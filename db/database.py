@@ -393,6 +393,46 @@ class Database:
                     logger.error(f"删除群组失败: {e}", exc_info=True)
                     raise
 
+    async def cleanup_invalid_groups(self):
+        """
+        清理所有群组ID不合法的群组
+        
+        群组ID不合法的情况:
+        1. 群组ID为0或null
+        2. 群组ID为正数(应该是负数)
+        3. 群组ID为默认值-1001234567890
+        
+        返回:
+            删除的群组数量
+        """
+        await self.ensure_connected()
+        try:
+            # 查找所有需要删除的群组
+            groups_to_delete = await self.db.groups.find({
+                "$or": [
+                    {"group_id": 0},
+                    {"group_id": None},
+                    {"group_id": {"$gt": 0}},  # 群组ID应该是负数
+                    {"group_id": -1001234567890}  # 默认群组ID
+                ]
+            }).to_list(None)
+            
+            deleted_count = 0
+            # 删除这些群组
+            for group in groups_to_delete:
+                group_id = group.get('group_id')
+                try:
+                    logger.info(f"删除无效群组: ID={group_id}, 数据={group}")
+                    await self.remove_group(group_id)
+                    deleted_count += 1
+                except Exception as e:
+                    logger.error(f"删除群组 {group_id} 时出错: {e}", exc_info=True)
+            
+            return deleted_count
+        except Exception as e:
+            logger.error(f"清理无效群组失败: {e}", exc_info=True)
+            return 0
+
     async def get_group(self, group_id: int) -> Optional[Dict[str, Any]]:
         """
         获取群组信息
