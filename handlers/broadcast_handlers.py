@@ -89,6 +89,10 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
             else:
                 action = f"set_{parts[2]}"
             logger.info(f"检测到设置操作: {action}")
+        # 添加这个检查，处理自定义轮播设置操作
+        elif parts[1] == "set" and parts[2] == "custom" and len(parts) > 3 and parts[3] in ["fixed", "normal"]:
+            action = f"set_custom_{parts[3]}"
+            logger.info(f"检测到自定义轮播设置操作: {action}")
         # 最后，如果以上条件都不满足，才考虑使用默认的 parts[2]
         else:
             action = parts[2]
