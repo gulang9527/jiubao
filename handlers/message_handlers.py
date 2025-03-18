@@ -38,6 +38,28 @@ async def handle_message(update: Update, context: CallbackContext):
         logger.info(f"用户 {user_id} 的上下文数据: {context.user_data}")
     
     logger.debug(f"处理消息 - 用户ID: {user_id}, 群组ID: {group_id}, 消息类型: {get_media_type(message) or 'text'}")
+
+    # 处理确认删除无效群组
+    if context.user_data.get('waiting_for_cleanup_confirm'):
+        if message.text.lower() == 'confirm':
+            # 清除等待状态
+            del context.user_data['waiting_for_cleanup_confirm']
+            
+            # 执行清理
+            await message.reply_text("🔄 正在清理无效群组...")
+            try:
+                count = await bot_instance.db.cleanup_invalid_groups()
+                await message.reply_text(f"✅ 已成功清理 {count} 个无效群组")
+            except Exception as e:
+                logger.error(f"执行清理无效群组时出错: {e}", exc_info=True)
+                await message.reply_text(f"❌ 清理过程中出错: {str(e)}")
+        elif message.text.lower() == 'cancel':
+            # 清除等待状态
+            del context.user_data['waiting_for_cleanup_confirm']
+            await message.reply_text("❌ 已取消清理操作")
+        else:
+            await message.reply_text("请回复 'confirm' 确认执行，或 'cancel' 取消操作")
+        return
     
     # 处理表单输入
     if await handle_form_input(update, context):
