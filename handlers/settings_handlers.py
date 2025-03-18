@@ -149,20 +149,34 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
         
     action = parts[0]
     
-    # 获取群组ID
+    # 获取群组ID或用户ID，区分私聊和群组
     try:
-        group_id = int(parts[-1])
+        # 获取最后一个参数，可能是群组ID也可能是超时时间
+        last_param = int(parts[-1])
+        
+        # 判断是群组ID还是私聊
+        is_group = last_param < 0  # 群组ID是负数
+        
+        # 如果是私聊，则使用用户ID而不是最后一个参数
+        if not is_group and update.effective_chat and update.effective_chat.type == 'private':
+            chat_id = update.effective_chat.id
+            logger.info(f"私聊设置，使用用户ID: {chat_id}，而不是回调参数: {last_param}")
+        else:
+            # 若是群组，则使用last_param作为群组ID
+            chat_id = last_param
+            logger.info(f"群组设置，使用群组ID: {chat_id}")
     except (ValueError, IndexError):
-        await query.edit_message_text("❌ 无效的群组ID")
+        await query.edit_message_text("❌ 无效的ID参数")
         return
     
-    # 验证用户权限
-    if not await bot_instance.db.can_manage_group(update.effective_user.id, group_id):
-        await query.edit_message_text("❌ 你没有权限管理此群组")
-        return
+    # 验证用户权限（如果是群组）
+    if chat_id < 0:  # 只有群组ID是负数
+        if not await bot_instance.db.can_manage_group(update.effective_user.id, chat_id):
+            await query.edit_message_text("❌ 你没有权限管理此群组")
+            return
         
-    # 获取群组设置
-    settings = await bot_instance.db.get_group_settings(group_id)
+    # 获取设置
+    settings = await bot_instance.db.get_group_settings(chat_id)
     
     # 处理不同的操作
     if action == "toggle":
@@ -172,11 +186,11 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
         logger.info(f"切换自动删除状态，从 {current_value} 到 {new_value}")
         
         # 使用增量更新
-        await bot_instance.db.update_group_settings_field(group_id, {'auto_delete': new_value})
+        await bot_instance.db.update_group_settings_field(chat_id, {'auto_delete': new_value})
         
         # 重新获取最新设置
-        settings = await bot_instance.db.get_group_settings(group_id)
-        await show_auto_delete_settings(bot_instance, query, group_id, settings)
+        settings = await bot_instance.db.get_group_settings(chat_id)
+        await show_auto_delete_settings(bot_instance, query, chat_id, settings)
     
     elif action == "type":
         # 处理特定类型的超时设置
@@ -186,8 +200,8 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
             
         message_type = parts[1]
         # 始终获取最新设置
-        settings = await bot_instance.db.get_group_settings(group_id)
-        await show_type_timeout_settings(bot_instance, query, group_id, message_type, settings)
+        settings = await bot_instance.db.get_group_settings(chat_id)
+        await show_type_timeout_settings(bot_instance, query, chat_id, message_type, settings)
     
     elif action == "set_type_timeout":
         # 设置特定类型的超时时间
@@ -196,10 +210,16 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
             return
             
         message_type = parts[1]
-        timeout = int(parts[3])
+        
+        # 获取正确的超时时间，应该在回调数据的特定位置
+        try:
+            timeout = int(parts[3])
+        except (ValueError, IndexError):
+            await query.edit_message_text("❌ 无效的超时时间参数")
+            return
         
         # 获取当前设置以检查 auto_delete_timeouts 是否存在
-        settings = await bot_instance.db.get_group_settings(group_id)
+        settings = await bot_instance.db.get_group_settings(chat_id)
         
         # 记录操作前的自动删除状态
         auto_delete_enabled = settings.get('auto_delete', False)
@@ -208,7 +228,7 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
         # 如果 auto_delete_timeouts 不存在，先创建它
         if 'auto_delete_timeouts' not in settings:
             default_timeout = settings.get('auto_delete_timeout', 300)
-            await bot_instance.db.update_group_settings_field(group_id, {
+            await bot_instance.db.update_group_settings_field(chat_id, {
                 'auto_delete_timeouts': {
                     'default': default_timeout,
                     'keyword': default_timeout,
@@ -221,20 +241,20 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
         # 只更新特定类型的超时时间，不修改自动删除开关状态
         logger.info(f"只更新 {message_type} 的超时时间为 {timeout}，保持自动删除状态不变")
         await bot_instance.db.update_group_settings_field(
-            group_id, 
+            chat_id, 
             {f'auto_delete_timeouts.{message_type}': timeout}
         )
         
         # 如果自动删除状态被意外修改，确保它保持原来的值
-        current_settings = await bot_instance.db.get_group_settings(group_id)
+        current_settings = await bot_instance.db.get_group_settings(chat_id)
         current_auto_delete = current_settings.get('auto_delete', False)
         
         if current_auto_delete != auto_delete_enabled:
             logger.warning(f"自动删除状态被意外修改，从 {auto_delete_enabled} 变为 {current_auto_delete}，正在恢复...")
-            await bot_instance.db.update_group_settings_field(group_id, {'auto_delete': auto_delete_enabled})
+            await bot_instance.db.update_group_settings_field(chat_id, {'auto_delete': auto_delete_enabled})
         
         # 重新获取最新设置
-        settings = await bot_instance.db.get_group_settings(group_id)
+        settings = await bot_instance.db.get_group_settings(chat_id)
         
         # 验证设置是否正确保存
         final_auto_delete = settings.get('auto_delete', False)
@@ -242,7 +262,7 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
         logger.info(f"设置后的状态: auto_delete={final_auto_delete}, {message_type}_timeout={final_timeout}")
         
         # 显示更新后的设置
-        await show_auto_delete_settings(bot_instance, query, group_id, settings)
+        await show_auto_delete_settings(bot_instance, query, chat_id, settings)
         
     elif action == "custom_type_timeout":
         # 设置自定义类型超时
@@ -256,7 +276,7 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
         await bot_instance.settings_manager.start_setting(
             update.effective_user.id, 
             f'auto_delete_type_timeout_{message_type}', 
-            group_id
+            chat_id
         )
         
         # 获取类型名称
@@ -278,29 +298,37 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
         
     elif action == "timeout":
         # 显示超时时间设置菜单
-        await show_timeout_settings(bot_instance, query, group_id, settings)
+        await show_timeout_settings(bot_instance, query, chat_id, settings)
         
     elif action == "set_timeout":
         # 设置特定的超时时间
         if len(parts) < 2:
             await query.edit_message_text("❌ 无效的超时时间")
             return
-            
-        timeout = int(parts[1])
         
+        try:
+            # 超时时间应该是parts[1]，不是parts[-1]
+            if len(parts) >= 3:
+                timeout = int(parts[2])
+            else:
+                timeout = int(parts[1])
+        except (ValueError, IndexError):
+            await query.edit_message_text("❌ 无效的超时时间参数")
+            return
+            
         # 使用增量更新
-        await bot_instance.db.update_group_settings_field(group_id, {'auto_delete_timeout': timeout})
+        await bot_instance.db.update_group_settings_field(chat_id, {'auto_delete_timeout': timeout})
         
         # 重新获取最新设置
-        settings = await bot_instance.db.get_group_settings(group_id)
-        await show_auto_delete_settings(bot_instance, query, group_id, settings)
+        settings = await bot_instance.db.get_group_settings(chat_id)
+        await show_auto_delete_settings(bot_instance, query, chat_id, settings)
         
     elif action == "custom_timeout":
         # 启动自定义超时时间设置
         await bot_instance.settings_manager.start_setting(
             update.effective_user.id, 
             'auto_delete_timeout', 
-            group_id
+            chat_id
         )
         await query.edit_message_text(
             "请输入自定义超时时间（单位：秒）：\n"
@@ -311,20 +339,27 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
     
     elif action == "back_to_menu":
         # 返回到设置菜单，不改变任何设置
-        await show_settings_menu(bot_instance, query, group_id)
+        await show_settings_menu(bot_instance, query, chat_id)
     
     elif action == "back_to_settings":
         # 返回到自动删除设置页面，不改变任何设置
-        settings = await bot_instance.db.get_group_settings(group_id)
-        await show_auto_delete_settings(bot_instance, query, group_id, settings)
+        settings = await bot_instance.db.get_group_settings(chat_id)
+        await show_auto_delete_settings(bot_instance, query, chat_id, settings)
         
     else:
         logger.warning(f"未知的自动删除操作: {action}")
         await query.edit_message_text(f"❌ 未知的自动删除操作: {action}")
         
-async def show_type_timeout_settings(bot_instance, query, group_id: int, message_type: str, settings: Dict[str, Any]):
+async def show_type_timeout_settings(bot_instance, query, chat_id: int, message_type: str, settings: Dict[str, Any]):
     """
     显示特定消息类型的超时时间设置菜单
+    
+    参数:
+        bot_instance: 机器人实例
+        query: 回调查询
+        chat_id: 群组ID或用户ID
+        message_type: 消息类型
+        settings: 群组设置
     """
     # 获取当前超时设置
     timeouts = settings.get('auto_delete_timeouts', {})
@@ -341,21 +376,21 @@ async def show_type_timeout_settings(bot_instance, query, group_id: int, message
     }
     type_name = type_names.get(message_type, message_type)
     
-    # 构建选择键盘
+    # 构建选择键盘，确保回调数据中包含正确的chat_id和超时时间
     keyboard = [
         [InlineKeyboardButton(f"{'✅' if current_timeout == 300 else ' '} 5分钟", 
-                           callback_data=f"auto_delete:set_type_timeout:{message_type}:{group_id}:300")],
+                          callback_data=f"auto_delete:set_type_timeout:{message_type}:{chat_id}:300")],
         [InlineKeyboardButton(f"{'✅' if current_timeout == 600 else ' '} 10分钟", 
-                           callback_data=f"auto_delete:set_type_timeout:{message_type}:{group_id}:600")],
+                          callback_data=f"auto_delete:set_type_timeout:{message_type}:{chat_id}:600")],
         [InlineKeyboardButton(f"{'✅' if current_timeout == 1800 else ' '} 30分钟", 
-                           callback_data=f"auto_delete:set_type_timeout:{message_type}:{group_id}:1800")],
+                          callback_data=f"auto_delete:set_type_timeout:{message_type}:{chat_id}:1800")],
         [InlineKeyboardButton(f"{'✅' if current_timeout == 3600 else ' '} 1小时", 
-                           callback_data=f"auto_delete:set_type_timeout:{message_type}:{group_id}:3600")],
+                          callback_data=f"auto_delete:set_type_timeout:{message_type}:{chat_id}:3600")],
         [InlineKeyboardButton(f"{'✅' if current_timeout == 7200 else ' '} 2小时", 
-                           callback_data=f"auto_delete:set_type_timeout:{message_type}:{group_id}:7200")],
+                          callback_data=f"auto_delete:set_type_timeout:{message_type}:{chat_id}:7200")],
         [InlineKeyboardButton("自定义", 
-                           callback_data=f"auto_delete:custom_type_timeout:{message_type}:{group_id}")],
-        [InlineKeyboardButton("返回", callback_data=f"auto_delete:back_to_settings:{group_id}")]
+                          callback_data=f"auto_delete:custom_type_timeout:{message_type}:{chat_id}")],
+        [InlineKeyboardButton("返回", callback_data=f"auto_delete:back_to_settings:{chat_id}")]
     ]
     
     await query.edit_message_text(
@@ -639,18 +674,18 @@ async def show_feature_switches(bot_instance, query, group_id: int):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-async def show_auto_delete_settings(bot_instance, query, group_id: int, settings: Optional[Dict[str, Any]] = None):
+async def show_auto_delete_settings(bot_instance, query, chat_id: int, settings: Optional[Dict[str, Any]] = None):
     """
     显示自动删除设置
     
     参数:
         bot_instance: 机器人实例
         query: 回调查询
-        group_id: 群组ID或用户ID（负数为群组，正数为用户）
+        chat_id: 群组ID或用户ID（负数为群组，正数为私聊用户）
         settings: 群组设置
     """
     if settings is None:
-        settings = await bot_instance.db.get_group_settings(group_id)
+        settings = await bot_instance.db.get_group_settings(chat_id)
         
     # 获取自动删除状态
     auto_delete_enabled = settings.get('auto_delete', False)
@@ -659,7 +694,6 @@ async def show_auto_delete_settings(bot_instance, query, group_id: int, settings
     # 获取各类消息的超时设置
     timeouts = settings.get('auto_delete_timeouts', {})
     default_timeout = settings.get('auto_delete_timeout', 300)  # 兼容旧设置
-    prompt_timeout = format_duration(timeouts.get('prompt', default_timeout))
     
     # 统一使用format_duration函数格式化所有时间
     keyword_timeout = format_duration(timeouts.get('keyword', default_timeout))
@@ -668,16 +702,24 @@ async def show_auto_delete_settings(bot_instance, query, group_id: int, settings
     command_timeout = format_duration(timeouts.get('command', default_timeout))
     
     # 判断是群组还是私聊
-    is_group = group_id < 0
+    is_group = chat_id < 0
     chat_type = "群组" if is_group else "私聊"
     
+    # 创建回调数据时使用chat_id，确保私聊和群组的区别
+    toggle_callback = f"auto_delete:toggle:{chat_id}"
+    keyword_callback = f"auto_delete:type:keyword:{chat_id}"
+    broadcast_callback = f"auto_delete:type:broadcast:{chat_id}"
+    ranking_callback = f"auto_delete:type:ranking:{chat_id}"
+    command_callback = f"auto_delete:type:command:{chat_id}"
+    back_callback = f"auto_delete:back_to_menu:{chat_id}"
+    
     keyboard = [
-        [InlineKeyboardButton(f"自动删除: {status}", callback_data=f"auto_delete:toggle:{group_id}")],
-        [InlineKeyboardButton(f"关键词回复: {keyword_timeout}", callback_data=f"auto_delete:type:keyword:{group_id}")],
-        [InlineKeyboardButton(f"轮播消息: {broadcast_timeout}", callback_data=f"auto_delete:type:broadcast:{group_id}")],
-        [InlineKeyboardButton(f"排行榜: {ranking_timeout}", callback_data=f"auto_delete:type:ranking:{group_id}")],
-        [InlineKeyboardButton(f"命令响应: {command_timeout}", callback_data=f"auto_delete:type:command:{group_id}")],
-        [InlineKeyboardButton("返回设置菜单", callback_data=f"auto_delete:back_to_menu:{group_id}")]
+        [InlineKeyboardButton(f"自动删除: {status}", callback_data=toggle_callback)],
+        [InlineKeyboardButton(f"关键词回复: {keyword_timeout}", callback_data=keyword_callback)],
+        [InlineKeyboardButton(f"轮播消息: {broadcast_timeout}", callback_data=broadcast_callback)],
+        [InlineKeyboardButton(f"排行榜: {ranking_timeout}", callback_data=ranking_callback)],
+        [InlineKeyboardButton(f"命令响应: {command_timeout}", callback_data=command_callback)],
+        [InlineKeyboardButton("返回设置菜单", callback_data=back_callback)]
     ]
     
     await query.edit_message_text(
@@ -687,33 +729,33 @@ async def show_auto_delete_settings(bot_instance, query, group_id: int, settings
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
         
-async def show_timeout_settings(bot_instance, query, group_id: int, settings: Dict[str, Any]):
+async def show_timeout_settings(bot_instance, query, chat_id: int, settings: Dict[str, Any]):
     """
     显示超时时间设置菜单
     
     参数:
         bot_instance: 机器人实例
         query: 回调查询
-        group_id: 群组ID
+        chat_id: 群组ID或用户ID
         settings: 群组设置
     """
     current_timeout = settings.get('auto_delete_timeout', 300)
     
-    # 构建选择键盘
+    # 构建选择键盘，确保回调数据包含正确的chat_id和超时时间
     keyboard = [
         [InlineKeyboardButton(f"{'✅' if current_timeout == 300 else ' '} 5分钟", 
-                           callback_data=f"auto_delete:set_timeout:{group_id}:300")],
+                           callback_data=f"auto_delete:set_timeout:{chat_id}:300")],
         [InlineKeyboardButton(f"{'✅' if current_timeout == 600 else ' '} 10分钟", 
-                           callback_data=f"auto_delete:set_timeout:{group_id}:600")],
+                           callback_data=f"auto_delete:set_timeout:{chat_id}:600")],
         [InlineKeyboardButton(f"{'✅' if current_timeout == 1800 else ' '} 30分钟", 
-                           callback_data=f"auto_delete:set_timeout:{group_id}:1800")],
+                           callback_data=f"auto_delete:set_timeout:{chat_id}:1800")],
         [InlineKeyboardButton(f"{'✅' if current_timeout == 3600 else ' '} 1小时", 
-                           callback_data=f"auto_delete:set_timeout:{group_id}:3600")],
+                           callback_data=f"auto_delete:set_timeout:{chat_id}:3600")],
         [InlineKeyboardButton(f"{'✅' if current_timeout == 7200 else ' '} 2小时", 
-                           callback_data=f"auto_delete:set_timeout:{group_id}:7200")],
+                           callback_data=f"auto_delete:set_timeout:{chat_id}:7200")],
         [InlineKeyboardButton("自定义", 
-                           callback_data=f"auto_delete:custom_timeout:{group_id}")],
-        [InlineKeyboardButton("返回", callback_data=f"auto_delete:toggle:{group_id}")]
+                           callback_data=f"auto_delete:custom_timeout:{chat_id}")],
+        [InlineKeyboardButton("返回", callback_data=f"auto_delete:back_to_settings:{chat_id}")]
     ]
     
     await query.edit_message_text("请选择自动删除的超时时间：", reply_markup=InlineKeyboardMarkup(keyboard))
@@ -947,15 +989,41 @@ async def process_auto_delete_timeout(bot_instance, state, message):
         state: 设置状态
         message: 消息对象
     """
-    group_id = state['group_id']
+    chat_id = state['group_id']  # 这可能是群组ID或用户ID
+    
+    # 检查chat_id的类型，确定是群组还是私聊
+    is_group = chat_id < 0
+    logger.info(f"处理超时设置，chat_id: {chat_id}, 是群组: {is_group}")
+    
     try:
         timeout = int(message.text)
         if timeout < 60 or timeout > 86400:
             await message.reply_text("❌ 超时时间必须在60-86400秒之间")
             return
             
+        # 获取当前设置
+        settings = await bot_instance.db.get_group_settings(chat_id)
+        
+        # 记录操作前的自动删除状态
+        auto_delete_enabled = settings.get('auto_delete', False)
+        logger.info(f"设置超时时间前的自动删除状态: {auto_delete_enabled}")
+        
         # 使用增量更新
-        await bot_instance.db.update_group_settings_field(group_id, {'auto_delete_timeout': timeout})
+        await bot_instance.db.update_group_settings_field(chat_id, {'auto_delete_timeout': timeout})
+        
+        # 如果自动删除状态被意外修改，确保它保持原来的值
+        current_settings = await bot_instance.db.get_group_settings(chat_id)
+        current_auto_delete = current_settings.get('auto_delete', False)
+        
+        if current_auto_delete != auto_delete_enabled:
+            logger.warning(f"自动删除状态被意外修改，从 {auto_delete_enabled} 变为 {current_auto_delete}，正在恢复...")
+            await bot_instance.db.update_group_settings_field(chat_id, {'auto_delete': auto_delete_enabled})
+        
+        # 验证保存成功
+        updated_settings = await bot_instance.db.get_group_settings(chat_id)
+        final_auto_delete = updated_settings.get('auto_delete', False)
+        final_timeout = updated_settings.get('auto_delete_timeout')
+        logger.info(f"设置后的状态: auto_delete={final_auto_delete}, default_timeout={final_timeout}")
         
         # 清理设置状态
         await bot_instance.settings_manager.clear_setting_state(message.from_user.id, 'auto_delete_timeout')
@@ -969,12 +1037,12 @@ async def process_auto_delete_timeout(bot_instance, state, message):
         await message.reply_text(
             "您可以继续设置或返回设置菜单：",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("返回设置菜单", callback_data=f"auto_delete:toggle:{group_id}")]
+                [InlineKeyboardButton("返回设置菜单", callback_data=f"auto_delete:toggle:{chat_id}")]
             ])
         )
     except ValueError:
         from utils.message_utils import send_auto_delete_message
-        await send_auto_delete_message(context.bot, message.chat.id, "❌ 请输入一个有效的数字")
+        await send_auto_delete_message(bot_instance.application.bot, message.chat.id, "❌ 请输入一个有效的数字")
 
 async def process_type_auto_delete_timeout(bot_instance, state, message):
     """
@@ -985,8 +1053,12 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
         state: 设置状态
         message: 消息对象
     """
-    group_id = state['group_id']
+    chat_id = state['group_id']  # 可能是群组ID或用户ID
     user_id = message.from_user.id
+    
+    # 检查chat_id的类型，确定是群组还是私聊
+    is_group = chat_id < 0
+    logger.info(f"处理超时设置，chat_id: {chat_id}, 是群组: {is_group}")
     
     # 尝试从状态中直接获取消息类型
     message_type = None
@@ -1013,7 +1085,7 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
             return
             
         # 获取当前设置以检查 auto_delete_timeouts 是否存在
-        settings = await bot_instance.db.get_group_settings(group_id)
+        settings = await bot_instance.db.get_group_settings(chat_id)
         
         # 记录操作前的自动删除状态
         auto_delete_enabled = settings.get('auto_delete', False)
@@ -1022,7 +1094,7 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
         # 如果 auto_delete_timeouts 不存在，先创建它
         if 'auto_delete_timeouts' not in settings:
             default_timeout = settings.get('auto_delete_timeout', 300)
-            await bot_instance.db.update_group_settings_field(group_id, {
+            await bot_instance.db.update_group_settings_field(chat_id, {
                 'auto_delete_timeouts': {
                     'default': default_timeout,
                     'keyword': default_timeout,
@@ -1036,20 +1108,20 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
         # 只更新特定类型的超时时间，不修改自动删除开关状态
         logger.info(f"即将更新 {message_type} 的超时时间: {timeout}")
         await bot_instance.db.update_group_settings_field(
-            group_id, 
+            chat_id, 
             {f'auto_delete_timeouts.{message_type}': timeout}
         )
         
         # 如果自动删除状态被意外修改，确保它保持原来的值
-        current_settings = await bot_instance.db.get_group_settings(group_id)
+        current_settings = await bot_instance.db.get_group_settings(chat_id)
         current_auto_delete = current_settings.get('auto_delete', False)
         
         if current_auto_delete != auto_delete_enabled:
             logger.warning(f"自动删除状态被意外修改，从 {auto_delete_enabled} 变为 {current_auto_delete}，正在恢复...")
-            await bot_instance.db.update_group_settings_field(group_id, {'auto_delete': auto_delete_enabled})
+            await bot_instance.db.update_group_settings_field(chat_id, {'auto_delete': auto_delete_enabled})
         
         # 验证保存成功
-        updated_settings = await bot_instance.db.get_group_settings(group_id)
+        updated_settings = await bot_instance.db.get_group_settings(chat_id)
         actual_timeout = updated_settings.get('auto_delete_timeouts', {}).get(message_type)
         final_auto_delete = updated_settings.get('auto_delete', False)
         logger.info(f"从数据库验证的 {message_type} 超时时间: {actual_timeout}, 自动删除状态: {final_auto_delete}")
@@ -1077,9 +1149,9 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
         await message.reply_text(
             "您可以继续设置或返回设置菜单：",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("返回设置菜单", callback_data=f"auto_delete:back_to_settings:{group_id}")]
+                [InlineKeyboardButton("返回设置菜单", callback_data=f"auto_delete:back_to_settings:{chat_id}")]
             ])
         )
     except ValueError:
         from utils.message_utils import send_auto_delete_message
-        await send_auto_delete_message(context.bot, message.chat.id, "❌ 请输入一个有效的数字")
+        await send_auto_delete_message(bot_instance.application.bot, message.chat.id, "❌ 请输入一个有效的数字")
