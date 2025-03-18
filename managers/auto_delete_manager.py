@@ -83,16 +83,6 @@ class AutoDeleteManager:
         self._init_tasks()
         
         logger.info("自动删除管理器初始化完成")
-
-    def set_bot(self, bot):
-        """
-        设置机器人实例
-        
-        参数:
-            bot: 机器人实例
-        """
-        self._bot = bot
-        logger.info("已为自动删除管理器设置机器人实例")
     
     async def _apply_default_settings(self):
         """应用默认自动删除设置"""
@@ -414,41 +404,43 @@ class AutoDeleteManager:
         processed = 0
         start_time = time.time()
         
-        while not self.message_queue.empty():
-            try:
-                # 获取下一个要删除的消息
-                message, delete_time, chat_id = self.message_queue.get_nowait()
-                
-                # 检查是否应该删除
-                now = datetime.now()
-                if now >= delete_time:
-                    # 立即删除过期消息
-                    try:
-                        await message.delete()
-                        logger.debug(f"紧急模式: 已删除过期消息: chat_id={chat_id}, message_id={message.message_id}")
-                        processed += 1
-                    except Exception as e:
-                        logger.warning(f"紧急模式: 删除消息出错: {e}, chat_id={chat_id}, message_id={message.message_id}")
-                        # 记录失败的消息
-                        self._add_failed_message(chat_id, message.message_id, str(e))
-                else:
-                    # 对于未过期的消息，重新放回队列
-                    await self.message_queue.put((message, delete_time, chat_id))
-                
-                # 标记任务完成
-                self.message_queue.task_done()
-                
-                # 限制处理速度，避免API限制
-                if processed % 20 == 0:
+        try:
+            while not self.message_queue.empty():
+                try:
+                    # 获取下一个要删除的消息
+                    message, delete_time, chat_id = self.message_queue.get_nowait()
+                    
+                    # 检查是否应该删除
+                    now = datetime.now()
+                    if now >= delete_time:
+                        try:
+                            await message.delete()
+                            logger.debug(f"紧急模式: 已删除过期消息: chat_id={chat_id}, message_id={message.message_id}")
+                            processed += 1
+                        except Exception as e:
+                            logger.warning(f"紧急模式: 删除消息出错: {e}, chat_id={chat_id}, message_id={message.message_id}")
+                            # 记录失败的消息
+                            self._add_failed_message(chat_id, message.message_id, str(e))
+                    else:
+                        # 对于未过期的消息，重新放回队列
+                        await self.message_queue.put((message, delete_time, chat_id))
+                    
+                    # 标记任务完成
+                    self.message_queue.task_done()
+                    
+                    # 限制处理速度，避免API限制
+                    if processed % 20 == 0:
+                        await asyncio.sleep(1)
+                except asyncio.QueueEmpty:
+                    break
+                except Exception as e:
+                    logger.error(f"紧急工作线程处理出错: {e}", exc_info=True)
                     await asyncio.sleep(1)
-            except asyncio.QueueEmpty:
-                break
-            except Exception as e:
-                logger.error(f"紧急工作线程处理出错: {e}", exc_info=True)
-                await asyncio.sleep(1)
-        
-        total_time = time.time() - start_time
-        logger.info(f"紧急模式: 处理了 {processed} 条消息，耗时 {total_time:.2f} 秒")
+        except Exception as e:
+            logger.error(f"紧急工作线程整体执行出错: {e}", exc_info=True)
+        finally:
+            total_time = time.time() - start_time
+            logger.info(f"紧急模式: 处理了 {processed} 条消息，耗时 {total_time:.2f} 秒")
     
     async def _is_auto_delete_enabled(self, chat_id: int) -> bool:
         """检查群组是否启用了自动删除"""
@@ -553,9 +545,15 @@ class AutoDeleteManager:
     
     # 新增: 设置机器人实例
     def set_bot(self, bot: Bot):
-        """设置机器人实例，用于重试删除"""
-        self.bot = bot
-        logger.info("已设置机器人实例")
+        """
+        设置机器人实例，用于重试删除
+        
+        参数:
+            bot: 机器人实例
+        """
+        self._bot = bot  # 保留原来的变量赋值
+        self.bot = bot   # 新的变量赋值
+        logger.info("已为自动删除管理器设置机器人实例")
     
     # 增强版shutdown方法
     async def shutdown(self):
