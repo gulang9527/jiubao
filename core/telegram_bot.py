@@ -28,8 +28,9 @@ from managers.auto_delete_manager import (
     AutoDeleteManager, MessageType, send_auto_delete_message, 
     send_error_message, send_warning_message, send_success_message,
     send_help_message, send_interaction_message, cancel_interaction,
-    validate_delete_timeout, ErrorTracker, RecoveryManager
+    validate_delete_timeout, ErrorTracker  # 移除 RecoveryManager
 )
+# 单独导入 RecoveryManager
 from managers.recovery_manager import RecoveryManager
 from managers.settings_manager import SettingsManager
 from managers.stats_manager import StatsManager
@@ -49,7 +50,6 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-
 class TelegramBot:
     """
     增强版Telegram机器人核心类，负责机器人的生命周期管理
