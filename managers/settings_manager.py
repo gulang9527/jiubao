@@ -28,9 +28,49 @@ class SettingsManager:
         self._user_locks = {}  # 用户锁
         self._cleanup_task = None
         
-    async def start(self):
-        """启动设置管理器"""
+    async def start(self, apply_defaults_if_missing=True):
+        """
+        启动设置管理器
+        
+        参数:
+            apply_defaults_if_missing: 是否在设置不存在时应用默认设置
+        """
+        # 初始化设置状态字典
+        self._states = {}
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+        
+        if apply_defaults_if_missing:
+            logger.info("应用默认设置...")
+            # 从这里开始是原有的设置默认值代码
+            from config import DEFAULT_SETTINGS
+            
+            # 获取所有群组
+            groups = await self.db.find_all_groups()
+            logger.info(f"找到 {len(groups)} 个群组准备应用默认设置")
+            
+            for group in groups:
+                group_id = group.get('group_id')
+                
+                # 获取当前设置
+                current_settings = group.get('settings', {})
+                
+                # 应用默认设置（只更新不存在的设置）
+                updated_settings = {}
+                for key, default_value in DEFAULT_SETTINGS.items():
+                    if key not in current_settings:
+                        updated_settings[key] = default_value
+                
+                # 只有在有新设置时才更新
+                if updated_settings:
+                    # 合并设置
+                    merged_settings = {**current_settings, **updated_settings}
+                    await self.db.update_group_settings(group_id, merged_settings)
+                    logger.info(f"为群组 {group_id} 应用了默认设置")
+                else:
+                    logger.info(f"群组 {group_id} 的设置已存在，跳过应用默认设置")
+        else:
+            logger.info("跳过应用默认设置")
+            
         logger.info("设置管理器已启动")
         
     async def stop(self):
