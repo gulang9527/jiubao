@@ -335,6 +335,9 @@ class EnhancedBroadcastManager:
                 logger.error(f"找不到轮播消息: {broadcast_id}")
                 return False
                 
+            # 更详细的日志记录，帮助调试
+            logger.info(f"开始重置轮播时间调度，broadcast_id: {broadcast_id}, 数据: {broadcast}")
+                    
             # 检查是否有调度时间
             schedule_time = broadcast.get('schedule_time')
             if not schedule_time:
@@ -357,7 +360,7 @@ class EnhancedBroadcastManager:
         except Exception as e:
             logger.error(f"重置轮播时间调度失败: {e}", exc_info=True)
             return False
-    
+        
     async def send_broadcast(self, broadcast):
         """
         发送轮播消息
