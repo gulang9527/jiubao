@@ -191,6 +191,11 @@ class Database:
                 ("admin_id", ASCENDING),
                 ("group_id", ASCENDING)
             ], unique=True)
+
+            # 系统标志索引
+            await self.db.system_flags.create_index([
+                ("name", ASCENDING)
+            ], unique=True)
             
             logger.info("索引初始化完成")
         except Exception as e:
