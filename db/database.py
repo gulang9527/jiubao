@@ -507,6 +507,35 @@ class Database:
             logger.error(f"更新群组设置失败: {e}", exc_info=True)
             raise
 
+    async def update_group_settings_field(self, group_id: int, field_updates: Dict[str, Any]):
+        """
+        更新群组设置中的特定字段
+        
+        参数:
+            group_id: 群组ID
+            field_updates: 要更新的字段及其值的字典
+        """
+        await self.ensure_connected()
+        try:
+            # 构建更新对象
+            updates = {}
+            for key, value in field_updates.items():
+                updates[f'settings.{key}'] = value
+            
+            # 更新字段而不是整个设置对象
+            await self.db.groups.update_one(
+                {'group_id': group_id},
+                {
+                    '$set': updates,
+                    '$currentDate': {'updated_at': True}
+                },
+                upsert=True
+            )
+            logger.info(f"已更新群组 {group_id} 的设置字段 {list(field_updates.keys())}")
+        except Exception as e:
+            logger.error(f"更新群组设置字段失败: {e}", exc_info=True)
+            raise
+
     #######################################
     # 管理员群组关系方法
     #######################################
