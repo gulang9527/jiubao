@@ -31,12 +31,19 @@ async def handle_broadcast_edit_callback(update: Update, context: CallbackContex
     parts = data.split('_')
     logger.info(f"处理轮播消息编辑回调: {parts}")
     
-    if len(parts) < 4:  # bc, edit, broadcast_id, group_id
+    # 添加对复杂编辑操作的特殊处理
+    if len(parts) >= 5 and parts[0] == "bc" and parts[1] == "edit" and parts[3] == "custom":
+        broadcast_id = parts[2]
+        custom_type = parts[4]
+        group_id = int(parts[5]) if len(parts) > 5 else None
+        logger.info(f"检测到复杂编辑操作: custom_{custom_type}, broadcast_id: {broadcast_id}, group_id: {group_id}")
+        # 处理逻辑...
+    elif len(parts) < 4:  # bc, edit, broadcast_id, group_id
         await query.edit_message_text("❌ 无效的回调数据")
         return
-        
-    broadcast_id = parts[2]
-    group_id = int(parts[3])
+    else:
+        broadcast_id = parts[2]
+        group_id = int(parts[3])
     
     # 获取轮播消息
     broadcast = await bot_instance.db.get_broadcast_by_id(broadcast_id)
