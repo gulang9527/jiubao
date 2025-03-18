@@ -1470,3 +1470,45 @@ class Database:
         except Exception as e:
             logger.error(f"时间字段标准化失败: {e}", exc_info=True)
             return 0
+
+    async def get_system_flag(self, flag_name: str) -> Any:
+        """
+        获取系统标志的值
+        
+        参数:
+            flag_name: 标志名称
+            
+        返回:
+            标志值，不存在时返回None
+        """
+        await self.ensure_connected()
+        try:
+            result = await self.db.system_flags.find_one({'name': flag_name})
+            return result['value'] if result else None
+        except Exception as e:
+            logger.error(f"获取系统标志失败: {e}", exc_info=True)
+            return None
+    
+    async def set_system_flag(self, flag_name: str, value: Any) -> bool:
+        """
+        设置系统标志的值
+        
+        参数:
+            flag_name: 标志名称
+            value: 标志值
+            
+        返回:
+            是否成功
+        """
+        await self.ensure_connected()
+        try:
+            await self.db.system_flags.update_one(
+                {'name': flag_name},
+                {'$set': {'value': value, 'updated_at': datetime.now()}},
+                upsert=True
+            )
+            logger.info(f"设置系统标志 {flag_name}={value}")
+            return True
+        except Exception as e:
+            logger.error(f"设置系统标志失败: {e}", exc_info=True)
+            return False
