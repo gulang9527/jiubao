@@ -141,10 +141,104 @@ class EnhancedBroadcastManager:
                 now = datetime.now()
                 logger.info(f"当前时间: {now}, 准备查询应发送的轮播消息")
                 
-                # 获取应该发送的轮播消息
-                logger.info(f"开始调用 get_due_broadcasts() 获取待发送的轮播消息")
-                due_broadcasts = await self.db.get_due_broadcasts()
-                
+                # 获取所有活动的轮播消息
+                active_broadcasts = await self.db.get_active_broadcasts()
+                logger.info(f"找到 {len(active_broadcasts)} 个活动的轮播消息")
+    
+                # 筛选出应该发送的消息
+                due_broadcasts = []
+                for broadcast in active_broadcasts:
+                    broadcast_id = str(broadcast["_id"])
+                    group_id = broadcast.get("group_id")
+                    
+                    # 检查是否有固定调度时间
+                    schedule_time = broadcast.get('schedule_time')
+                    if schedule_time:
+                        logger.info(f"轮播 {broadcast_id} 有固定调度时间: {schedule_time}")
+                        # 解析调度时间
+                        try:
+                            hour, minute = map(int, schedule_time.split(':'))
+                            
+                            # 对于hourly类型，检查当前是否在指定的分钟数
+                            if broadcast.get('repeat_type') == 'hourly':
+                                logger.info(f"轮播 {broadcast_id} 是每小时类型，当前分钟: {now.minute}, 固定分钟: {minute}")
+                                if now.minute == minute:
+                                    # 为避免在同一分钟内多次发送，检查上次发送时间
+                                    last_broadcast = broadcast.get('last_broadcast')
+                                    if last_broadcast and (now - last_broadcast).total_seconds() < 120:  # 2分钟内不重复发送
+                                        logger.info(f"轮播 {broadcast_id} 在当前分钟内已发送过，跳过")
+                                        continue
+                                    logger.info(f"轮播 {broadcast_id} 当前时间({now.hour}:{now.minute})匹配固定调度时间({hour}:{minute})")
+                                    due_broadcasts.append(broadcast)
+                                    continue
+                                else:
+                                    logger.info(f"轮播 {broadcast_id} 当前分钟({now.minute})不匹配固定分钟({minute})，跳过")
+                                    continue
+                            
+                            # 对于daily类型，检查当前是否在指定的小时和分钟
+                            elif broadcast.get('repeat_type') == 'daily':
+                                if now.hour == hour and now.minute == minute:
+                                    # 同样检查短时间内是否已发送
+                                    last_broadcast = broadcast.get('last_broadcast')
+                                    if last_broadcast and (now - last_broadcast).total_seconds() < 120:
+                                        logger.info(f"轮播 {broadcast_id} 在当前分钟内已发送过，跳过")
+                                        continue
+                                    logger.info(f"轮播 {broadcast_id} 当前时间匹配每日固定时间，准备发送")
+                                    due_broadcasts.append(broadcast)
+                                    continue
+                                else:
+                                    logger.info(f"轮播 {broadcast_id} 当前时间不匹配每日固定时间，跳过")
+                                    continue
+                                    
+                            # 对于自定义间隔，检查是否使用固定分钟
+                            elif broadcast.get('repeat_type') == 'custom':
+                                last_broadcast = broadcast.get('last_broadcast')
+                                interval_minutes = broadcast.get('interval', 0)
+                                
+                                if not last_broadcast:
+                                    # 第一次发送
+                                    logger.info(f"轮播 {broadcast_id} 是自定义间隔且使用固定时间，但尚未发送过，准备首次发送")
+                                    due_broadcasts.append(broadcast)
+                                    continue
+                                    
+                                # 检查是否已经过了完整的间隔周期
+                                elapsed_minutes = (now - last_broadcast).total_seconds() / 60
+                                
+                                # 检查当前是否是设定的固定分钟
+                                if now.minute == minute:
+                                    # 确保已经过了至少一个完整的间隔周期
+                                    if elapsed_minutes >= interval_minutes:
+                                        logger.info(f"轮播 {broadcast_id} 已过了完整间隔周期，且当前时间匹配固定分钟，准备发送")
+                                        # 避免一分钟内多次发送
+                                        if elapsed_minutes < interval_minutes + 2:  # 允许2分钟的容差
+                                            due_broadcasts.append(broadcast)
+                                    else:
+                                        logger.info(f"轮播 {broadcast_id} 尚未过完整间隔周期：已过{elapsed_minutes:.2f}分钟，需要{interval_minutes}分钟")
+                                else:
+                                    logger.info(f"轮播 {broadcast_id} 当前分钟({now.minute})不匹配固定分钟({minute})，跳过")
+                                    
+                        except Exception as e:
+                            logger.error(f"解析轮播 {broadcast_id} 的调度时间出错: {e}")
+                    
+                    # 如果没有固定调度时间或解析出错，使用原有的间隔逻辑
+                    logger.info(f"轮播 {broadcast_id} 使用标准间隔逻辑")
+                    last_broadcast = broadcast.get('last_broadcast')
+                    interval_minutes = broadcast.get('interval', 0)
+                    
+                    # 从未发送过
+                    if not last_broadcast:
+                        logger.info(f"轮播 {broadcast_id} 从未发送过，准备发送")
+                        due_broadcasts.append(broadcast)
+                    # 间隔已到
+                    elif interval_minutes > 0:
+                        time_diff = (now - last_broadcast).total_seconds() / 60
+                        logger.info(f"轮播 {broadcast_id}: 上次发送: {last_broadcast}, 距现在: {time_diff:.2f}分钟, 配置间隔: {interval_minutes}分钟")
+                        if time_diff >= interval_minutes:
+                            logger.info(f"轮播 {broadcast_id} 已达到发送间隔，添加到待发送列表")
+                            due_broadcasts.append(broadcast)
+                        else:
+                            logger.info(f"轮播 {broadcast_id} 未达到发送间隔，跳过")
+    
                 if due_broadcasts:
                     logger.info(f"找到 {len(due_broadcasts)} 个需要发送的轮播消息")
                     for b in due_broadcasts:
@@ -165,27 +259,12 @@ class EnhancedBroadcastManager:
                             await self.db.inspect_broadcast(sample_id)
                     else:
                         logger.info("数据库中没有轮播消息")
-                
-                # 添加详细日志
-                if due_broadcasts:
-                    logger.info(f"找到 {len(due_broadcasts)} 个需要发送的轮播消息")
-                    for b in due_broadcasts:
-                        b_id = str(b['_id'])
-                        logger.info(f"【轮播ID: {b_id}】")
-                        logger.info(f"  - 群组ID: {b.get('group_id')}")
-                        logger.info(f"  - 开始时间: {b.get('start_time')} ({type(b.get('start_time')).__name__})")
-                        logger.info(f"  - 结束时间: {b.get('end_time')} ({type(b.get('end_time')).__name__})")
-                        logger.info(f"  - 上次发送: {b.get('last_broadcast')} ({type(b.get('last_broadcast') or 'None').__name__})")
-                        logger.info(f"  - 间隔分钟: {b.get('interval')}")
-                        logger.info(f"  - 重复类型: {b.get('repeat_type')}")
-                        logger.info(f"  - 内容类型: {'有媒体' if b.get('media') else '纯文本'}")
-                else:
-                    logger.info("没有找到需要发送的轮播消息")
+                        
                     logger.info("检查可能的原因:")
                     logger.info("1. 时间条件未满足 - 当前时间不在轮播设定的时间范围内")
                     logger.info("2. 间隔条件未满足 - 距离上次发送未到设定的间隔时间")
                     logger.info("3. 数据格式问题 - 时间字段格式不一致，无法正确比较")
-                
+                    
                 for broadcast in due_broadcasts:
                     broadcast_id = str(broadcast["_id"])
                     group_id = broadcast.get("group_id")
