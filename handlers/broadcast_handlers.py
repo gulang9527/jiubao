@@ -187,27 +187,32 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
                 form_data['repeat_interval'] = 0
             elif repeat_type == 'hourly':
                 form_data['repeat_interval'] = 60  # 默认间隔60分钟
+                form_data['use_fixed_time'] = False  # 不使用固定时间
             elif repeat_type == 'hourly_fixed':
                 form_data['repeat_interval'] = 60  # 固定时间每小时发送
                 form_data['repeat_type'] = 'hourly'  # 基础类型是hourly
                 form_data['use_fixed_time'] = True  # 标记使用固定时间
             elif repeat_type == 'daily':
                 form_data['repeat_interval'] = 1440  # 默认间隔24小时
+                form_data['use_fixed_time'] = False  # 不使用固定时间
             elif repeat_type == 'daily_fixed':
                 form_data['repeat_interval'] = 1440  # 固定时间每天发送
                 form_data['repeat_type'] = 'daily'  # 基础类型是daily
                 form_data['use_fixed_time'] = True  # 标记使用固定时间
             elif repeat_type == 'custom':
                 # 提示用户设置自定义间隔
-                keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
+                keyboard = [
+                    [InlineKeyboardButton("使用固定分钟发送", callback_data=f"bcform_set_custom_fixed")],
+                    [InlineKeyboardButton("使用常规间隔发送", callback_data=f"bcform_set_custom_normal")],
+                    [InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]
+                ]
                 await query.edit_message_text(
-                    "请设置自定义重复间隔（分钟）:\n"
-                    "例如: 30（表示每30分钟发送一次）\n\n"
-                    "发送完后请点击下方出现的「继续」按钮",
+                    "自定义轮播方式:\n\n"
+                    "• 固定分钟: 每次都在当前小时的固定分钟发送（例如每小时的02分）\n"
+                    "• 常规间隔: 从上次发送后经过指定分钟再发送\n\n"
+                    "请选择自定义轮播的方式:",
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-                context.user_data['waiting_for'] = 'broadcast_interval'
-                logger.info("等待用户输入自定义重复间隔")
                 return
                 
             # 显示发送时间选项
@@ -237,6 +242,40 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
         )
         context.user_data['waiting_for'] = 'broadcast_start_time'
         logger.info(f"收到消息，用户 {user_id} 的等待状态是: {context.user_data.get('waiting_for')}")
+
+    elif action == "set_custom_fixed":
+        # 设置自定义固定分钟
+        form_data['repeat_type'] = 'custom'
+        form_data['use_fixed_time'] = True
+        context.user_data['broadcast_form'] = form_data
+        
+        # 提示用户设置自定义间隔
+        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
+        await query.edit_message_text(
+            "请设置自定义重复间隔（分钟）:\n"
+            "例如: 30（表示每30分钟发送一次，且在固定分钟发送）\n\n"
+            "发送完后请点击下方出现的「继续」按钮",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        context.user_data['waiting_for'] = 'broadcast_interval'
+        logger.info("等待用户输入自定义重复间隔（固定分钟模式）")
+    
+    elif action == "set_custom_normal":
+        # 设置自定义常规间隔
+        form_data['repeat_type'] = 'custom'
+        form_data['use_fixed_time'] = False
+        context.user_data['broadcast_form'] = form_data
+        
+        # 提示用户设置自定义间隔
+        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
+        await query.edit_message_text(
+            "请设置自定义重复间隔（分钟）:\n"
+            "例如: 30（表示每30分钟发送一次）\n\n"
+            "发送完后请点击下方出现的「继续」按钮",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        context.user_data['waiting_for'] = 'broadcast_interval'
+        logger.info("等待用户输入自定义重复间隔（常规间隔模式）")
         
     elif action in ["content_received", "media_received", "buttons_received", "time_received", "end_time_received"]:
         logger.info(f"执行数据接收操作: {action}")
@@ -1416,13 +1455,7 @@ async def show_broadcast_options(update: Update, context: CallbackContext):
     )
 
 async def show_schedule_options(update: Update, context: CallbackContext):
-    """
-    显示轮播计划选项
-    
-    参数:
-        update: 更新对象
-        context: 上下文对象
-    """
+    """显示轮播计划选项"""
     # 构建重复类型选择按钮
     keyboard = [
         [InlineKeyboardButton("单次发送", callback_data="bcform_set_repeat_once")],
@@ -1435,11 +1468,6 @@ async def show_schedule_options(update: Update, context: CallbackContext):
     
     await update.callback_query.edit_message_text(
         "📢 设置轮播计划\n\n请选择轮播消息的发送方式：",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-    
-    await update.callback_query.edit_message_text(
-        "📢 设置轮播计划\n\n请选择轮播消息的重复类型：",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
