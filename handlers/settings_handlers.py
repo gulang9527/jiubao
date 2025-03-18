@@ -198,14 +198,33 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
         message_type = parts[1]
         timeout = int(parts[3])
         
-        # 只更新特定类型的超时时间，不修改整个设置对象
-        update_data = {f'auto_delete_timeouts.{message_type}': timeout}
-        
-        # 保存设置 - 使用增量更新
-        await bot_instance.db.update_group_settings_field(group_id, update_data)
-        
-        # 重新获取最新设置，确保显示正确的数据
+        # 获取当前设置以检查 auto_delete_timeouts 是否存在
         settings = await bot_instance.db.get_group_settings(group_id)
+        
+        # 如果 auto_delete_timeouts 不存在，先创建它
+        if 'auto_delete_timeouts' not in settings:
+            default_timeout = settings.get('auto_delete_timeout', 300)
+            await bot_instance.db.update_group_settings_field(group_id, {
+                'auto_delete_timeouts': {
+                    'default': default_timeout,
+                    'keyword': default_timeout,
+                    'broadcast': default_timeout,
+                    'ranking': default_timeout,
+                    'command': default_timeout
+                }
+            })
+        
+        # 然后更新特定类型的超时时间
+        await bot_instance.db.update_group_settings_field(
+            group_id, 
+            {f'auto_delete_timeouts.{message_type}': timeout}
+        )
+        
+        # 重新获取最新设置
+        settings = await bot_instance.db.get_group_settings(group_id)
+        
+        # 显示更新后的设置
+        await show_auto_delete_settings(bot_instance, query, group_id, settings)
         
     elif action == "custom_type_timeout":
         # 设置自定义类型超时
@@ -250,8 +269,11 @@ async def handle_auto_delete_callback(update: Update, context: CallbackContext, 
             return
             
         timeout = int(parts[1])
-        settings['auto_delete_timeout'] = timeout
-        await bot_instance.db.update_group_settings(group_id, settings)
+        
+        # 使用增量更新
+        await bot_instance.db.update_group_settings_field(group_id, {'auto_delete_timeout': timeout})
+        
+        # 重新获取最新设置
         settings = await bot_instance.db.get_group_settings(group_id)
         await show_auto_delete_settings(bot_instance, query, group_id, settings)
         
@@ -742,13 +764,18 @@ async def handle_stats_edit_callback(update: Update, context: CallbackContext, p
             "• 建议设置为10-100之间的数值\n\n"
             "发送 /cancel 取消"
         )
+        
     elif action == "toggle_media":
         # 切换媒体统计开关
         settings = await bot_instance.db.get_group_settings(group_id)
         count_media = not settings.get('count_media', False)
-        settings['count_media'] = count_media
-        await bot_instance.db.update_group_settings(group_id, settings)
+        
+        # 使用增量更新
+        await bot_instance.db.update_group_settings_field(group_id, {'count_media': count_media})
+        
+        # 重新显示统计设置
         await show_stats_settings(bot_instance, query, group_id)
+        
     elif action == "daily_rank":
         # 设置日排行显示数量
         await bot_instance.settings_manager.start_setting(
@@ -795,10 +822,8 @@ async def process_min_bytes_setting(bot_instance, state, message):
             await message.reply_text("❌ 最小字节数不能为负数")
             return
             
-        # 更新设置
-        settings = await bot_instance.db.get_group_settings(group_id)
-        settings['min_bytes'] = value
-        await bot_instance.db.update_group_settings(group_id, settings)
+        # 使用增量更新
+        await bot_instance.db.update_group_settings_field(group_id, {'min_bytes': value})
         
         # 清理设置状态
         await bot_instance.settings_manager.clear_setting_state(message.from_user.id, 'stats_min_bytes')
@@ -835,10 +860,8 @@ async def process_daily_rank_setting(bot_instance, state, message):
             await message.reply_text("❌ 显示数量必须在1-50之间")
             return
             
-        # 更新设置
-        settings = await bot_instance.db.get_group_settings(group_id)
-        settings['daily_rank_size'] = value
-        await bot_instance.db.update_group_settings(group_id, settings)
+        # 使用增量更新
+        await bot_instance.db.update_group_settings_field(group_id, {'daily_rank_size': value})
         
         # 清理设置状态
         await bot_instance.settings_manager.clear_setting_state(message.from_user.id, 'stats_daily_rank')
@@ -875,17 +898,15 @@ async def process_monthly_rank_setting(bot_instance, state, message):
             await message.reply_text("❌ 显示数量必须在1-50之间")
             return
             
-        # 更新设置
-        settings = await bot_instance.db.get_group_settings(group_id)
-        settings['monthly_rank_size'] = value
-        await bot_instance.db.update_group_settings(group_id, settings)
+        # 使用增量更新
+        await bot_instance.db.update_group_settings_field(group_id, {'monthly_rank_size': value})
         
         # 清理设置状态
         await bot_instance.settings_manager.clear_setting_state(message.from_user.id, 'stats_monthly_rank')
         
         # 通知用户完成
         from utils.message_utils import send_auto_delete_message
-        await send_auto_delete_message(bot_instance.application.bot, message.chat.id,f"✅ 月排行显示数量已设置为 {value}")
+        await send_auto_delete_message(bot_instance.application.bot, message.chat.id, f"✅ 月排行显示数量已设置为 {value}")
         
         # 可以选择性地添加一个inline键盘，用于返回到设置页面
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -915,10 +936,8 @@ async def process_auto_delete_timeout(bot_instance, state, message):
             await message.reply_text("❌ 超时时间必须在60-86400秒之间")
             return
             
-        # 更新设置
-        settings = await bot_instance.db.get_group_settings(group_id)
-        settings['auto_delete_timeout'] = timeout
-        await bot_instance.db.update_group_settings(group_id, settings)
+        # 使用增量更新
+        await bot_instance.db.update_group_settings_field(group_id, {'auto_delete_timeout': timeout})
         
         # 清理设置状态
         await bot_instance.settings_manager.clear_setting_state(message.from_user.id, 'auto_delete_timeout')
@@ -975,27 +994,29 @@ async def process_type_auto_delete_timeout(bot_instance, state, message):
             await message.reply_text("❌ 超时时间必须在60-86400秒之间")
             return
             
-        # 更新设置
+        # 获取当前设置以检查 auto_delete_timeouts 是否存在
         settings = await bot_instance.db.get_group_settings(group_id)
         
-        # 确保 auto_delete_timeouts 字典存在
+        # 如果 auto_delete_timeouts 不存在，先创建它
         if 'auto_delete_timeouts' not in settings:
-            settings['auto_delete_timeouts'] = {
-                'default': settings.get('auto_delete_timeout', 300),
-                'keyword': settings.get('auto_delete_timeout', 300),
-                'broadcast': settings.get('auto_delete_timeout', 300),
-                'ranking': settings.get('auto_delete_timeout', 300),
-                'command': settings.get('auto_delete_timeout', 300),
-                'prompt': settings.get('auto_delete_timeout', 10)
-            }
+            default_timeout = settings.get('auto_delete_timeout', 300)
+            await bot_instance.db.update_group_settings_field(group_id, {
+                'auto_delete_timeouts': {
+                    'default': default_timeout,
+                    'keyword': default_timeout,
+                    'broadcast': default_timeout,
+                    'ranking': default_timeout,
+                    'command': default_timeout,
+                    'prompt': default_timeout
+                }
+            })
             
         # 更新特定类型的超时时间并记录日志
         logger.info(f"即将更新 {message_type} 的超时时间: {timeout}")
-        settings['auto_delete_timeouts'][message_type] = timeout
-        logger.info(f"更新后的设置: {settings}")
-        
-        # 保存设置
-        await bot_instance.db.update_group_settings(group_id, settings)
+        await bot_instance.db.update_group_settings_field(
+            group_id, 
+            {f'auto_delete_timeouts.{message_type}': timeout}
+        )
         
         # 验证保存成功
         updated_settings = await bot_instance.db.get_group_settings(group_id)
