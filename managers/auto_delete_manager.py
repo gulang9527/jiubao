@@ -5,6 +5,8 @@ import logging
 import asyncio
 import time
 import traceback
+import enum
+from datetime import datetime
 from typing import Dict, Any, Optional, List, Set, Tuple, Union, Callable, Coroutine
 from datetime import datetime, timedelta
 from enum import Enum
@@ -19,17 +21,17 @@ from utils.message_utils import validate_delete_timeout, is_auto_delete_exempt
 
 logger = logging.getLogger(__name__)
 
-class MessageType(Enum):
+class MessageType(enum.Enum):
     """消息类型枚举"""
     DEFAULT = 'default'
-    COMMAND = 'command'
     KEYWORD = 'keyword'
     BROADCAST = 'broadcast'
     RANKING = 'ranking'
+    COMMAND = 'command'
     ERROR = 'error'
     WARNING = 'warning'
+    SUCCESS = 'success'
     HELP = 'help'
-    FEEDBACK = 'feedback'
     INTERACTION = 'interaction'
 
 # 默认超时时间（秒）
