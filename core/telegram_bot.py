@@ -339,7 +339,7 @@ class TelegramBot:
             return await update.next_handler(update, context)
                 
         # 添加活动中间件
-        self.application.add_middleware(activity_middleware) # 优先级最高
+        self.application.middleware.append(ActivityMiddleware())
             
         # 启动应用
         await self.application.start()
