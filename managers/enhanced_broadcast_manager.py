@@ -1,4 +1,4 @@
-Enhanced Auto Delete Manager
+# Enhanced Auto Delete Manager
 
 """
 增强版自动删除管理器，负责管理并执行消息的定时删除
