@@ -500,7 +500,7 @@ async def handle_check_stats_settings(update: Update, context: CallbackContext):
 
 @handle_callback_errors
 async def handle_rank_page_callback(update: Update, context: CallbackContext, *args, **kwargs):
-    """处理排行榜分页回调"""
+    """处理排行榜分页回调，优化以防止快速翻页崩溃"""
     query = update.callback_query
     
     try:
@@ -596,12 +596,7 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext, *a
             
             # 如果没有数据，显示提示信息
             if not stats:
-                await query.edit_message_text(
-                    "暂无更多排行数据。", 
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("返回第一页", callback_data=f"rank_prev_1_{command_type}")
-                    ]])
-                )
+                await query.edit_message_text("暂无更多排行数据。", reply_markup=None)
                 return
             
             # 构建分页按钮
@@ -614,23 +609,7 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext, *a
                     buttons.append(InlineKeyboardButton("下一页 ➡️", callback_data=f"rank_next_{page+1}_{command_type}"))
                 keyboard.append(buttons)
                 
-                # 添加页码跳转按钮
-                if total_pages > 3:
-                    page_buttons = []
-                    # 添加首页按钮
-                    if page > 2:
-                        page_buttons.append(InlineKeyboardButton("1", callback_data=f"rank_prev_1_{command_type}"))
-                    
-                    # 添加当前页和相邻页
-                    for p in range(max(1, page-1), min(total_pages+1, page+2)):
-                        text = f"[{p}]" if p == page else f"{p}"
-                        page_buttons.append(InlineKeyboardButton(text, callback_data=f"rank_prev_{p}_{command_type}"))
-                    
-                    # 添加末页按钮
-                    if page < total_pages - 1:
-                        page_buttons.append(InlineKeyboardButton(f"{total_pages}", callback_data=f"rank_prev_{total_pages}_{command_type}"))
-                    
-                    keyboard.append(page_buttons)
+                # 页码跳转功能已移除
             
             # 获取标题
             title = f"📊 {group_name} {'今日' if time_range == 'day' else '30天'}消息排行"
