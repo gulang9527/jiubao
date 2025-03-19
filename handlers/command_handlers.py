@@ -4,6 +4,7 @@
 import logging
 import html
 import datetime
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
 from utils.decorators import check_command_usage, handle_callback_errors, require_superadmin
@@ -212,6 +213,9 @@ async def get_message_stats_from_db(group_id: int, time_range: str = 'day', limi
             thirty_days_ago = (now - datetime.timedelta(days=30)).strftime('%Y-%m-%d')
             today = now.strftime('%Y-%m-%d')
             match['date'] = {'$gte': thirty_days_ago, '$lte': today}
+            
+        # 添加消息数量过滤，只获取消息数大于0的记录
+        match['total_messages'] = {'$gt': 0}
         
         # 聚合查询以获取每个用户的总消息数
         pipeline = [
@@ -220,16 +224,35 @@ async def get_message_stats_from_db(group_id: int, time_range: str = 'day', limi
                 '_id': '$user_id',
                 'total_messages': {'$sum': '$total_messages'}
             }},
-            {'$match': {'total_messages': {'$gt': 0}}},
+            {'$match': {'total_messages': {'$gt': 0}}},  # 再次确认消息数大于0
             {'$sort': {'total_messages': -1}},
             {'$skip': skip},
             {'$limit': limit}
         ]
         
+        # 设置超时选项，避免长时间阻塞
+        options = {
+            'maxTimeMS': 5000  # 5秒超时
+        }
+        
         # 执行聚合查询
-        stats = await bot_instance.db.db.message_stats.aggregate(pipeline).to_list(None)
+        stats = await bot_instance.db.db.message_stats.aggregate(pipeline, **options).to_list(None)
         logger.info(f"获取消息统计成功: 群组={group_id}, 时间范围={time_range}, 结果数={len(stats)}")
-        return stats
+        
+        # 进行数据验证，确保每个记录都有必要的字段
+        validated_stats = []
+        for stat in stats:
+            if '_id' in stat and 'total_messages' in stat and stat['total_messages'] > 0:
+                # 复制数据以避免引用问题
+                validated_stats.append({
+                    '_id': stat['_id'],
+                    'total_messages': stat['total_messages']
+                })
+        
+        return validated_stats
+    except asyncio.TimeoutError:
+        logger.error(f"获取消息统计超时: 群组={group_id}, 时间范围={time_range}")
+        return []
     except Exception as e:
         logger.error(f"获取消息统计失败: {e}", exc_info=True)
         return []
@@ -250,73 +273,93 @@ async def format_rank_rows(stats, page, group_id, context):
     import html
     
     # 固定用户名最大显示宽度
-    MAX_NAME_WIDTH = 20  # 保持原有宽度
+    MAX_NAME_WIDTH = 20
     # 消息数的固定位置（从行首开始的字符数）
-    FIXED_MSG_POSITION = 24  # 缩短固定位置
+    FIXED_MSG_POSITION = 24
     
     # 构建每一行文本
     rows = []
     for i, stat in enumerate(stats, start=(page-1)*15+1):
-        # 添加奖牌图标（前三名）
-        rank_prefix = ""
-        if page == 1:
-            if i == 1:
-                rank_prefix = "🥇 "  # 金牌
-            elif i == 2:
-                rank_prefix = "🥈 "  # 银牌
-            elif i == 3:
-                rank_prefix = "🥉 "  # 铜牌
-        
-        # 获取用户信息
         try:
-            user = await context.bot.get_chat_member(group_id, stat['_id'])
-            display_name = user.user.full_name
-            # 处理HTML特殊字符
-            display_name = html.escape(display_name)
-        except Exception:
-            display_name = f'用户{stat["_id"]}'
-        
-        # 确保必须截断超长用户名
-        original_width = get_string_display_width(display_name)
-        if original_width > MAX_NAME_WIDTH:
-            display_name = truncate_string_by_width(display_name, MAX_NAME_WIDTH)
-        
-        # 使用普通文本显示用户名（不带链接）
-        # 移除了之前的用户链接代码: user_mention = f'<a href="tg://user?id={stat["_id"]}">{display_name}</a>'
-        
-        # 检查是否有奖牌
-        has_medal = rank_prefix != ""
-        
-        # 计算序号部分的宽度（包括排名图标）
-        # 注意：奖牌图标是表情符号，占用2个字符宽度
-        rank_prefix_width = 2 if rank_prefix else 0
-        rank_num_width = len(str(i))
-        
-        # 计算当前内容的显示宽度
-        user_width = get_string_display_width(display_name)
-        
-        # 计算需要添加的空格数，确保"消息数"位置固定
-        # 基础宽度: 排名前缀 + 序号 + ". " + 用户名
-        base_width = rank_prefix_width + rank_num_width + 2 + user_width
-        space_count = max(2, FIXED_MSG_POSITION - base_width)
-        space_padding = ' ' * space_count
-        
-        # 构建一行，注意对奖牌emoji进行特殊处理
-        message_count = f"{stat['total_messages']}条"
+            # 跳过无效数据
+            if not isinstance(stat, dict) or '_id' not in stat or 'total_messages' not in stat:
+                logger.warning(f"跳过无效的统计数据: {stat}")
+                continue
+                
+            # 验证消息数是否为正数
+            total_messages = stat.get('total_messages', 0)
+            if not isinstance(total_messages, (int, float)) or total_messages <= 0:
+                logger.warning(f"跳过消息数无效的统计数据: {stat}")
+                continue
+                
+            # 添加奖牌图标（前三名）
+            rank_prefix = ""
+            if page == 1:
+                if i == 1:
+                    rank_prefix = "🥇 "  # 金牌
+                elif i == 2:
+                    rank_prefix = "🥈 "  # 银牌
+                elif i == 3:
+                    rank_prefix = "🥉 "  # 铜牌
             
-        if has_medal:
-            # 对于有奖牌的行，确保序号和名字对齐
-            row = f"{rank_prefix}{i}. {display_name}{space_padding}{message_count}"
-        else:
-            # 对于没有奖牌的行，增加两个空格保持对齐
-            row = f"  {i}. {display_name}{space_padding}{message_count}"
-        
-        rows.append(row)
+            # 获取用户信息
+            try:
+                user = await asyncio.wait_for(
+                    context.bot.get_chat_member(group_id, stat['_id']),
+                    timeout=2.0  # 2秒超时
+                )
+                display_name = user.user.full_name
+                # 处理HTML特殊字符
+                display_name = html.escape(display_name)
+            except (asyncio.TimeoutError, Exception) as e:
+                logger.warning(f"获取用户 {stat['_id']} 信息失败: {e}")
+                display_name = f'用户{stat["_id"]}'
+            
+            # 确保必须截断超长用户名
+            original_width = get_string_display_width(display_name)
+            if original_width > MAX_NAME_WIDTH:
+                display_name = truncate_string_by_width(display_name, MAX_NAME_WIDTH)
+            
+            # 检查是否有奖牌
+            has_medal = rank_prefix != ""
+            
+            # 计算序号部分的宽度（包括排名图标）
+            # 注意：奖牌图标是表情符号，占用2个字符宽度
+            rank_prefix_width = 2 if rank_prefix else 0
+            rank_num_width = len(str(i))
+            
+            # 计算当前内容的显示宽度
+            user_width = get_string_display_width(display_name)
+            
+            # 计算需要添加的空格数，确保"消息数"位置固定
+            # 基础宽度: 排名前缀 + 序号 + ". " + 用户名
+            base_width = rank_prefix_width + rank_num_width + 2 + user_width
+            space_count = max(2, FIXED_MSG_POSITION - base_width)
+            space_padding = ' ' * space_count
+            
+            # 构建一行，注意对奖牌emoji进行特殊处理
+            message_count = f"{total_messages}条"
+                
+            if has_medal:
+                # 对于有奖牌的行，确保序号和名字对齐
+                row = f"{rank_prefix}{i}. {display_name}{space_padding}{message_count}"
+            else:
+                # 对于没有奖牌的行，增加两个空格保持对齐
+                row = f"  {i}. {display_name}{space_padding}{message_count}"
+            
+            rows.append(row)
+        except Exception as e:
+            logger.error(f"格式化排行行出错: {e}", exc_info=True)
+            # 继续处理下一条，不中断整个格式化过程
+            continue
     
+    # 如果没有成功格式化任何行，返回提示信息
+    if not rows:
+        return "无法格式化排行数据，请重试。"
+        
     # 不添加恢复数据的解释
     result = "\n".join(rows)
     return result
-
 @check_command_usage
 async def handle_rank_command(update: Update, context: CallbackContext):
     """处理 /rank 命令，显示群组消息排行榜"""
@@ -459,98 +502,190 @@ async def handle_check_stats_settings(update: Update, context: CallbackContext):
 async def handle_rank_page_callback(update: Update, context: CallbackContext, *args, **kwargs):
     """处理排行榜分页回调"""
     query = update.callback_query
-    await query.answer()
-
-    # 获取按钮数据
-    data = query.data.split("_")
-    action = data[1]
-    current_page = int(data[2])
     
-    # 获取命令类型（tongji 或 tongji30）
-    command_type = data[3] if len(data) > 3 else "tongji"
-    time_range = 'day' if command_type == 'tongji' else 'month'
-    
-    # 改进页码逻辑：处理上一页和下一页
-    if action == "prev":
-        page = current_page - 1  # 当前显示页的上一页
-    elif action == "next":
-        page = current_page + 1  # 当前显示页的下一页
-    else:
-        page = current_page
-
-    # 获取群组信息
-    chat = update.effective_chat
-    group_id = chat.id
-    group_name = chat.title
-    
-    # 获取排行数据
-    title = f"📊 {group_name} {'今日' if time_range == 'day' else '30天'}消息排行"
-    
-    # 从数据库获取排名前50的用户数据（按消息数量降序排序）
-    stats = await get_message_stats_from_db(
-        group_id, 
-        time_range=time_range, 
-        limit=15, 
-        skip=(page-1)*15, 
-        context=context
-    )
-    
-    # 如果没有数据，显示提示信息
-    if not stats:
-        await query.edit_message_text(
-            "暂无排行数据。", 
-            reply_markup=None
-        )
-        return
-
-    # 获取总数据量以计算总页数
-    total_stats = await get_message_stats_from_db(
-        group_id, 
-        time_range=time_range, 
-        limit=1000,  # 设置一个大值以获取所有记录数 
-        context=context
-    )
-    
-    # 计算总页数
-    total_pages = (len(total_stats) + 14) // 15
-    
-    # 如果请求的页码超出范围，显示最后一页
-    if page > total_pages:
-        page = total_pages
-        stats = await get_message_stats_from_db(
-            group_id, 
-            time_range=time_range, 
-            limit=15, 
-            skip=(page-1)*15, 
-            context=context
-        )
-
-    # 构建分页按钮
-    keyboard = []
-    if total_pages > 1:
-        buttons = []
-        if page > 1:
-            buttons.append(InlineKeyboardButton("⬅️ 上一页", callback_data=f"rank_prev_{page}_{command_type}"))
-        if page < total_pages:
-            buttons.append(InlineKeyboardButton("下一页 ➡️", callback_data=f"rank_next_{page}_{command_type}"))
-        keyboard.append(buttons)
-
-    # 构建HTML格式的排行文本
-    text = f"<b>{title}</b>\n\n"
-    
-    # 使用格式化函数生成排行行文本
-    text += await format_rank_rows(stats, page, group_id, context)
-    
-    # 添加分页信息，减少空行
-    if total_pages > 1:
-        text += f"\n<i>第 {page}/{total_pages} 页</i>"
-
-    # 更新消息内容
-    await query.edit_message_text(
-        text=text,
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None
-    )
+    try:
+        # 立即响应回调以减少用户等待
+        await query.answer()
+        
+        # 获取按钮数据
+        data = query.data.split("_")
+        if len(data) < 3:
+            logger.error(f"无效的回调数据: {query.data}")
+            await query.edit_message_text("无效的回调数据，请重新尝试。")
+            return
+            
+        action = data[1]
+        current_page = int(data[2])
+        
+        # 获取命令类型（tongji 或 tongji30）
+        command_type = data[3] if len(data) > 3 else "tongji"
+        time_range = 'day' if command_type == 'tongji' else 'month'
+        
+        # 获取群组信息
+        chat = update.effective_chat
+        if not chat:
+            logger.error("无法获取聊天信息")
+            return
+            
+        group_id = chat.id
+        group_name = chat.title or f"群组 {group_id}"
+        
+        logger.info(f"处理排行榜回调: 群组={group_id}, 页码={current_page}, 时间范围={time_range}")
+        
+        # 添加并发控制 - 使用user_data记录正在处理的请求
+        user_id = update.effective_user.id
+        processing_key = f"processing_rank_{user_id}_{group_id}"
+        
+        if context.user_data.get(processing_key, False):
+            logger.warning(f"用户 {user_id} 在群组 {group_id} 中有待处理的排行榜请求，忽略新请求")
+            return
+        
+        context.user_data[processing_key] = True
+        
+        try:
+            # 改进页码逻辑：处理上一页和下一页
+            if action == "prev":
+                page = max(1, current_page - 1)  # 确保页码不小于1
+            elif action == "next":
+                page = current_page + 1  # 暂时允许增加，后面会检查边界
+            else:
+                page = current_page
+                
+            # 安全获取排行数据 - 使用超时控制
+            try:
+                # 获取总数据量以计算总页数
+                total_stats = await asyncio.wait_for(
+                    get_message_stats_from_db(
+                        group_id, 
+                        time_range=time_range, 
+                        limit=1000,  
+                        context=context
+                    ),
+                    timeout=5.0  # 5秒超时
+                )
+            except asyncio.TimeoutError:
+                logger.error(f"获取排行数据超时: 群组={group_id}, 时间范围={time_range}")
+                await query.edit_message_text(
+                    "获取排行数据超时，请稍后再试。",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("重试", callback_data=f"rank_{action}_{current_page}_{command_type}")
+                    ]])
+                )
+                return
+                
+            # 过滤并排序总数据 - 深度复制以避免引用问题
+            total_stats = [dict(stat) for stat in total_stats if stat.get('total_messages', 0) > 0]
+            total_stats.sort(key=lambda x: x.get('total_messages', 0), reverse=True)
+            
+            # 计算总页数，确保至少有1页
+            total_pages = max(1, (len(total_stats) + 14) // 15)
+            
+            # 如果请求的页码超出范围，纠正为最后一页
+            if page > total_pages:
+                page = total_pages
+            
+            # 计算当前页的数据范围
+            start_idx = (page - 1) * 15
+            end_idx = min(start_idx + 15, len(total_stats))
+            
+            # 获取当前页数据
+            if start_idx < len(total_stats) and start_idx < end_idx:
+                stats = total_stats[start_idx:end_idx]
+            else:
+                stats = []
+            
+            # 如果没有数据，显示提示信息
+            if not stats:
+                await query.edit_message_text(
+                    "暂无更多排行数据。", 
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("返回第一页", callback_data=f"rank_prev_1_{command_type}")
+                    ]])
+                )
+                return
+            
+            # 构建分页按钮
+            keyboard = []
+            if total_pages > 1:
+                buttons = []
+                if page > 1:
+                    buttons.append(InlineKeyboardButton("⬅️ 上一页", callback_data=f"rank_prev_{page}_{command_type}"))
+                if page < total_pages:
+                    buttons.append(InlineKeyboardButton("下一页 ➡️", callback_data=f"rank_next_{page+1}_{command_type}"))
+                keyboard.append(buttons)
+                
+                # 添加页码跳转按钮
+                if total_pages > 3:
+                    page_buttons = []
+                    # 添加首页按钮
+                    if page > 2:
+                        page_buttons.append(InlineKeyboardButton("1", callback_data=f"rank_prev_1_{command_type}"))
+                    
+                    # 添加当前页和相邻页
+                    for p in range(max(1, page-1), min(total_pages+1, page+2)):
+                        text = f"[{p}]" if p == page else f"{p}"
+                        page_buttons.append(InlineKeyboardButton(text, callback_data=f"rank_prev_{p}_{command_type}"))
+                    
+                    # 添加末页按钮
+                    if page < total_pages - 1:
+                        page_buttons.append(InlineKeyboardButton(f"{total_pages}", callback_data=f"rank_prev_{total_pages}_{command_type}"))
+                    
+                    keyboard.append(page_buttons)
+            
+            # 获取标题
+            title = f"📊 {group_name} {'今日' if time_range == 'day' else '30天'}消息排行"
+            
+            # 构建HTML格式的排行文本
+            text = f"<b>{title}</b>\n\n"
+            
+            # 使用格式化函数生成排行行文本
+            try:
+                formatted_rows = await asyncio.wait_for(
+                    format_rank_rows(stats, page, group_id, context),
+                    timeout=5.0  # 5秒超时
+                )
+                text += formatted_rows
+            except asyncio.TimeoutError:
+                logger.error(f"格式化排行行文本超时: 群组={group_id}, 页码={page}")
+                text += "格式化数据超时，请重试。"
+            
+            # 添加分页信息，减少空行
+            if total_pages > 1:
+                text += f"\n<i>第 {page}/{total_pages} 页</i>"
+            
+            # 更新消息内容，使用异常处理增强稳定性
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None
+                )
+            except Exception as e:
+                logger.error(f"更新排行榜消息失败: {e}")
+                # 尝试发送新消息而不是编辑
+                try:
+                    await context.bot.send_message(
+                        chat_id=group_id,
+                        text=f"排行榜更新失败，请重新查询。错误: {str(e)[:50]}",
+                        reply_to_message_id=query.message.message_id
+                    )
+                except:
+                    pass
+        finally:
+            # 清除处理标记
+            context.user_data[processing_key] = False
+            
+    except Exception as e:
+        logger.error(f"处理排行榜回调时出错: {e}", exc_info=True)
+        try:
+            await query.edit_message_text(
+                "处理请求时出错，请稍后再试。",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("重试", callback_data=query.data)
+                ]])
+            )
+        except:
+            pass
 
 @check_command_usage
 async def handle_admin_groups(update: Update, context: CallbackContext):
