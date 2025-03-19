@@ -12,6 +12,9 @@ from utils.message_utils import set_message_expiry
 
 logger = logging.getLogger(__name__)
 
+# 用户信息缓存
+user_cache = {}
+
 #######################################
 # 基础命令处理函数
 #######################################
@@ -170,9 +173,70 @@ def truncate_string_by_width(s, max_width):
         
     return ''.join(result)
 
+# 添加一个简单内存缓存
+class SimpleCache:
+    def __init__(self):
+        self.data = {}
+        self.expiry = {}
+        self._lock = asyncio.Lock()
+    
+    async def set(self, key, value, expire_seconds=None):
+        async with self._lock:
+            self.data[key] = value
+            if expire_seconds:
+                self.expiry[key] = time.time() + expire_seconds
+    
+    async def get(self, key):
+        async with self._lock:
+            if key in self.data:
+                if key in self.expiry and time.time() > self.expiry[key]:
+                    del self.data[key]
+                    del self.expiry[key]
+                    return None
+                return self.data[key]
+            return None
+    
+    async def exists(self, key):
+        async with self._lock:
+            return key in self.data
+    
+    async def delete(self, key):
+        async with self._lock:
+            if key in self.data:
+                del self.data[key]
+            if key in self.expiry:
+                del self.expiry[key]
+
+# 初始化缓存
+memory_cache = SimpleCache()
+
+async def get_user_display_name(chat_id, user_id, context):
+    """获取用户显示名称，带缓存"""
+    cache_key = f"{chat_id}:{user_id}"
+    
+    # 尝试从缓存获取
+    cached_name = await memory_cache.get(cache_key)
+    if cached_name:
+        return cached_name
+        
+    try:
+        # 从Telegram API获取
+        user = await asyncio.wait_for(
+            context.bot.get_chat_member(chat_id, user_id),
+            timeout=2.0
+        )
+        display_name = html.escape(user.user.full_name)
+        
+        # 缓存结果，24小时过期
+        await memory_cache.set(cache_key, display_name, 86400)
+        return display_name
+    except Exception as e:
+        logger.warning(f"获取用户 {user_id} 信息失败: {e}")
+        return f'用户{user_id}'
+
 async def get_message_stats_from_db(group_id: int, time_range: str = 'day', limit: int = 15, skip: int = 0, context=None):
     """
-    从数据库获取消息统计数据
+    从数据库获取消息统计数据 - 优化版本
     
     参数:
         group_id: 群组ID
@@ -199,10 +263,11 @@ async def get_message_stats_from_db(group_id: int, time_range: str = 'day', limi
         # 设置时间过滤条件
         now = datetime.datetime.now()
         
-        # 基础过滤条件
+        # 基础过滤条件 - 增加更严格的过滤
         match = {
             'group_id': group_id,
-            'total_messages': {'$gt': 0}  # 只获取消息数大于0的记录
+            'total_messages': {'$gt': 0},
+            'is_bot': {'$ne': True}  # 排除机器人
         }
         
         # 添加时间范围过滤条件
@@ -219,26 +284,29 @@ async def get_message_stats_from_db(group_id: int, time_range: str = 'day', limi
         # 日志记录查询条件，帮助调试
         logger.info(f"消息统计查询条件: {match}")
         
-        # 改进的聚合管道，解决重复计数问题
+        # 优化的聚合管道，解决重复计数问题
         pipeline = [
             # 1. 初始匹配阶段 - 基本过滤
             {'$match': match},
             
-            # 2. 按用户ID和日期分组 - 确保每个用户每天只计算一次
+            # 2. 确保每条消息只被计数一次
             {'$group': {
-                '_id': {'user_id': '$user_id', 'date': '$date'},
-                'total_messages': {'$sum': '$total_messages'},  # 合并同一天同一用户的记录
+                '_id': {'msg_id': '$message_id', 'user_id': '$user_id', 'date': '$date'},
+                'message_count': {'$sum': 1},
                 'user_id': {'$first': '$user_id'}
             }},
             
-            # 3. 按用户ID重新分组 - 跨日期统计
+            # 3. 按用户ID分组汇总
             {'$group': {
                 '_id': '$user_id',
-                'total_messages': {'$sum': '$total_messages'}
+                'total_messages': {'$sum': '$message_count'}
             }},
             
             # 4. 过滤无效数据
-            {'$match': {'total_messages': {'$gt': 0}}},
+            {'$match': {
+                '_id': {'$ne': None},
+                'total_messages': {'$gt': 0}
+            }},
             
             # 5. 排序
             {'$sort': {'total_messages': -1}},
@@ -248,19 +316,13 @@ async def get_message_stats_from_db(group_id: int, time_range: str = 'day', limi
             {'$limit': limit}
         ]
         
-        # 设置超时选项
+        # 设置超时选项 - 增加超时时间
         options = {
-            'maxTimeMS': 5000  # 5秒超时
+            'maxTimeMS': 10000  # 10秒超时
         }
         
         # 执行聚合查询
         stats = await bot_instance.db.db.message_stats.aggregate(pipeline, **options).to_list(None)
-        
-        # 记录详细结果，帮助调试
-        if len(stats) > 0:
-            logger.info(f"排行榜前三名数据: {stats[:3]}")
-        
-        logger.info(f"获取消息统计成功: 群组={group_id}, 时间范围={time_range}, 结果数={len(stats)}")
         
         # 深度复制结果，避免引用问题
         validated_stats = []
@@ -268,7 +330,7 @@ async def get_message_stats_from_db(group_id: int, time_range: str = 'day', limi
             if '_id' in stat and 'total_messages' in stat and stat['total_messages'] > 0:
                 # 复制数据并确保类型正确
                 validated_stats.append({
-                    '_id': stat['_id'],
+                    '_id': int(stat['_id']),
                     'total_messages': int(stat['total_messages'])  # 确保是整数
                 })
         
@@ -279,6 +341,48 @@ async def get_message_stats_from_db(group_id: int, time_range: str = 'day', limi
     except Exception as e:
         logger.error(f"获取消息统计失败: {e}", exc_info=True)
         return []
+
+async def get_total_stats_count(group_id, time_range, context):
+    """获取统计总记录数 - 用于准确计算页数"""
+    try:
+        bot_instance = context.application.bot_data.get('bot_instance')
+        
+        # 基础过滤条件
+        match = {
+            'group_id': group_id,
+            'total_messages': {'$gt': 0},
+            'is_bot': {'$ne': True}
+        }
+        
+        # 添加时间范围过滤条件
+        if time_range == 'day':
+            today = datetime.datetime.now().strftime('%Y-%m-%d')
+            match['date'] = today
+        elif time_range == 'month':
+            thirty_days_ago = (datetime.datetime.now() - datetime.timedelta(days=30)).strftime('%Y-%m-%d')
+            today = datetime.datetime.now().strftime('%Y-%m-%d')
+            match['date'] = {'$gte': thirty_days_ago, '$lte': today}
+        
+        # 获取去重后的用户数量
+        pipeline = [
+            {'$match': match},
+            {'$group': {
+                '_id': {'msg_id': '$message_id', 'user_id': '$user_id'},
+                'user_id': {'$first': '$user_id'}
+            }},
+            {'$group': {
+                '_id': '$user_id'
+            }},
+            {'$count': 'total'}
+        ]
+        
+        result = await bot_instance.db.db.message_stats.aggregate(pipeline).to_list(None)
+        if result and result[0]:
+            return result[0].get('total', 0)
+        return 0
+    except Exception as e:
+        logger.error(f"获取统计总数失败: {e}")
+        return 0
 
 async def format_rank_rows(stats, page, group_id, context):
     """
@@ -302,7 +406,9 @@ async def format_rank_rows(stats, page, group_id, context):
     
     # 构建每一行文本
     rows = []
-    for i, stat in enumerate(stats, start=(page-1)*15+1):
+    start_rank = (page-1)*15 + 1
+    
+    for i, stat in enumerate(stats, start=start_rank):
         try:
             # 跳过无效数据
             if not isinstance(stat, dict) or '_id' not in stat or 'total_messages' not in stat:
@@ -325,18 +431,8 @@ async def format_rank_rows(stats, page, group_id, context):
                 elif i == 3:
                     rank_prefix = "🥉 "  # 铜牌
             
-            # 获取用户信息
-            try:
-                user = await asyncio.wait_for(
-                    context.bot.get_chat_member(group_id, stat['_id']),
-                    timeout=2.0  # 2秒超时
-                )
-                display_name = user.user.full_name
-                # 处理HTML特殊字符
-                display_name = html.escape(display_name)
-            except (asyncio.TimeoutError, Exception) as e:
-                logger.warning(f"获取用户 {stat['_id']} 信息失败: {e}")
-                display_name = f'用户{stat["_id"]}'
+            # 获取用户信息 - 使用缓存
+            display_name = await get_user_display_name(group_id, stat['_id'], context)
             
             # 确保必须截断超长用户名
             original_width = get_string_display_width(display_name)
@@ -378,11 +474,15 @@ async def format_rank_rows(stats, page, group_id, context):
     
     # 如果没有成功格式化任何行，返回提示信息
     if not rows:
-        return "无法格式化排行数据，请重试。"
+        if page == 1:
+            return "暂无聊天记录，快来聊天吧！"
+        else:
+            return "没有更多数据了"
         
     # 不添加恢复数据的解释
     result = "\n".join(rows)
     return result
+
 @check_command_usage
 async def handle_rank_command(update: Update, context: CallbackContext):
     """处理 /rank 命令，显示群组消息排行榜"""
@@ -407,13 +507,23 @@ async def handle_rank_command(update: Update, context: CallbackContext):
         if command == '/tongji':
             # 获取今日统计
             title = f"📊 {group_name} 今日消息排行"
-            daily_stats = await get_message_stats_from_db(group_id, time_range='day', limit=50, context=context)
-            stats = daily_stats
+            time_range = 'day'
         else:  # /tongji30
             # 获取30天统计
             title = f"📊 {group_name} 30天消息排行"
-            monthly_stats = await get_message_stats_from_db(group_id, time_range='month', limit=50, context=context)
-            stats = monthly_stats
+            time_range = 'month'
+        
+        # 获取统计数据 - 使用超时控制
+        try:
+            stats = await asyncio.wait_for(
+                get_message_stats_from_db(group_id, time_range=time_range, limit=15, context=context),
+                timeout=5.0
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"获取消息统计超时: 群组={group_id}, 时间范围={time_range}")
+            msg = await update.message.reply_text("获取排行数据超时，请稍后再试。")
+            await set_message_expiry(context=context, chat_id=group_id, message_id=msg.message_id, feature="rank_command")
+            return
         
         # 如果没有数据，显示提示信息
         if not stats:
@@ -428,11 +538,11 @@ async def handle_rank_command(update: Update, context: CallbackContext):
             )
             return
         
-        # 计算总页数（每页15条记录）
-        total_pages = (len(stats) + 14) // 15
+        # 获取总记录数计算总页数
+        total_count = await get_total_stats_count(group_id, time_range, context)
         
-        # 只显示第一页的15条记录
-        stats = stats[:15]
+        # 计算总页数（每页15条记录）
+        total_pages = max(1, (total_count + 14) // 15)
         
         # 构建分页按钮
         keyboard = []
@@ -446,7 +556,13 @@ async def handle_rank_command(update: Update, context: CallbackContext):
         text = f"<b>{title}</b>\n\n"
         
         # 使用格式化函数生成排行行文本
-        text += await format_rank_rows(stats, page, group_id, context)
+        try:
+            text += await asyncio.wait_for(
+                format_rank_rows(stats, page, group_id, context),
+                timeout=3.0
+            )
+        except asyncio.TimeoutError:
+            text += "格式化数据超时，请稍后再试。"
         
         # 添加分页信息，减少空行
         if total_pages > 1:
@@ -555,9 +671,9 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext, *a
         
         logger.info(f"处理排行榜回调: 群组={group_id}, 页码={current_page}, 时间范围={time_range}")
         
-        # 添加并发控制 - 使用user_data记录正在处理的请求
+        # 添加并发控制 - 更细粒度的锁控制
         user_id = update.effective_user.id
-        processing_key = f"processing_rank_{user_id}_{group_id}"
+        processing_key = f"rank_processing:{user_id}:{group_id}:{action}"
         
         if context.user_data.get(processing_key, False):
             logger.warning(f"用户 {user_id} 在群组 {group_id} 中有待处理的排行榜请求，忽略新请求")
@@ -573,15 +689,26 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext, *a
                 page = current_page + 1  # 暂时允许增加，后面会检查边界
             else:
                 page = current_page
-                
+            
+            # 获取总记录数计算总页数 - 直接从数据库获取准确值
+            total_count = await get_total_stats_count(group_id, time_range, context)
+            
+            # 计算总页数，确保至少有1页
+            total_pages = max(1, (total_count + 14) // 15)
+            
+            # 如果请求的页码超出范围，纠正为最后一页
+            if page > total_pages:
+                page = total_pages
+            
             # 安全获取排行数据 - 使用超时控制
             try:
-                # 获取总数据量以计算总页数
-                total_stats = await asyncio.wait_for(
+                skip = (page - 1) * 15
+                stats = await asyncio.wait_for(
                     get_message_stats_from_db(
                         group_id, 
                         time_range=time_range, 
-                        limit=1000,  
+                        limit=15,
+                        skip=skip,
                         context=context
                     ),
                     timeout=5.0  # 5秒超时
@@ -595,27 +722,6 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext, *a
                     ]])
                 )
                 return
-                
-            # 过滤并排序总数据 - 深度复制以避免引用问题
-            total_stats = [dict(stat) for stat in total_stats if stat.get('total_messages', 0) > 0]
-            total_stats.sort(key=lambda x: x.get('total_messages', 0), reverse=True)
-            
-            # 计算总页数，确保至少有1页
-            total_pages = max(1, (len(total_stats) + 14) // 15)
-            
-            # 如果请求的页码超出范围，纠正为最后一页
-            if page > total_pages:
-                page = total_pages
-            
-            # 计算当前页的数据范围
-            start_idx = (page - 1) * 15
-            end_idx = min(start_idx + 15, len(total_stats))
-            
-            # 获取当前页数据
-            if start_idx < len(total_stats) and start_idx < end_idx:
-                stats = total_stats[start_idx:end_idx]
-            else:
-                stats = []
             
             # 如果没有数据，显示提示信息
             if not stats:
@@ -631,8 +737,6 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext, *a
                 if page < total_pages:
                     buttons.append(InlineKeyboardButton("下一页 ➡️", callback_data=f"rank_next_{page+1}_{command_type}"))
                 keyboard.append(buttons)
-                
-                # 页码跳转功能已移除
             
             # 获取标题
             title = f"📊 {group_name} {'今日' if time_range == 'day' else '30天'}消息排行"
@@ -644,7 +748,7 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext, *a
             try:
                 formatted_rows = await asyncio.wait_for(
                     format_rank_rows(stats, page, group_id, context),
-                    timeout=5.0  # 5秒超时
+                    timeout=3.0  # 3秒超时
                 )
                 text += formatted_rows
             except asyncio.TimeoutError:
@@ -668,7 +772,7 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext, *a
                 try:
                     await context.bot.send_message(
                         chat_id=group_id,
-                        text=f"排行榜更新失败，请重新查询。错误: {str(e)[:50]}",
+                        text=f"排行榜更新失败，请重新查询。",
                         reply_to_message_id=query.message.message_id
                     )
                 except:
@@ -1132,3 +1236,89 @@ async def handle_cleanup_invalid_groups(update: Update, context: CallbackContext
     except Exception as e:
         logger.error(f"清理无效群组命令出错: {e}", exc_info=True)
         await update.message.reply_text(f"❌ 命令处理出错: {str(e)}")
+
+# 优化后新增的消息统计更新函数
+async def update_message_stats(update: Update, context: CallbackContext):
+    """更新消息统计，使用改进的去重逻辑"""
+    if not update.effective_user or not update.effective_chat or not update.message:
+        return
+    
+    # 跳过机器人消息
+    if update.effective_user.is_bot:
+        return
+    
+    user_id = update.effective_user.id
+    group_id = update.effective_chat.id
+    message_id = update.message.message_id
+    
+    # 确保是群组消息
+    if update.effective_chat.type not in ['group', 'supergroup']:
+        return
+    
+    bot_instance = context.application.bot_data.get('bot_instance')
+    if not bot_instance:
+        return
+    
+    # 检查统计权限
+    if not await bot_instance.has_permission(group_id, GroupPermission.STATS):
+        return
+    
+    # 获取当前日期
+    today = datetime.datetime.now().strftime('%Y-%m-%d')
+    
+    # 获取群组设置
+    settings = await bot_instance.db.get_group_settings(group_id)
+    min_bytes = settings.get('min_bytes', 0)
+    count_media = settings.get('count_media', True)
+    
+    # 确定消息类型
+    message_type = 'text'
+    if update.message.photo:
+        message_type = 'photo'
+    elif update.message.video:
+        message_type = 'video'
+    elif update.message.document:
+        message_type = 'document'
+    elif update.message.sticker:
+        message_type = 'sticker'
+    
+    # 检查是否应该计数该消息
+    should_count = True
+    
+    # 对于文本消息，检查长度
+    if message_type == 'text' and update.message.text:
+        if len(update.message.text.encode('utf-8')) < min_bytes:
+            should_count = False
+    
+    # 对于媒体消息，检查是否计数
+    elif not count_media and message_type != 'text':
+        should_count = False
+    
+    # 如果应该计数，则添加到数据库
+    if should_count:
+        try:
+            # 首先检查此消息ID是否已处理过 - 避免重复计数
+            duplicate_check = await bot_instance.db.db.message_stats.find_one({
+                'group_id': group_id,
+                'message_id': message_id
+            })
+            
+            if duplicate_check:
+                # 消息已被计数，跳过
+                return
+            
+            # 插入新记录，确保包含消息ID
+            await bot_instance.db.db.message_stats.insert_one({
+                'group_id': group_id,
+                'user_id': user_id,
+                'date': today,
+                'message_id': message_id,
+                'message_type': message_type,
+                'total_messages': 1,
+                'is_bot': False,
+                'timestamp': datetime.datetime.now()
+            })
+            
+            logger.debug(f"已记录消息统计: 用户={user_id}, 群组={group_id}, 类型={message_type}")
+        except Exception as e:
+            logger.error(f"记录消息统计失败: {e}", exc_info=True)
