@@ -683,25 +683,22 @@ async def handle_broadcast_recalibrate_callback(update: Update, context: Callbac
     
     # 解析回调数据
     parts = data.split('_')
-    if len(parts) >= 6 and parts[0] == "bc" and parts[1] == "recalibrate" and parts[3] == "custom":
-        broadcast_id = parts[2]
-        custom_type = parts[4]
-        group_id = int(parts[5])
-        logger.info(f"处理特殊轮播校准回调: custom_{custom_type}, broadcast_id: {broadcast_id}")
-        # 特殊处理逻辑...
-    elif len(parts) < 5:  # bc, recalibrate, broadcast_id, group_id
+    logger.info(f"重置轮播消息回调数据: {parts}")
+    
+    if len(parts) < 4:  # bc, recalibrate, broadcast_id, group_id
+        logger.error(f"重置轮播消息回调数据格式错误: {data}")
         await query.edit_message_text("❌ 无效的回调数据")
         return
-    else:
-        broadcast_id = parts[3]
-        group_id = int(parts[4])
+    
+    broadcast_id = parts[2]
+    group_id = int(parts[3])
     
     # 执行重置
     if bot_instance.broadcast_manager:
         success = await bot_instance.broadcast_manager.recalibrate_broadcast_time(broadcast_id)
         if success:
             await query.edit_message_text(
-                "✅ 已重置轮播消息时间调度，下次将按固定时间发送",
+                "✅ 已重置轮播消息时间调度，下次将按固定时间锚点发送",
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
                 ]])
@@ -756,12 +753,20 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
         'media': form_data.get('media'),
         'buttons': form_data.get('buttons', []),
         'repeat_type': form_data.get('repeat_type', 'once'),
-        'interval': form_data.get('repeat_interval', 0)  # 这里将 repeat_interval 映射为 interval
+        'interval': form_data.get('repeat_interval', 0),  # 这里将 repeat_interval 映射为 interval
+        'use_fixed_time': form_data.get('use_fixed_time', False)  # 添加固定时间锚点模式标志
     }
+    
+    # 如果启用固定时间锚点，确保设置schedule_time
+    if broadcast_data['use_fixed_time']:
+        schedule_time = form_data.get('schedule_time')
+        if schedule_time:
+            broadcast_data['schedule_time'] = schedule_time
+            logger.info(f"设置固定锚点时间: {schedule_time}")
     
     # 处理开始时间
     start_time_str = form_data.get('start_time')
-    if start_time_str and start_time_str.lower() != 'now':
+    if start_time_str and isinstance(start_time_str, str) and start_time_str.lower() != 'now':
         try:
             # 验证时间格式并转换为datetime对象
             broadcast_data['start_time'] = datetime.strptime(start_time_str, '%Y-%m-%d %H:%M:%S')
@@ -769,6 +774,9 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
             await update.callback_query.answer("❌ 时间格式不正确")
             await show_broadcast_options(update, context)
             return
+    elif start_time_str and not isinstance(start_time_str, str):
+        # 已经是datetime对象
+        broadcast_data['start_time'] = start_time_str
     else:
         # 立即开始
         broadcast_data['start_time'] = datetime.now()
@@ -778,9 +786,10 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
         # 保存调度时间
         if 'start_time' in broadcast_data and isinstance(broadcast_data['start_time'], datetime):
             start_time = broadcast_data['start_time']
-            schedule_time = f"{start_time.hour}:{start_time.minute:02d}"
-            broadcast_data['schedule_time'] = schedule_time
-            logger.info(f"设置固定调度时间: {schedule_time}")
+            if 'schedule_time' not in broadcast_data:
+                schedule_time = f"{start_time.hour:02d}:{start_time.minute:02d}"
+                broadcast_data['schedule_time'] = schedule_time
+                logger.info(f"设置固定调度时间: {schedule_time}")
         
     # 处理结束时间
     if form_data.get('repeat_type') == 'once':
@@ -856,6 +865,10 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
         elif broadcast_data['repeat_type'] == 'custom':
             repeat_text = f"每 {broadcast_data['interval']} 分钟发送" 
         
+        # 添加锚点模式说明
+        if broadcast_data.get('use_fixed_time'):
+            repeat_text += "（固定时间锚点模式）"
+        
         # 显示成功消息
         message_text = ""
         if form_data.get('is_editing'):
@@ -866,8 +879,13 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
         message_text += (
             f"重复类型: {repeat_text}\n"
             f"开始时间: {format_datetime(broadcast_data['start_time'])}\n"
-            f"结束时间: {format_datetime(broadcast_data['end_time'])}"
         )
+        
+        # 如果使用固定时间锚点，显示锚点时间
+        if broadcast_data.get('use_fixed_time'):
+            message_text += f"锚点时间: {broadcast_data.get('schedule_time', '未设置')}\n"
+            
+        message_text += f"结束时间: {format_datetime(broadcast_data['end_time'])}"
         
         # 添加返回按钮
         keyboard = [
@@ -989,6 +1007,9 @@ async def show_interval_options(update: Update, context: CallbackContext):
         update: 更新对象
         context: 上下文对象
     """
+    # 获取当前表单数据
+    form_data = context.user_data.get('broadcast_form', {})
+    
     # 构建间隔选择按钮
     keyboard = [
         [InlineKeyboardButton("单次发送", callback_data="bcform_set_interval_once")],
@@ -1000,8 +1021,25 @@ async def show_interval_options(update: Update, context: CallbackContext):
         [InlineKeyboardButton("❌ 取消", callback_data="bcform_cancel")]
     ]
     
+    # 添加固定时间锚点选项
+    if form_data.get('use_fixed_time', False):
+        keyboard.append([InlineKeyboardButton("🔄 禁用固定时间锚点", 
+                                          callback_data=f"bcform_toggle_fixed_time")])
+    else:
+        keyboard.append([InlineKeyboardButton("⚓ 启用固定时间锚点", 
+                                          callback_data=f"bcform_toggle_fixed_time")])
+    
+    keyboard.extend([
+        [InlineKeyboardButton("返回", callback_data="bcform_content_received")],
+        [InlineKeyboardButton("❌ 取消", callback_data="bcform_cancel")]
+    ])
+    
     await update.callback_query.edit_message_text(
-        "📢 设置轮播间隔\n\n请选择轮播消息的发送间隔：",
+        "📢 设置轮播间隔\n\n"
+        "请选择轮播消息的发送间隔：\n\n"
+        "⚓ 固定时间锚点模式：轮播消息将按照设定的时间点精确发送，而不是按照上次发送后的时间间隔。\n"
+        "例如，设置19:00开始，每15分钟发送一次，则会在19:00、19:15、19:30等时间点发送，\n"
+        "即使因为系统延迟导致某次发送在19:01完成，下次发送仍然会在19:15进行。",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -1055,18 +1093,33 @@ async def show_broadcast_options(update: Update, context: CallbackContext):
             summary += "• 发送类型: 每日发送\n"
         elif repeat_type == 'custom':
             interval = form_data.get('repeat_interval', 0)
-            summary += f"• 发送类型: 自定义（每{interval}分钟）\n"
+            # 新增固定时间发送模式说明
+            if form_data.get('use_fixed_time', False):
+                summary += f"• 发送类型: 每{interval}分钟固定锚点发送\n"
+            else:
+                summary += f"• 发送类型: 每{interval}分钟发送\n"
     
     # 显示开始时间
     if form_data.get('start_time'):
         start_time = form_data.get('start_time')
-        if start_time.lower() == 'now':
+        if isinstance(start_time, str) and start_time.lower() == 'now':
             summary += "• 开始时间: 立即开始\n"
         else:
             try:
-                dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+                if isinstance(start_time, str):
+                    dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+                else:
+                    dt = start_time
+                
+                from utils.time_utils import format_datetime
                 summary += f"• 开始时间: {format_datetime(dt)}\n"
-            except ValueError:
+                
+                # 显示固定时间锚点
+                if form_data.get('use_fixed_time', False):
+                    schedule_time = form_data.get('schedule_time', f"{dt.hour:02d}:{dt.minute:02d}")
+                    summary += f"• 锚点时间: {schedule_time}\n"
+                
+            except (ValueError, AttributeError):
                 summary += f"• 开始时间: {start_time}\n"
     else:
         summary += "• 开始时间: ❌ 未设置\n"
@@ -1075,9 +1128,14 @@ async def show_broadcast_options(update: Update, context: CallbackContext):
     if form_data.get('end_time'):
         end_time = form_data.get('end_time')
         try:
-            dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+            if isinstance(end_time, str):
+                dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+            else:
+                dt = end_time
+            
+            from utils.time_utils import format_datetime
             summary += f"• 结束时间: {format_datetime(dt)}\n"
-        except ValueError:
+        except (ValueError, AttributeError):
             summary += f"• 结束时间: {end_time}\n"
     else:
         if form_data.get('repeat_type') != 'once':
@@ -1097,11 +1155,21 @@ async def show_broadcast_options(update: Update, context: CallbackContext):
     if form_data.get('repeat_type') and form_data.get('repeat_type') != 'once':
         keyboard.append([InlineKeyboardButton("🏁 设置结束时间", callback_data=f"bcform_set_end_time")])
     
+    # 添加固定时间锚点选项
+    if form_data.get('repeat_type') and form_data.get('repeat_type') != 'once':
+        if form_data.get('use_fixed_time', False):
+            keyboard.append([InlineKeyboardButton("🔄 禁用固定时间锚点", 
+                                              callback_data=f"bcform_toggle_fixed_time")])
+        else:
+            keyboard.append([InlineKeyboardButton("⚓ 启用固定时间锚点", 
+                                              callback_data=f"bcform_toggle_fixed_time")])
+    
     keyboard.extend([
         [InlineKeyboardButton("👁️ 预览效果", callback_data=f"bcform_preview")],
         [InlineKeyboardButton("✅ 提交", callback_data=f"bcform_submit")],
         [InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]
     ])
+    
     # 检查是否至少有一项内容和计划设置
     has_content = bool(form_data.get('text') or form_data.get('media') or form_data.get('buttons'))
     has_schedule = bool(form_data.get('start_time'))
