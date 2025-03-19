@@ -199,8 +199,10 @@ async def get_message_stats_from_db(group_id: int, time_range: str = 'day', limi
         # 设置时间过滤条件
         now = datetime.datetime.now()
         
+        # 基础过滤条件
         match = {
-            'group_id': group_id
+            'group_id': group_id,
+            'total_messages': {'$gt': 0}  # 只获取消息数大于0的记录
         }
         
         # 添加时间范围过滤条件
@@ -213,40 +215,61 @@ async def get_message_stats_from_db(group_id: int, time_range: str = 'day', limi
             thirty_days_ago = (now - datetime.timedelta(days=30)).strftime('%Y-%m-%d')
             today = now.strftime('%Y-%m-%d')
             match['date'] = {'$gte': thirty_days_ago, '$lte': today}
-            
-        # 添加消息数量过滤，只获取消息数大于0的记录
-        match['total_messages'] = {'$gt': 0}
         
-        # 聚合查询以获取每个用户的总消息数
+        # 日志记录查询条件，帮助调试
+        logger.info(f"消息统计查询条件: {match}")
+        
+        # 改进的聚合管道，解决重复计数问题
         pipeline = [
+            # 1. 初始匹配阶段 - 基本过滤
             {'$match': match},
+            
+            # 2. 按用户ID和日期分组 - 确保每个用户每天只计算一次
+            {'$group': {
+                '_id': {'user_id': '$user_id', 'date': '$date'},
+                'total_messages': {'$sum': '$total_messages'},  # 合并同一天同一用户的记录
+                'user_id': {'$first': '$user_id'}
+            }},
+            
+            # 3. 按用户ID重新分组 - 跨日期统计
             {'$group': {
                 '_id': '$user_id',
                 'total_messages': {'$sum': '$total_messages'}
             }},
-            {'$match': {'total_messages': {'$gt': 0}}},  # 再次确认消息数大于0
+            
+            # 4. 过滤无效数据
+            {'$match': {'total_messages': {'$gt': 0}}},
+            
+            # 5. 排序
             {'$sort': {'total_messages': -1}},
+            
+            # 6. 分页
             {'$skip': skip},
             {'$limit': limit}
         ]
         
-        # 设置超时选项，避免长时间阻塞
+        # 设置超时选项
         options = {
             'maxTimeMS': 5000  # 5秒超时
         }
         
         # 执行聚合查询
         stats = await bot_instance.db.db.message_stats.aggregate(pipeline, **options).to_list(None)
+        
+        # 记录详细结果，帮助调试
+        if len(stats) > 0:
+            logger.info(f"排行榜前三名数据: {stats[:3]}")
+        
         logger.info(f"获取消息统计成功: 群组={group_id}, 时间范围={time_range}, 结果数={len(stats)}")
         
-        # 进行数据验证，确保每个记录都有必要的字段
+        # 深度复制结果，避免引用问题
         validated_stats = []
         for stat in stats:
             if '_id' in stat and 'total_messages' in stat and stat['total_messages'] > 0:
-                # 复制数据以避免引用问题
+                # 复制数据并确保类型正确
                 validated_stats.append({
                     '_id': stat['_id'],
-                    'total_messages': stat['total_messages']
+                    'total_messages': int(stat['total_messages'])  # 确保是整数
                 })
         
         return validated_stats
