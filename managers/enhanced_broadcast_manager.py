@@ -238,64 +238,77 @@ class EnhancedBroadcastManager:
                 if keyboard:
                     reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # 发送消息 - 使用TelegramBot类的方法
-            if media:
-                # 媒体消息，需要使用底层bot直接发送，因为TelegramBot类没有直接发送媒体的方法
-                # 获取底层bot对象
-                bot = self.bot.application.bot if hasattr(self.bot, 'application') else None
-                if not bot:
-                    logger.error(f"无法获取底层bot对象，broadcast_id={broadcast_id}")
-                    return False
-                
-                media_type = media.get('type', 'photo')
-                media_id = media.get('file_id')
-                
-                if media_type == 'photo':
-                    message = await bot.send_photo(
+            # 发送消息
+            msg = None
+            if media and media.get('type'):
+                # 使用底层的Telegram Bot API发送媒体消息
+                if media['type'] == 'photo':
+                    msg = await self.bot.application.bot.send_photo(
                         chat_id=group_id,
-                        photo=media_id,
+                        photo=media['file_id'],
                         caption=text,
                         reply_markup=reply_markup
                     )
-                elif media_type == 'video':
-                    message = await bot.send_video(
+                elif media['type'] == 'video':
+                    msg = await self.bot.application.bot.send_video(
                         chat_id=group_id,
-                        video=media_id,
+                        video=media['file_id'],
                         caption=text,
                         reply_markup=reply_markup
                     )
-                elif media_type == 'document':
-                    message = await bot.send_document(
+                elif media['type'] == 'document':
+                    msg = await self.bot.application.bot.send_document(
                         chat_id=group_id,
-                        document=media_id,
+                        document=media['file_id'],
+                        caption=text,
+                        reply_markup=reply_markup
+                    )
+                elif media['type'] == 'animation':
+                    msg = await self.bot.application.bot.send_animation(
+                        chat_id=group_id,
+                        animation=media['file_id'],
                         caption=text,
                         reply_markup=reply_markup
                     )
                 else:
-                    logger.warning(f"不支持的媒体类型: {media_type}, broadcast_id={broadcast_id}")
-                    return False
+                    # 默认作为文档发送
+                    msg = await self.bot.application.bot.send_document(
+                        chat_id=group_id,
+                        document=media['file_id'],
+                        caption=text,
+                        reply_markup=reply_markup
+                    )
             else:
-                # 纯文本消息可以使用TelegramBot类的send_auto_delete_message方法
-                message_type = 'broadcast'  # 使用轮播消息类型
-                message = await self.bot.send_auto_delete_message(
+                # 纯文本消息或只有按钮的消息
+                msg = await self.bot.application.bot.send_message(
                     chat_id=group_id,
-                    text=text,
-                    reply_markup=reply_markup,
-                    message_type=message_type
+                    text=text or "轮播消息",
+                    reply_markup=reply_markup
                 )
-            
-            # 记录已发送的消息ID
-            if message:
-                # 存储消息ID以便以后引用或删除
+                
+            # 处理自动删除
+            if msg:
+                # 记录已发送的消息ID
                 message_data = {
-                    'message_id': message.message_id,
-                    'chat_id': message.chat.id,
-                    'date': message.date
+                    'message_id': msg.message_id,
+                    'chat_id': msg.chat.id,
+                    'date': msg.date
                 }
                 await self.db.update_broadcast(broadcast_id, {
                     'last_message': message_data
                 })
                 
+                # 如果配置了自动删除，安排删除任务
+                if hasattr(self.bot, 'auto_delete_manager') and self.bot.auto_delete_manager:
+                    settings = await self.db.get_group_settings(group_id)
+                    if settings.get('auto_delete', False):
+                        await self.bot.auto_delete_manager.schedule_delete(
+                            message=msg,
+                            message_type='broadcast',
+                            chat_id=group_id
+                        )
+                    
+            logger.info(f"已发送轮播消息: group_id={group_id}, broadcast_id={broadcast_id}")
             return True
             
         except Exception as e:
