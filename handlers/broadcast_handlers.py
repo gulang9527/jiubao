@@ -54,9 +54,13 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
         logger.error(f"非轮播消息回调数据: {data}")
         await query.edit_message_text("❌ 无效的操作")
         return
-
+        
+    # 特殊处理 toggle_fixed_time
+    if data == "bcform_toggle_fixed_time":
+        action = "toggle_fixed_time"
+        logger.info(f"检测到固定锚点切换操作: {action}")
     # 首先直接检查常见的简单操作
-    if len(parts) == 2 and parts[1] in ["submit", "cancel", "preview", "toggle_fixed_time"]:
+    elif len(parts) == 2 and parts[1] in ["submit", "cancel", "preview"]:
         action = parts[1]
         logger.info(f"检测到简单操作: {action}")
     # 特殊处理select_group的情况
@@ -139,6 +143,9 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
         
         # 更新表单数据
         context.user_data['broadcast_form'] = form_data
+        
+        # 显示更新后的表单选项
+        await show_broadcast_options(update, context)
         
         # 显示更新后的表单选项
         await show_broadcast_options(update, context)
