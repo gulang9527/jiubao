@@ -89,10 +89,14 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
             else:
                 action = f"set_{parts[2]}"
             logger.info(f"检测到设置操作: {action}")
-        # 添加这个检查，处理自定义轮播设置操作
-        elif parts[1] == "set" and parts[2] == "custom" and len(parts) > 3 and parts[3] in ["fixed", "normal"]:
-            action = f"set_custom_{parts[3]}"
-            logger.info(f"检测到自定义轮播设置操作: {action}")
+        # 添加设置间隔操作
+        elif parts[1] == "set" and parts[2] == "interval":
+            action = "set_interval"
+            if len(parts) > 3:
+                interval_type = parts[3]
+                logger.info(f"检测到设置间隔操作: {action}, 间隔类型: {interval_type}")
+            else:
+                logger.info(f"检测到设置间隔操作: {action}")
         # 最后，如果以上条件都不满足，才考虑使用默认的 parts[2]
         else:
             action = parts[2]
@@ -174,59 +178,58 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
         
     elif action == "set_schedule":
         logger.info("执行设置计划操作")
-        # 设置轮播计划
-        await show_schedule_options(update, context)
+        # 设置轮播计划和间隔 - 简化流程
+        await show_interval_options(update, context)
         
-    elif action == "set_repeat":
-        logger.info("执行设置重复操作")
-        # 设置重复选项
+    elif action == "set_interval":
+        logger.info("执行设置间隔操作")
+        # 设置重复间隔
         if len(parts) >= 4:
-            repeat_type = parts[3]
-            logger.info(f"设置重复类型: {repeat_type}")
-            form_data['repeat_type'] = repeat_type
-            context.user_data['broadcast_form'] = form_data
+            interval_type = parts[3]
+            logger.info(f"设置间隔类型: {interval_type}")
             
-            # 根据不同的重复类型设置默认间隔
-            if repeat_type == 'once':
+            # 处理不同的间隔类型
+            if interval_type == 'once':
+                # 单次发送
+                form_data['repeat_type'] = 'once'
                 form_data['repeat_interval'] = 0
-            elif repeat_type == 'hourly':
-                form_data['repeat_interval'] = 60  # 默认间隔60分钟
-                form_data['use_fixed_time'] = False  # 不使用固定时间
-            elif repeat_type == 'hourly_fixed':
-                form_data['repeat_interval'] = 60  # 固定时间每小时发送
-                form_data['repeat_type'] = 'hourly'  # 基础类型是hourly
-                form_data['use_fixed_time'] = True  # 标记使用固定时间
-            elif repeat_type == 'daily':
-                form_data['repeat_interval'] = 1440  # 默认间隔24小时
-                form_data['use_fixed_time'] = False  # 不使用固定时间
-            elif repeat_type == 'daily_fixed':
-                form_data['repeat_interval'] = 1440  # 固定时间每天发送
-                form_data['repeat_type'] = 'daily'  # 基础类型是daily
-                form_data['use_fixed_time'] = True  # 标记使用固定时间
-            elif repeat_type == 'custom':
-                # 提示用户设置自定义间隔
-                keyboard = [
-                    [InlineKeyboardButton("使用固定分钟发送", callback_data=f"bcform_set_custom_fixed")],
-                    [InlineKeyboardButton("使用常规间隔发送", callback_data=f"bcform_set_custom_normal")],
-                    [InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]
-                ]
+                form_data['use_fixed_time'] = False
+            elif interval_type == '30min':
+                # 30分钟发送一次
+                form_data['repeat_type'] = 'custom'
+                form_data['repeat_interval'] = 30
+                form_data['use_fixed_time'] = False
+            elif interval_type == '1hour':
+                # 1小时发送一次
+                form_data['repeat_type'] = 'hourly'
+                form_data['repeat_interval'] = 60
+                form_data['use_fixed_time'] = False
+            elif interval_type == '4hours':
+                # 4小时发送一次
+                form_data['repeat_type'] = 'custom'
+                form_data['repeat_interval'] = 240
+                form_data['use_fixed_time'] = False
+            elif interval_type == 'custom':
+                # 自定义间隔 - 提示用户输入
+                keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
                 await query.edit_message_text(
-                    "自定义轮播方式:\n\n"
-                    "• 固定分钟: 每次都在当前小时的固定分钟发送（例如每小时的02分）\n"
-                    "• 常规间隔: 从上次发送后经过指定分钟再发送\n\n"
-                    "请选择自定义轮播的方式:",
+                    "请设置自定义重复间隔（分钟）:\n"
+                    "例如: 45（表示每45分钟发送一次）\n\n"
+                    "发送完后请点击下方出现的「继续」按钮",
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
+                context.user_data['waiting_for'] = 'broadcast_interval'
+                context.user_data['broadcast_form'] = form_data
                 return
                 
-            # 显示发送时间选项
+            # 更新表单数据
+            context.user_data['broadcast_form'] = form_data
+            
+            # 直接进入设置开始时间
             await show_start_time_options(update, context)
         else:
-            logger.warning("无效的重复类型设置")
-            await query.edit_message_text("❌ 无效的重复类型")
-
-        context.user_data['waiting_for'] = 'broadcast_start_time'
-
+            logger.warning("无效的间隔类型设置")
+            await query.edit_message_text("❌ 无效的间隔类型")
                 
     elif action == "set_start_time":
         logger.info("执行设置开始时间操作")
@@ -246,40 +249,6 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
         )
         context.user_data['waiting_for'] = 'broadcast_start_time'
         logger.info(f"收到消息，用户 {user_id} 的等待状态是: {context.user_data.get('waiting_for')}")
-
-    elif action == "set_custom_fixed":
-        # 设置自定义固定分钟
-        form_data['repeat_type'] = 'custom'
-        form_data['use_fixed_time'] = True
-        context.user_data['broadcast_form'] = form_data
-        
-        # 提示用户设置自定义间隔
-        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
-        await query.edit_message_text(
-            "请设置自定义重复间隔（分钟）:\n"
-            "例如: 30（表示每30分钟发送一次，且在固定分钟发送）\n\n"
-            "发送完后请点击下方出现的「继续」按钮",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        context.user_data['waiting_for'] = 'broadcast_interval'
-        logger.info("等待用户输入自定义重复间隔（固定分钟模式）")
-    
-    elif action == "set_custom_normal":
-        # 设置自定义常规间隔
-        form_data['repeat_type'] = 'custom'
-        form_data['use_fixed_time'] = False
-        context.user_data['broadcast_form'] = form_data
-        
-        # 提示用户设置自定义间隔
-        keyboard = [[InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]]
-        await query.edit_message_text(
-            "请设置自定义重复间隔（分钟）:\n"
-            "例如: 30（表示每30分钟发送一次）\n\n"
-            "发送完后请点击下方出现的「继续」按钮",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        context.user_data['waiting_for'] = 'broadcast_interval'
-        logger.info("等待用户输入自定义重复间隔（常规间隔模式）")
         
     elif action in ["content_received", "media_received", "buttons_received", "time_received", "end_time_received"]:
         logger.info(f"执行数据接收操作: {action}")
@@ -403,7 +372,6 @@ async def handle_broadcast_detail_callback(update: Update, context: CallbackCont
                 [InlineKeyboardButton("👁️ 预览", callback_data=f"bc_preview_{broadcast_id}_{group_id}")],
                 [InlineKeyboardButton("✏️ 编辑", callback_data=f"bc_edit_{broadcast_id}_{group_id}")],
                 [InlineKeyboardButton("🚀 强制发送", callback_data=f"bc_force_send_{broadcast_id}_{group_id}")],
-                [InlineKeyboardButton("⏰ 重置为固定时间", callback_data=f"bc_recalibrate_{broadcast_id}_{group_id}")],  # 新增重置按钮
                 [InlineKeyboardButton("❌ 删除", callback_data=f"bc_delete_{broadcast_id}_{group_id}")],
                 [InlineKeyboardButton("🔙 返回", callback_data=f"settings_broadcast_{group_id}")]
             ]
@@ -602,6 +570,100 @@ async def handle_broadcast_confirm_delete_callback(update: Update, context: Call
             ]])
         )
         
+@handle_callback_errors
+async def handle_broadcast_force_send_callback(update: Update, context: CallbackContext, data: str):
+    """
+    处理强制发送轮播消息的回调
+    
+    参数:
+        update: 更新对象
+        context: 上下文对象
+        data: 回调数据
+    """
+    query = update.callback_query
+    bot_instance = context.application.bot_data.get('bot_instance')
+    
+    # 立即应答回调查询
+    await query.answer()
+    
+    # 解析回调数据
+    parts = data.split('_')
+    if len(parts) < 5:  # bc, force, send, broadcast_id, group_id
+        await query.edit_message_text("❌ 无效的回调数据")
+        return
+        
+    broadcast_id = parts[3]
+    group_id = int(parts[4])
+    
+    # 获取轮播消息详情
+    try:
+        broadcast = await bot_instance.db.get_broadcast_by_id(broadcast_id)
+        if not broadcast:
+            await query.edit_message_text(
+                "❌ 找不到轮播消息",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("返回", callback_data=f"settings_broadcast_{group_id}")
+                ]])
+            )
+            return
+            
+        # 检查轮播消息详情
+        await bot_instance.db.inspect_broadcast(broadcast_id)
+        
+        # 强制发送轮播消息
+        if bot_instance.broadcast_manager:
+            logger.info(f"强制发送轮播消息: {broadcast_id}")
+            try:
+                await bot_instance.broadcast_manager.send_broadcast(broadcast)
+                
+                # 手动更新最后发送时间
+                try:
+                    # 更新最后发送时间
+                    await bot_instance.db.update_broadcast(broadcast_id, {
+                        'last_broadcast': datetime.now()
+                    })
+                except Exception as e:
+                    logger.error(f"更新轮播消息最后发送时间失败: {e}", exc_info=True)
+                
+                await query.edit_message_text(
+                    f"✅ 已强制发送轮播消息\n\n详情ID: {broadcast_id}",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
+                    ]])
+                )
+            except Exception as e:
+                error_message = str(e)
+                # 检查是否是群组权限问题
+                if "kicked" in error_message.lower() or "forbidden" in error_message.lower():
+                    await query.edit_message_text(
+                        f"❌ 发送失败: 机器人在群组中没有权限\n\n请确保机器人在群组中并有足够权限",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
+                        ]])
+                    )
+                else:
+                    await query.edit_message_text(
+                        f"❌ 发送失败: {error_message}\n\n请检查日志获取详细信息",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
+                        ]])
+                    )
+        else:
+            await query.edit_message_text(
+                "❌ 轮播管理器未初始化",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
+                ]])
+            )
+    except Exception as e:
+        logger.error(f"强制发送轮播消息出错: {e}", exc_info=True)
+        await query.edit_message_text(
+            f"❌ 强制发送出错: {str(e)}",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
+            ]])
+        )
+
 async def submit_broadcast_form(update: Update, context: CallbackContext):
     """
     提交轮播消息表单
@@ -758,14 +820,6 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
             message_text,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-            
-        message_text += (
-            f"重复类型: {repeat_text}\n"
-            f"开始时间: {format_datetime(broadcast_data['start_time'])}\n"
-            f"结束时间: {format_datetime(broadcast_data['end_time'])}"
-        )
-        
-        await update.callback_query.edit_message_text(message_text)
         
     except Exception as e:
         logger.error(f"添加/更新轮播消息错误: {e}", exc_info=True)
@@ -775,156 +829,305 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
             "请重试或联系管理员"
         )
 
-@handle_callback_errors
-async def handle_broadcast_force_send_callback(update: Update, context: CallbackContext, data: str):
+#######################################
+# 表单功能函数
+#######################################
+
+async def start_broadcast_form(update: Update, context: CallbackContext, group_id: int):
     """
-    处理强制发送轮播消息的回调
+    启动轮播消息表单流程
     
     参数:
         update: 更新对象
         context: 上下文对象
-        data: 回调数据
+        group_id: 群组ID
     """
-    query = update.callback_query
-    bot_instance = context.application.bot_data.get('bot_instance')
-    
-    # 立即应答回调查询
-    await query.answer()
-    
-    # 解析回调数据
-    parts = data.split('_')
-    if len(parts) < 5:  # bc, force, send, broadcast_id, group_id
-        await query.edit_message_text("❌ 无效的回调数据")
-        return
-        
-    broadcast_id = parts[3]
-    group_id = int(parts[4])
-    
-    # 获取轮播消息详情
     try:
-        broadcast = await bot_instance.db.get_broadcast_by_id(broadcast_id)
-        if not broadcast:
-            await query.edit_message_text(
-                "❌ 找不到轮播消息",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("返回", callback_data=f"settings_broadcast_{group_id}")
-                ]])
-            )
+        logger.info(f"启动轮播消息表单流程，群组ID: {group_id}")
+        # 获取bot实例
+        bot_instance = context.application.bot_data.get('bot_instance')
+        if not bot_instance:
+            logger.error("获取bot实例失败")
+            if update.callback_query:
+                await update.callback_query.edit_message_text("❌ 系统错误，无法获取bot实例")
+            else:
+                await update.message.reply_text("❌ 系统错误，无法获取bot实例")
             return
             
-        # 检查轮播消息详情
-        await bot_instance.db.inspect_broadcast(broadcast_id)
+        user_id = update.effective_user.id
+        logger.info(f"用户ID: {user_id}, 开始处理轮播消息表单")
         
-        # 强制发送轮播消息
-        if bot_instance.broadcast_manager:
-            logger.info(f"强制发送轮播消息: {broadcast_id}")
-            try:
-                await bot_instance.broadcast_manager.send_broadcast(broadcast)
-                
-                # 手动更新最后发送时间，以防send_broadcast中的update_broadcast_time失败
-                try:
-                    # 更新最后发送时间
-                    await bot_instance.db.update_broadcast(broadcast_id, {
-                        'last_broadcast': datetime.now()
-                    })
-                except Exception as e:
-                    logger.error(f"更新轮播消息最后发送时间失败: {e}", exc_info=True)
-                
-                await query.edit_message_text(
-                    f"✅ 已强制发送轮播消息\n\n详情ID: {broadcast_id}",
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
-                    ]])
-                )
-            except Exception as e:
-                error_message = str(e)
-                # 检查是否是群组权限问题
-                if "kicked" in error_message.lower() or "forbidden" in error_message.lower():
-                    await query.edit_message_text(
-                        f"❌ 发送失败: 机器人在群组中没有权限\n\n请确保机器人在群组中并有足够权限",
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
-                        ]])
-                    )
-                else:
-                    await query.edit_message_text(
-                        f"❌ 发送失败: {error_message}\n\n请检查日志获取详细信息",
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
-                        ]])
-                    )
-        else:
-            await query.edit_message_text(
-                "❌ 轮播管理器未初始化",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
-                ]])
-            )
-    except Exception as e:
-        logger.error(f"强制发送轮播消息出错: {e}", exc_info=True)
-        await query.edit_message_text(
-            f"❌ 强制发送出错: {str(e)}",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
-            ]])
-        )
+        # 清理旧的设置管理器状态
+        active_settings = await bot_instance.settings_manager.get_active_settings(user_id)
+        logger.info(f"用户 {user_id} 的活动设置状态: {active_settings}")
+    
+        # 清理轮播相关的所有状态
+        if 'broadcast' in active_settings:
+            await bot_instance.settings_manager.clear_setting_state(user_id, 'broadcast')
+            logger.info(f"已清理用户 {user_id} 的旧轮播设置状态")
+    
+        # 清理context.user_data中的旧表单数据
+        for key in list(context.user_data.keys()):
+            if key.startswith('broadcast_') or key == 'waiting_for':
+                del context.user_data[key]
+                logger.info(f"已清理用户数据中的键: {key}")
+    
+        # 初始化新的表单数据
+        context.user_data['broadcast_form'] = {
+            'group_id': group_id,
+            'text': '',
+            'media': None,
+            'buttons': [],
+            'repeat_type': 'once',    # 默认只发送一次
+            'repeat_interval': 0,     # 默认间隔（分钟）
+            'start_time': None,       # 开始时间
+            'end_time': None          # 结束时间
+        }
+        logger.info(f"已为用户 {user_id} 初始化新的轮播消息表单数据")
+    
+        # 显示内容添加选项
+        await show_broadcast_content_options(update, context)
 
-@handle_callback_errors
-async def handle_broadcast_recalibrate_callback(update: Update, context: CallbackContext, data: str):
+    except Exception as e:
+        logger.error(f"启动轮播消息表单流程出错: {e}", exc_info=True)
+        if update.callback_query:
+            await update.callback_query.edit_message_text(f"❌ 启动轮播消息表单出错: {str(e)}")
+        else:
+            await update.message.reply_text(f"❌ 启动轮播消息表单出错: {str(e)}")
+        return
+
+async def show_broadcast_content_options(update: Update, context: CallbackContext):
     """
-    处理重置轮播消息时间调度的回调
+    显示轮播消息内容选项
     
     参数:
         update: 更新对象
         context: 上下文对象
-        data: 回调数据
     """
-    query = update.callback_query
-    bot_instance = context.application.bot_data.get('bot_instance')
+    # 构建选项按钮
+    keyboard = [
+        [InlineKeyboardButton("📝 添加文本", callback_data="bcform_add_text")],
+        [InlineKeyboardButton("🖼️ 添加媒体", callback_data="bcform_add_media")],
+        [InlineKeyboardButton("🔘 添加按钮", callback_data="bcform_add_button")],
+        [InlineKeyboardButton("❌ 取消", callback_data="bcform_cancel")]
+    ]
     
-    # 立即应答回调查询
-    await query.answer()
-    
-    # 解析回调数据
-    parts = data.split('_')
-    if len(parts) >= 6 and parts[0] == "bc" and parts[1] == "recalibrate" and parts[3] == "custom":
-        broadcast_id = parts[2]
-        custom_type = parts[4]
-        group_id = int(parts[5])
-        logger.info(f"处理特殊轮播校准回调: custom_{custom_type}, broadcast_id: {broadcast_id}")
-        # 特殊处理逻辑...
-    elif len(parts) < 5:  # bc, recalibrate, broadcast_id, group_id
-        await query.edit_message_text("❌ 无效的回调数据")
-        return
+    # 根据情境使用不同的发送方式
+    if update.callback_query:
+        await update.callback_query.edit_message_text(
+            "📢 轮播消息添加向导\n\n请选择要添加的内容类型：",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
     else:
-        broadcast_id = parts[3]
-        group_id = int(parts[4])
+        await update.message.reply_text(
+            "📢 轮播消息添加向导\n\n请选择要添加的内容类型：",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+async def show_interval_options(update: Update, context: CallbackContext):
+    """
+    显示轮播间隔选项 - 简化版
     
-    # 执行重置
-    if bot_instance.broadcast_manager:
-        success = await bot_instance.broadcast_manager.recalibrate_broadcast_time(broadcast_id)
-        if success:
-            await query.edit_message_text(
-                "✅ 已重置轮播消息时间调度，下次将按固定时间发送",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
-                ]])
+    参数:
+        update: 更新对象
+        context: 上下文对象
+    """
+    # 构建间隔选择按钮
+    keyboard = [
+        [InlineKeyboardButton("单次发送", callback_data="bcform_set_interval_once")],
+        [InlineKeyboardButton("每30分钟", callback_data="bcform_set_interval_30min")],
+        [InlineKeyboardButton("每1小时", callback_data="bcform_set_interval_1hour")],
+        [InlineKeyboardButton("每4小时", callback_data="bcform_set_interval_4hours")],
+        [InlineKeyboardButton("自定义间隔", callback_data="bcform_set_interval_custom")],
+        [InlineKeyboardButton("返回", callback_data="bcform_content_received")],
+        [InlineKeyboardButton("❌ 取消", callback_data="bcform_cancel")]
+    ]
+    
+    await update.callback_query.edit_message_text(
+        "📢 设置轮播间隔\n\n请选择轮播消息的发送间隔：",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def show_start_time_options(update: Update, context: CallbackContext):
+    """
+    显示开始时间选项
+    
+    参数:
+        update: 更新对象
+        context: 上下文对象
+    """
+    # 显示时间设置选项
+    keyboard = [
+        [InlineKeyboardButton("立即开始", callback_data="bcform_set_start_time")],
+        [InlineKeyboardButton("设置未来时间", callback_data="bcform_set_start_time")],
+        [InlineKeyboardButton("返回", callback_data="bcform_set_schedule")],
+        [InlineKeyboardButton("❌ 取消", callback_data="bcform_cancel")]
+    ]
+    
+    await update.callback_query.edit_message_text(
+        "📢 设置开始时间\n\n请选择轮播消息的开始时间：",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def show_broadcast_options(update: Update, context: CallbackContext):
+    """
+    显示轮播消息设置选项
+    
+    参数:
+        update: 更新对象
+        context: 上下文对象
+    """
+    logger.info("显示轮播消息设置选项")
+    form_data = context.user_data.get('broadcast_form', {})
+    logger.info(f"当前轮播消息表单数据: {form_data}")
+    
+    # 构建当前状态摘要
+    summary = "📢 轮播消息添加向导\n\n"
+    summary += f"• 内容: {'✅ 已设置文本' if form_data.get('text') else '❌ 未设置文本'}\n"
+    summary += f"• 媒体: {'✅ 已设置' if form_data.get('media') else '❌ 未设置'}\n"
+    summary += f"• 按钮: {len(form_data.get('buttons', []))} 个\n"
+    
+    # 显示计划信息
+    if form_data.get('repeat_type'):
+        repeat_type = form_data.get('repeat_type')
+        if repeat_type == 'once':
+            summary += "• 发送类型: 单次发送\n"
+        elif repeat_type == 'hourly':
+            summary += "• 发送类型: 每小时发送\n"
+        elif repeat_type == 'daily':
+            summary += "• 发送类型: 每日发送\n"
+        elif repeat_type == 'custom':
+            interval = form_data.get('repeat_interval', 0)
+            summary += f"• 发送类型: 自定义（每{interval}分钟）\n"
+    
+    # 显示开始时间
+    if form_data.get('start_time'):
+        start_time = form_data.get('start_time')
+        if start_time.lower() == 'now':
+            summary += "• 开始时间: 立即开始\n"
+        else:
+            try:
+                dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+                summary += f"• 开始时间: {format_datetime(dt)}\n"
+            except ValueError:
+                summary += f"• 开始时间: {start_time}\n"
+    else:
+        summary += "• 开始时间: ❌ 未设置\n"
+
+    # 显示结束时间
+    if form_data.get('end_time'):
+        end_time = form_data.get('end_time')
+        try:
+            dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+            summary += f"• 结束时间: {format_datetime(dt)}\n"
+        except ValueError:
+            summary += f"• 结束时间: {end_time}\n"
+    else:
+        if form_data.get('repeat_type') != 'once':
+            summary += "• 结束时间: ❌ 未设置（将使用默认的30天）\n"
+    
+    summary += "\n请选择要添加或修改的内容:"
+    
+    # 构建操作按钮
+    keyboard = [
+        [InlineKeyboardButton("📝 添加/修改文本", callback_data=f"bcform_add_text")],
+        [InlineKeyboardButton("🖼️ 添加/修改媒体", callback_data=f"bcform_add_media")],
+        [InlineKeyboardButton("🔘 添加/修改按钮", callback_data=f"bcform_add_button")],
+        [InlineKeyboardButton("⏰ 设置发送间隔", callback_data=f"bcform_set_schedule")],
+    ]
+    
+    # 如果不是单次发送，添加结束时间设置按钮
+    if form_data.get('repeat_type') and form_data.get('repeat_type') != 'once':
+        keyboard.append([InlineKeyboardButton("🏁 设置结束时间", callback_data=f"bcform_set_end_time")])
+    
+    keyboard.extend([
+        [InlineKeyboardButton("👁️ 预览效果", callback_data=f"bcform_preview")],
+        [InlineKeyboardButton("✅ 提交", callback_data=f"bcform_submit")],
+        [InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]
+    ])
+    # 检查是否至少有一项内容和计划设置
+    has_content = bool(form_data.get('text') or form_data.get('media') or form_data.get('buttons'))
+    has_schedule = bool(form_data.get('start_time'))
+    
+    if not has_content:
+        summary += "\n\n⚠️ 请至少添加一项内容(文本/媒体/按钮)"
+    if not has_schedule:
+        summary += "\n\n⚠️ 请设置发送计划"
+    
+    # 显示表单选项
+    await update.callback_query.edit_message_text(
+        summary,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def preview_broadcast_content(update: Update, context: CallbackContext):
+    """
+    预览轮播消息内容
+    
+    参数:
+        update: 更新对象
+        context: 上下文对象
+    """
+    logger.info("预览轮播消息内容")
+    form_data = context.user_data.get('broadcast_form', {})
+    logger.info(f"预览的轮播消息表单数据: {form_data}")
+    
+    # 获取内容数据
+    text = form_data.get('text', '')
+    media = form_data.get('media')
+    buttons = form_data.get('buttons', [])
+        
+    # 创建按钮键盘(如果有)
+    reply_markup = None
+    if buttons:
+        keyboard = []
+        for button in buttons:
+            keyboard.append([InlineKeyboardButton(button['text'], url=button['url'])])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # 发送预览消息
+    try:
+        if media and media.get('type'):
+            if media['type'] == 'photo':
+                await update.callback_query.message.reply_photo(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
+            elif media['type'] == 'video':
+                await update.callback_query.message.reply_video(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
+            elif media['type'] == 'document':
+                await update.callback_query.message.reply_document(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
+            else:
+                await update.callback_query.message.reply_document(
+                    media['file_id'], caption=text, reply_markup=reply_markup
+                )
+        elif text or buttons:
+            await update.callback_query.message.reply_text(
+                text or "轮播消息内容",
+                reply_markup=reply_markup
             )
         else:
-            await query.edit_message_text(
-                "❌ 重置轮播消息调度失败",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
-                ]])
-            )
-    else:
-        await query.edit_message_text(
-            "❌ 轮播管理器未初始化",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
-            ]])
-        )
-        
+            await update.callback_query.answer("没有预览内容")
+            await show_broadcast_options(update, context)
+            return
+    except Exception as e:
+        logger.error(f"预览生成错误: {e}")
+        await update.callback_query.answer(f"预览生成失败: {str(e)}")
+        await show_broadcast_options(update, context)
+        return
+    
+    # 返回表单选项
+    keyboard = [
+        [InlineKeyboardButton("🔙 返回", callback_data=f"bcform_content_received")]
+    ]
+    await update.callback_query.edit_message_text(
+        "👆 上方为轮播消息内容预览\n\n点击「返回」继续编辑",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
 #######################################
 # 表单输入处理
 #######################################
@@ -1083,6 +1286,7 @@ async def handle_broadcast_form_input(update: Update, context: CallbackContext, 
                 
             # 存储自定义间隔
             form_data['repeat_interval'] = interval
+            form_data['repeat_type'] = 'custom'  # 确保设置为自定义类型
             context.user_data['broadcast_form'] = form_data
             context.user_data.pop('waiting_for', None)
             
@@ -1292,295 +1496,5 @@ async def handle_broadcast_form_input(update: Update, context: CallbackContext, 
             logger.error(f"时间解析错误: {str(e)}")
             await message.reply_text("❌ 无法解析时间，请检查格式")
             return True
-
-#######################################
-# 表单功能函数
-#######################################
-
-async def start_broadcast_form(update: Update, context: CallbackContext, group_id: int):
-    """
-    启动轮播消息表单流程
     
-    参数:
-        update: 更新对象
-        context: 上下文对象
-        group_id: 群组ID
-    """
-    try:
-        logger.info(f"启动轮播消息表单流程，群组ID: {group_id}")
-        # 获取bot实例
-        bot_instance = context.application.bot_data.get('bot_instance')
-        if not bot_instance:
-            logger.error("获取bot实例失败")
-            if update.callback_query:
-                await update.callback_query.edit_message_text("❌ 系统错误，无法获取bot实例")
-            else:
-                await update.message.reply_text("❌ 系统错误，无法获取bot实例")
-            return
-            
-        user_id = update.effective_user.id
-        logger.info(f"用户ID: {user_id}, 开始处理轮播消息表单")
-        
-        # 清理旧的设置管理器状态
-        active_settings = await bot_instance.settings_manager.get_active_settings(user_id)
-        logger.info(f"用户 {user_id} 的活动设置状态: {active_settings}")
-    
-        # 清理轮播相关的所有状态
-        if 'broadcast' in active_settings:
-            await bot_instance.settings_manager.clear_setting_state(user_id, 'broadcast')
-            logger.info(f"已清理用户 {user_id} 的旧轮播设置状态")
-    
-        # 清理context.user_data中的旧表单数据
-        for key in list(context.user_data.keys()):
-            if key.startswith('broadcast_') or key == 'waiting_for':
-                del context.user_data[key]
-                logger.info(f"已清理用户数据中的键: {key}")
-    
-        # 初始化新的表单数据
-        context.user_data['broadcast_form'] = {
-            'group_id': group_id,
-            'text': '',
-            'media': None,
-            'buttons': [],
-            'repeat_type': 'once',    # 默认只发送一次
-            'repeat_interval': 0,     # 默认间隔（分钟）
-            'start_time': None,       # 开始时间
-            'end_time': None          # 结束时间
-        }
-        logger.info(f"已为用户 {user_id} 初始化新的轮播消息表单数据")
-    
-        # 显示内容添加选项
-        await show_broadcast_content_options(update, context)
-
-    except Exception as e:
-        logger.error(f"启动轮播消息表单流程出错: {e}", exc_info=True)
-        if update.callback_query:
-            await update.callback_query.edit_message_text(f"❌ 启动轮播消息表单出错: {str(e)}")
-        else:
-            await update.message.reply_text(f"❌ 启动轮播消息表单出错: {str(e)}")
-        return
-
-async def show_broadcast_content_options(update: Update, context: CallbackContext):
-    """
-    显示轮播消息内容选项
-    
-    参数:
-        update: 更新对象
-        context: 上下文对象
-    """
-    # 构建选项按钮
-    keyboard = [
-        [InlineKeyboardButton("📝 添加文本", callback_data="bcform_add_text")],
-        [InlineKeyboardButton("🖼️ 添加媒体", callback_data="bcform_add_media")],
-        [InlineKeyboardButton("🔘 添加按钮", callback_data="bcform_add_button")],
-        [InlineKeyboardButton("❌ 取消", callback_data="bcform_cancel")]
-    ]
-    
-    # 根据情境使用不同的发送方式
-    if update.callback_query:
-        await update.callback_query.edit_message_text(
-            "📢 轮播消息添加向导\n\n请选择要添加的内容类型：",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-    else:
-        await update.message.reply_text(
-            "📢 轮播消息添加向导\n\n请选择要添加的内容类型：",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-
-async def show_broadcast_options(update: Update, context: CallbackContext):
-    """
-    显示轮播消息设置选项
-    
-    参数:
-        update: 更新对象
-        context: 上下文对象
-    """
-    logger.info("显示轮播消息设置选项")
-    form_data = context.user_data.get('broadcast_form', {})
-    logger.info(f"当前轮播消息表单数据: {form_data}")
-    
-    # 构建当前状态摘要
-    summary = "📢 轮播消息添加向导\n\n"
-    summary += f"• 内容: {'✅ 已设置文本' if form_data.get('text') else '❌ 未设置文本'}\n"
-    summary += f"• 媒体: {'✅ 已设置' if form_data.get('media') else '❌ 未设置'}\n"
-    summary += f"• 按钮: {len(form_data.get('buttons', []))} 个\n"
-    
-    # 显示计划信息
-    if form_data.get('repeat_type'):
-        repeat_type = form_data.get('repeat_type')
-        if repeat_type == 'once':
-            summary += "• 发送类型: 单次发送\n"
-        elif repeat_type == 'hourly':
-            summary += "• 发送类型: 每小时发送\n"
-        elif repeat_type == 'daily':
-            summary += "• 发送类型: 每日发送\n"
-        elif repeat_type == 'custom':
-            interval = form_data.get('repeat_interval', 0)
-            summary += f"• 发送类型: 自定义（每{interval}分钟）\n"
-    
-    # 显示开始时间
-    if form_data.get('start_time'):
-        start_time = form_data.get('start_time')
-        if start_time.lower() == 'now':
-            summary += "• 开始时间: 立即开始\n"
-        else:
-            try:
-                dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
-                summary += f"• 开始时间: {format_datetime(dt)}\n"
-            except ValueError:
-                summary += f"• 开始时间: {start_time}\n"
-    else:
-        summary += "• 开始时间: ❌ 未设置\n"
-
-    # 显示结束时间
-    if form_data.get('end_time'):
-        end_time = form_data.get('end_time')
-        try:
-            dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
-            summary += f"• 结束时间: {format_datetime(dt)}\n"
-        except ValueError:
-            summary += f"• 结束时间: {end_time}\n"
-    else:
-        if form_data.get('repeat_type') != 'once':
-            summary += "• 结束时间: ❌ 未设置（将使用默认的30天）\n"
-    
-    summary += "\n请选择要添加或修改的内容:"
-    
-    # 构建操作按钮
-    keyboard = [
-        [InlineKeyboardButton("📝 添加/修改文本", callback_data=f"bcform_add_text")],
-        [InlineKeyboardButton("🖼️ 添加/修改媒体", callback_data=f"bcform_add_media")],
-        [InlineKeyboardButton("🔘 添加/修改按钮", callback_data=f"bcform_add_button")],
-        [InlineKeyboardButton("⏰ 设置计划", callback_data=f"bcform_set_schedule")],
-    ]
-    
-    # 如果不是单次发送，添加结束时间设置按钮
-    if form_data.get('repeat_type') and form_data.get('repeat_type') != 'once':
-        keyboard.append([InlineKeyboardButton("🏁 设置结束时间", callback_data=f"bcform_set_end_time")])
-    
-    keyboard.extend([
-        [InlineKeyboardButton("👁️ 预览效果", callback_data=f"bcform_preview")],
-        [InlineKeyboardButton("✅ 提交", callback_data=f"bcform_submit")],
-        [InlineKeyboardButton("❌ 取消", callback_data=f"bcform_cancel")]
-    ])
-    # 检查是否至少有一项内容和计划设置
-    has_content = bool(form_data.get('text') or form_data.get('media') or form_data.get('buttons'))
-    has_schedule = bool(form_data.get('start_time'))
-    
-    if not has_content:
-        summary += "\n\n⚠️ 请至少添加一项内容(文本/媒体/按钮)"
-    if not has_schedule:
-        summary += "\n\n⚠️ 请设置发送计划"
-    
-    # 显示表单选项
-    await update.callback_query.edit_message_text(
-        summary,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-async def show_schedule_options(update: Update, context: CallbackContext):
-    """显示轮播计划选项"""
-    # 构建重复类型选择按钮
-    keyboard = [
-        [InlineKeyboardButton("单次发送", callback_data="bcform_set_repeat_once")],
-        [InlineKeyboardButton("每小时固定时间发送", callback_data="bcform_set_repeat_hourly_fixed")],
-        [InlineKeyboardButton("每天固定时间发送", callback_data="bcform_set_repeat_daily_fixed")],
-        [InlineKeyboardButton("自定义间隔", callback_data="bcform_set_repeat_custom")],
-        [InlineKeyboardButton("返回", callback_data="bcform_content_received")],
-        [InlineKeyboardButton("❌ 取消", callback_data="bcform_cancel")]
-    ]
-    
-    await update.callback_query.edit_message_text(
-        "📢 设置轮播计划\n\n请选择轮播消息的发送方式：",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-async def show_start_time_options(update: Update, context: CallbackContext):
-    """
-    显示开始时间选项
-    
-    参数:
-        update: 更新对象
-        context: 上下文对象
-    """
-    # 显示时间设置选项
-    keyboard = [
-        [InlineKeyboardButton("立即开始", callback_data="bcform_set_start_time")],
-        [InlineKeyboardButton("设置未来时间", callback_data="bcform_set_start_time")],
-        [InlineKeyboardButton("返回", callback_data="bcform_set_schedule")],
-        [InlineKeyboardButton("❌ 取消", callback_data="bcform_cancel")]
-    ]
-    
-    await update.callback_query.edit_message_text(
-        "📢 设置开始时间\n\n请选择轮播消息的开始时间：",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-async def preview_broadcast_content(update: Update, context: CallbackContext):
-    """
-    预览轮播消息内容
-    
-    参数:
-        update: 更新对象
-        context: 上下文对象
-    """
-    logger.info("预览轮播消息内容")
-    form_data = context.user_data.get('broadcast_form', {})
-    logger.info(f"预览的轮播消息表单数据: {form_data}")
-    
-    # 获取内容数据
-    text = form_data.get('text', '')
-    media = form_data.get('media')
-    buttons = form_data.get('buttons', [])
-        
-    # 创建按钮键盘(如果有)
-    reply_markup = None
-    if buttons:
-        keyboard = []
-        for button in buttons:
-            keyboard.append([InlineKeyboardButton(button['text'], url=button['url'])])
-        reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    # 发送预览消息
-    try:
-        if media and media.get('type'):
-            if media['type'] == 'photo':
-                await update.callback_query.message.reply_photo(
-                    media['file_id'], caption=text, reply_markup=reply_markup
-                )
-            elif media['type'] == 'video':
-                await update.callback_query.message.reply_video(
-                    media['file_id'], caption=text, reply_markup=reply_markup
-                )
-            elif media['type'] == 'document':
-                await update.callback_query.message.reply_document(
-                    media['file_id'], caption=text, reply_markup=reply_markup
-                )
-            else:
-                await update.callback_query.message.reply_document(
-                    media['file_id'], caption=text, reply_markup=reply_markup
-                )
-        elif text or buttons:
-            await update.callback_query.message.reply_text(
-                text or "轮播消息内容",
-                reply_markup=reply_markup
-            )
-        else:
-            await update.callback_query.answer("没有预览内容")
-            await show_broadcast_options(update, context)
-            return
-    except Exception as e:
-        logger.error(f"预览生成错误: {e}")
-        await update.callback_query.answer(f"预览生成失败: {str(e)}")
-        await show_broadcast_options(update, context)
-        return
-    
-    # 返回表单选项
-    keyboard = [
-        [InlineKeyboardButton("🔙 返回", callback_data=f"bcform_content_received")]
-    ]
-    await update.callback_query.edit_message_text(
-        "👆 上方为轮播消息内容预览\n\n点击「返回」继续编辑",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    return False  # 未处理输入
