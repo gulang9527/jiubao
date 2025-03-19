@@ -82,7 +82,8 @@ def register_all_handlers(application, callback_handler):
         handle_broadcast_preview_callback,
         handle_broadcast_delete_callback,
         handle_broadcast_confirm_delete_callback,
-        handle_broadcast_recalibrate_callback
+        handle_broadcast_recalibrate_callback,
+        handle_broadcast_force_send_callback 
     )
     
     # 注册设置相关回调前缀
