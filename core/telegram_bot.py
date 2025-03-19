@@ -443,17 +443,21 @@ class TelegramBot:
 
     async def _start_broadcast_task(self):
         """启动广播任务"""
+        logger.info("轮播消息处理任务已启动")
         while self.running:
             try:
                 # 更新最后活动时间
                 self.last_active_time = datetime.now()
                 
                 # 处理广播
+                logger.info("准备处理轮播消息...")
                 if self.broadcast_manager and hasattr(self.broadcast_manager, 'process_broadcasts'):
                     await self.broadcast_manager.process_broadcasts()
-                    
-                # 每分钟检查一次
-                await asyncio.sleep(60)
+                    logger.info("轮播消息处理完成")
+                
+                # 每十分钟检查一次
+                logger.info("等待60秒后进行下一次轮播检查")
+                await asyncio.sleep(600)
                 
                 # 检查时间偏移，可能的休眠后唤醒
                 drift = self._check_time_drift()
@@ -469,6 +473,7 @@ class TelegramBot:
             except Exception as e:
                 logger.error(f"轮播任务出错: {e}", exc_info=True)
                 await asyncio.sleep(60)
+        logger.info("轮播消息处理任务已结束")
 
     def _check_time_drift(self):
         """
