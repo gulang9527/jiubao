@@ -144,11 +144,9 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
         # 更新表单数据
         context.user_data['broadcast_form'] = form_data
         
-        # 显示更新后的表单选项
+        # 显示更新后的表单选项 - 这是唯一需要的调用
         await show_broadcast_options(update, context)
-        
-        # 显示更新后的表单选项
-        await show_broadcast_options(update, context)
+        return 
         
     elif action == "cancel":
         logger.info("执行取消操作")
@@ -1217,10 +1215,19 @@ async def show_broadcast_options(update: Update, context: CallbackContext):
         summary += "\n\n⚠️ 请设置发送计划"
     
     # 显示表单选项
-    await update.callback_query.edit_message_text(
-        summary,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    try:
+        await update.callback_query.edit_message_text(
+            summary,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    except BadRequest as e:
+        # 忽略"消息未修改"错误
+        if "Message is not modified" in str(e):
+            logger.debug("消息内容未更改，忽略错误")
+            pass
+        else:
+            # 其他错误仍然抛出
+            raise
 
 async def preview_broadcast_content(update: Update, context: CallbackContext):
     """
