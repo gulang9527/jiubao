@@ -96,8 +96,7 @@ class EnhancedBroadcastManager:
             except Exception as e:
                 logger.error(f"轮播缓存清理任务出错: {e}", exc_info=True)
                 await asyncio.sleep(300)  # 出错后5分钟再试
-        
-    # 以下是从BroadcastManager复制的方法...
+    
     
     async def add_broadcast(self, broadcast_data: Dict[str, Any]) -> Optional[str]:
         """
@@ -197,7 +196,6 @@ class EnhancedBroadcastManager:
         if data['interval'] < min_interval and data['repeat_type'] != 'once':
             raise ValueError(f"间隔不能小于 {min_interval} 分钟")
     
-    # 新增：实现send_broadcast方法，这是原始BroadcastManager缺少的方法
     async def send_broadcast(self, broadcast: Dict[str, Any]) -> bool:
         """
         发送轮播消息到指定群组
@@ -240,28 +238,34 @@ class EnhancedBroadcastManager:
                 if keyboard:
                     reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # 发送消息
+            # 发送消息 - 使用TelegramBot类的方法
             if media:
-                # 发送媒体消息
+                # 媒体消息，需要使用底层bot直接发送，因为TelegramBot类没有直接发送媒体的方法
+                # 获取底层bot对象
+                bot = self.bot.application.bot if hasattr(self.bot, 'application') else None
+                if not bot:
+                    logger.error(f"无法获取底层bot对象，broadcast_id={broadcast_id}")
+                    return False
+                
                 media_type = media.get('type', 'photo')
                 media_id = media.get('file_id')
                 
                 if media_type == 'photo':
-                    message = await self.bot.send_photo(
+                    message = await bot.send_photo(
                         chat_id=group_id,
                         photo=media_id,
                         caption=text,
                         reply_markup=reply_markup
                     )
                 elif media_type == 'video':
-                    message = await self.bot.send_video(
+                    message = await bot.send_video(
                         chat_id=group_id,
                         video=media_id,
                         caption=text,
                         reply_markup=reply_markup
                     )
                 elif media_type == 'document':
-                    message = await self.bot.send_document(
+                    message = await bot.send_document(
                         chat_id=group_id,
                         document=media_id,
                         caption=text,
@@ -271,11 +275,13 @@ class EnhancedBroadcastManager:
                     logger.warning(f"不支持的媒体类型: {media_type}, broadcast_id={broadcast_id}")
                     return False
             else:
-                # 发送纯文本消息
-                message = await self.bot.send_message(
+                # 纯文本消息可以使用TelegramBot类的send_auto_delete_message方法
+                message_type = 'broadcast'  # 使用轮播消息类型
+                message = await self.bot.send_auto_delete_message(
                     chat_id=group_id,
                     text=text,
-                    reply_markup=reply_markup
+                    reply_markup=reply_markup,
+                    message_type=message_type
                 )
             
             # 记录已发送的消息ID
@@ -290,36 +296,11 @@ class EnhancedBroadcastManager:
                     'last_message': message_data
                 })
                 
-                # 如果配置了自动删除，安排删除任务
-                if hasattr(self.bot, 'auto_delete_manager') and self.bot.auto_delete_manager:
-                    auto_delete = broadcast.get('auto_delete', False)
-                    delete_timeout = broadcast.get('delete_timeout', 300)  # 默认5分钟
-                    
-                    if auto_delete and delete_timeout > 0:
-                        await self.bot.auto_delete_manager.schedule_delete(
-                            message=message,
-                            message_type='broadcast',
-                            timeout=delete_timeout
-                        )
-                        logger.debug(f"已安排轮播消息 {broadcast_id} 的自动删除，超时: {delete_timeout}秒")
-                
             return True
             
-        except BadRequest as e:
-            logger.error(f"发送轮播消息错误(BadRequest): {e}, broadcast_id={broadcast_id}", exc_info=True)
-            return False
-        except Forbidden as e:
-            logger.error(f"发送轮播消息错误(Forbidden): {e}, broadcast_id={broadcast_id}", exc_info=True)
-            return False
-        except TelegramError as e:
-            logger.error(f"发送轮播消息错误(TelegramError): {e}, broadcast_id={broadcast_id}", exc_info=True)
-            return False
         except Exception as e:
             logger.error(f"发送轮播消息错误: {e}, broadcast_id={broadcast_id}", exc_info=True)
             return False
-            
-    # 其他方法...
-    # 注意：从broadcast_manager.py复制其他方法完成类的实现
     
     async def update_broadcast(self, broadcast_id: str, broadcast_data: Dict[str, Any]) -> bool:
         """
