@@ -107,6 +107,7 @@ def register_all_handlers(application, callback_handler):
     callback_handler.register("bc_delete_", handle_broadcast_delete_callback)
     callback_handler.register("bc_confirm_delete_", handle_broadcast_confirm_delete_callback)
     callback_handler.register("bc_recalibrate_", handle_broadcast_recalibrate_callback)
+    callback_handler.register("bc_force_send_", handle_broadcast_force_send_callback)
 
     # 注册轮播消息编辑相关回调前缀
     from handlers.broadcast_modify_handlers import (
