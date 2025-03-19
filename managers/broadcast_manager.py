@@ -227,12 +227,18 @@ class BroadcastManager:
             
         # 处理自动删除
         if msg:
-            if msg:
-                settings = await self.bot.db.get_group_settings(group_id)
-                if settings.get('auto_delete', False) and self.bot.auto_delete_manager:
-                    await self.bot.auto_delete_manager.handle_broadcast_message(msg, group_id)
+            settings = await self.bot.db.get_group_settings(group_id)
+            if settings.get('auto_delete', False):
+                # 获取自动删除超时设置
+                timeouts = settings.get('auto_delete_timeouts', {})
+                default_timeout = settings.get('auto_delete_timeout', 300)
+                broadcast_timeout = timeouts.get('broadcast', default_timeout)
                 
-        logger.info(f"已发送轮播消息: group_id={group_id}, broadcast_id={broadcast['_id']}")
+                # 直接使用异步任务删除消息，与关键词回复相同
+                from utils.message_utils import delete_message_after_delay
+                asyncio.create_task(delete_message_after_delay(msg, broadcast_timeout))
+                    
+            logger.info(f"已发送轮播消息: group_id={group_id}, broadcast_id={broadcast['_id']}")
                     
     async def is_broadcast_active(self, broadcast_id: str) -> bool:
         """
