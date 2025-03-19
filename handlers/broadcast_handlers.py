@@ -56,7 +56,7 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
         return
 
     # 首先直接检查常见的简单操作
-    if len(parts) == 2 and parts[1] in ["submit", "cancel", "preview"]:
+    if len(parts) == 2 and parts[1] in ["submit", "cancel", "preview", "toggle_fixed_time"]:
         action = parts[1]
         logger.info(f"检测到简单操作: {action}")
     # 特殊处理select_group的情况
@@ -113,7 +113,37 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
     # 处理不同的表单操作
     logger.info(f"开始处理操作: {action}")
     
-    if action == "cancel":
+    # 处理新增的固定时间锚点切换
+    if action == "toggle_fixed_time":
+        logger.info("执行切换固定时间锚点操作")
+        # 切换固定时间锚点设置
+        current_state = form_data.get('use_fixed_time', False)
+        form_data['use_fixed_time'] = not current_state
+        
+        # 如果启用固定时间锚点，设置调度时间
+        if form_data['use_fixed_time']:
+            # 根据开始时间设置调度时间
+            start_time = form_data.get('start_time')
+            if start_time:
+                if isinstance(start_time, str):
+                    try:
+                        dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+                    except ValueError:
+                        dt = datetime.now()
+                else:
+                    dt = start_time
+                
+                schedule_time = f"{dt.hour:02d}:{dt.minute:02d}"
+                form_data['schedule_time'] = schedule_time
+                logger.info(f"已设置锚点时间: {schedule_time}")
+        
+        # 更新表单数据
+        context.user_data['broadcast_form'] = form_data
+        
+        # 显示更新后的表单选项
+        await show_broadcast_options(update, context)
+        
+    elif action == "cancel":
         logger.info("执行取消操作")
         # 取消操作
         if 'broadcast_form' in context.user_data:
