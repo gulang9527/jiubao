@@ -758,6 +758,10 @@ class EnhancedBroadcastManager:
                 if not is_retry:
                     should_send, reason = await self._should_send_broadcast(broadcast)
                     logger.info(f"轮播 {broadcast_id} 发送决策: {should_send}, 原因: {reason}")
+
+                # 检查是否是强制发送标记
+                if broadcast.get('force_sent'):
+                    logger.info(f"检测到轮播消息 {broadcast_id} 有强制发送标记，不影响锚点判断")
                     
                     if not should_send:
                         logger.info(f"轮播消息 {broadcast_id} 不应发送: {reason}")
@@ -779,6 +783,11 @@ class EnhancedBroadcastManager:
                         del self.error_tracker[broadcast_id]
                     if broadcast_id in self.retry_tracker:
                         del self.retry_tracker[broadcast_id]
+
+                    # 清除强制发送标记
+                    await self.db.update_broadcast(broadcast_id, {'force_sent': False})
+                    logger.info(f"已清除轮播消息 {broadcast_id} 的强制发送标记")
+    
                 else:
                     # 发送失败，处理重试逻辑
                     if not is_retry:
