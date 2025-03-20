@@ -1066,9 +1066,9 @@ async def show_interval_options(update: Update, context: CallbackContext):
         "请选择轮播消息的发送间隔：\n\n"
         "所有轮播消息均使用固定时间锚点模式：轮播消息将按照设定的时间点精确发送。\n"
         "例如，设置19:00开始，每15分钟发送一次，则会在19:00、19:15、19:30等时间点发送，\n"
-        "即使因为系统延迟导致某次发送在19:01完成，下次发送仍然会在19:15进行。"
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+        "即使因为系统延迟导致某次发送在19:01完成，下次发送仍然会在19:15进行。",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 async def show_start_time_options(update: Update, context: CallbackContext):
     """
