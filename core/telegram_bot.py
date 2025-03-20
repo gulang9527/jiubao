@@ -210,11 +210,26 @@ class TelegramBot:
             
             # 尝试初始化增强版轮播功能
             try:
-                from managers.enhanced_broadcast_manager import EnhancedBroadcastManager
-                self.broadcast_manager = EnhancedBroadcastManager(self.db, self, apply_defaults=apply_defaults)
-                logger.info("轮播管理器已初始化")
+                # 检查配置是否启用增强功能
+                enable_enhanced = config.BROADCAST_SETTINGS.get('enable_enhanced_features', False)
+                
+                if enable_enhanced:
+                    # 导入增强版轮播管理器
+                    from managers.enhanced_broadcast_manager import EnhancedBroadcastManager
+                    # 创建增强版轮播管理器
+                    self.broadcast_manager = EnhancedBroadcastManager(self.db, self, apply_defaults=apply_defaults)
+                    logger.info("增强版轮播管理器已初始化")
+                else:
+                    # 使用原始版轮播管理器
+                    from managers.broadcast_manager import BroadcastManager
+                    self.broadcast_manager = BroadcastManager(self.db, self, apply_defaults=apply_defaults)
+                    logger.info("使用原始版轮播管理器")
             except Exception as e:
-                logger.error(f"初始化轮播管理器失败: {e}", exc_info=True)
+                logger.error(f"初始化增强版轮播功能出错: {e}", exc_info=True)
+                # 使用原始版本的轮播管理器
+                from managers.broadcast_manager import BroadcastManager
+                self.broadcast_manager = BroadcastManager(self.db, self, apply_defaults=apply_defaults)
+                logger.warning("降级使用原始版本的轮播管理器")
                         
             # 设置超级管理员
             for admin_id in DEFAULT_SUPERADMINS:
@@ -440,9 +455,9 @@ class TelegramBot:
                     await self.broadcast_manager.process_broadcasts()
                     logger.info("轮播消息处理完成")
                 
-                # 每十分钟检查一次
+                # 每分钟检查一次
                 logger.info("等待60秒后进行下一次轮播检查")
-                await asyncio.sleep(600)
+                await asyncio.sleep(60)
                 
                 # 检查时间偏移，可能的休眠后唤醒
                 drift = self._check_time_drift()
