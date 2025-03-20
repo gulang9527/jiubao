@@ -925,13 +925,19 @@ class EnhancedBroadcastManager:
                 else:  # custom - 自定义间隔，锚点式发送
                     # 计算当前时间在一天中的分钟数
                     current_minutes = now.hour * 60 + now.minute
-                    
+                        
                     # 计算基准锚点（从当天0点开始计算的分钟数）
                     base_anchor = schedule_hour * 60 + schedule_minute  # 基准锚点（比如19:00）
                     
-                    # 找到当前时间最接近的锚点
-                    # 计算当前时间与基准锚点的偏移量
-                    offset = (current_minutes - base_anchor) % interval_minutes
+                    # 计算当前时间与基准锚点的偏移量，正确处理24小时周期
+                    # 当current_minutes < base_anchor时，我们需要添加一天的分钟数
+                    daily_minutes = 24 * 60
+                    adjusted_current = current_minutes
+                    if current_minutes < base_anchor:
+                        adjusted_current = current_minutes + daily_minutes
+                    
+                    # 计算偏移量
+                    offset = ((current_minutes - base_anchor) % (24 * 60)) % interval_minutes
                     
                     # 当前分钟是否是锚点（偏移量为0表示是锚点）
                     is_anchor = offset == 0
