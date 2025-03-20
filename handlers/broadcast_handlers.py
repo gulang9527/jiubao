@@ -646,22 +646,21 @@ async def handle_broadcast_force_send_callback(update: Update, context: Callback
         # 检查轮播消息详情
         await bot_instance.db.inspect_broadcast(broadcast_id)
         
+        # 首先标记为强制发送
+        try:
+            await bot_instance.db.update_broadcast(broadcast_id, {
+                'force_sent': True
+            })
+            logger.info(f"已标记轮播消息 {broadcast_id} 为强制发送")
+        except Exception as e:
+            logger.error(f"更新轮播消息强制发送标记失败: {e}", exc_info=True)
+        
         # 强制发送轮播消息
         if bot_instance.broadcast_manager:
             logger.info(f"强制发送轮播消息: {broadcast_id}")
             try:
-                # 添加force=True参数
-                await bot_instance.broadcast_manager.send_broadcast(broadcast, force=True)
-                
-                # 更新强制发送标记而不是更新last_broadcast
-                try:
-                    await bot_instance.db.update_broadcast(broadcast_id, {
-                        'last_forced_send': datetime.now(),
-                        'force_sent': True
-                    })
-                    logger.info(f"已标记轮播消息 {broadcast_id} 为强制发送")
-                except Exception as e:
-                    logger.error(f"更新轮播消息强制发送标记失败: {e}", exc_info=True)
+                # 发送轮播消息（已经被标记为force_sent=True）
+                await bot_instance.broadcast_manager.send_broadcast(broadcast)
                 
                 await query.edit_message_text(
                     f"✅ 已强制发送轮播消息\n\n详情ID: {broadcast_id}",
@@ -671,6 +670,15 @@ async def handle_broadcast_force_send_callback(update: Update, context: Callback
                 )
             except Exception as e:
                 error_message = str(e)
+                # 清除强制发送标记（发送失败时）
+                try:
+                    await bot_instance.db.update_broadcast(broadcast_id, {
+                        'force_sent': False
+                    })
+                    logger.info(f"发送失败，已清除轮播消息 {broadcast_id} 的强制发送标记")
+                except Exception as ex:
+                    logger.error(f"清除强制发送标记失败: {ex}", exc_info=True)
+                
                 # 检查是否是群组权限问题
                 if "kicked" in error_message.lower() or "forbidden" in error_message.lower():
                     await query.edit_message_text(
@@ -687,6 +695,15 @@ async def handle_broadcast_force_send_callback(update: Update, context: Callback
                         ]])
                     )
         else:
+            # 清除强制发送标记（无广播管理器时）
+            try:
+                await bot_instance.db.update_broadcast(broadcast_id, {
+                    'force_sent': False
+                })
+                logger.info(f"广播管理器未初始化，已清除轮播消息 {broadcast_id} 的强制发送标记")
+            except Exception as e:
+                logger.error(f"清除强制发送标记失败: {e}", exc_info=True)
+                
             await query.edit_message_text(
                 "❌ 轮播管理器未初始化",
                 reply_markup=InlineKeyboardMarkup([[
