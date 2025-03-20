@@ -758,9 +758,10 @@ class EnhancedBroadcastManager:
                 if not is_retry:
                     should_send, reason = await self._should_send_broadcast(broadcast)
                     logger.info(f"轮播 {broadcast_id} 发送决策: {should_send}, 原因: {reason}")
-
+    
                 # 检查是否是强制发送标记
-                if broadcast.get('force_sent'):
+                is_forced_send = broadcast.get('force_sent', False)
+                if is_forced_send:
                     logger.info(f"检测到轮播消息 {broadcast_id} 有强制发送标记，不影响锚点判断")
                     
                     if not should_send:
@@ -773,21 +774,24 @@ class EnhancedBroadcastManager:
                 success = await self.send_broadcast(broadcast)
                 
                 if success:
-                    # 成功发送，更新最后发送时间
+                    # 如果是强制发送，只更新last_forced_send，不更新last_broadcast
                     now = datetime.now()
-                    await self.db.update_broadcast_time(broadcast_id, now)
-                    logger.info(f"已发送轮播消息 {broadcast_id}, 更新最后发送时间为 {now}")
+                    if is_forced_send:
+                        await self.db.update_broadcast(broadcast_id, {
+                            'last_forced_send': now,
+                            'force_sent': False  # 重置强制发送标记
+                        })
+                        logger.info(f"已强制发送轮播消息 {broadcast_id}, 更新last_forced_send时间为 {now}，并重置force_sent标记")
+                    else:
+                        # 正常发送，更新最后发送时间
+                        await self.db.update_broadcast_time(broadcast_id, now)
+                        logger.info(f"已发送轮播消息 {broadcast_id}, 更新最后发送时间为 {now}")
                     
                     # 清除错误记录和重试状态
                     if broadcast_id in self.error_tracker:
                         del self.error_tracker[broadcast_id]
                     if broadcast_id in self.retry_tracker:
                         del self.retry_tracker[broadcast_id]
-
-                    # 清除强制发送标记
-                    await self.db.update_broadcast(broadcast_id, {'force_sent': False})
-                    logger.info(f"已清除轮播消息 {broadcast_id} 的强制发送标记")
-    
                 else:
                     # 发送失败，处理重试逻辑
                     if not is_retry:
