@@ -221,22 +221,45 @@ class EnhancedBroadcastManager:
             reply_markup = None
             if buttons:
                 keyboard = []
-                for row in buttons:
+                # 检查buttons是否是二维数组
+                if buttons and isinstance(buttons[0], list):
+                    # 二维数组格式处理
+                    for row in buttons:
+                        keyboard_row = []
+                        for button in row:
+                            if isinstance(button, dict):
+                                # 支持URL和回调按钮
+                                if 'url' in button:
+                                    keyboard_row.append(InlineKeyboardButton(
+                                        text=button['text'],
+                                        url=button['url']
+                                    ))
+                                elif 'callback_data' in button:
+                                    keyboard_row.append(InlineKeyboardButton(
+                                        text=button['text'],
+                                        callback_data=button['callback_data']
+                                    ))
+                        if keyboard_row:
+                            keyboard.append(keyboard_row)
+                else:
+                    # 一维数组格式处理
                     keyboard_row = []
-                    for button in row:
-                        # 支持URL和回调按钮
-                        if 'url' in button:
-                            keyboard_row.append(InlineKeyboardButton(
-                                text=button['text'],
-                                url=button['url']
-                            ))
-                        elif 'callback_data' in button:
-                            keyboard_row.append(InlineKeyboardButton(
-                                text=button['text'],
-                                callback_data=button['callback_data']
-                            ))
+                    for button in buttons:
+                        if isinstance(button, dict):
+                            # 支持URL和回调按钮
+                            if 'url' in button:
+                                keyboard_row.append(InlineKeyboardButton(
+                                    text=button['text'],
+                                    url=button['url']
+                                ))
+                            elif 'callback_data' in button:
+                                keyboard_row.append(InlineKeyboardButton(
+                                    text=button['text'],
+                                    callback_data=button['callback_data']
+                                ))
                     if keyboard_row:
                         keyboard.append(keyboard_row)
+                        
                 if keyboard:
                     reply_markup = InlineKeyboardMarkup(keyboard)
             
