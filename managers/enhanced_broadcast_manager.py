@@ -719,13 +719,17 @@ class EnhancedBroadcastManager:
         broadcast_id = str(broadcast.get('_id', ''))
         
         try:
-            logger.info(f"开始处理轮播消息 {broadcast_id}")
+            # 检查是否是重试
+            is_retry = broadcast_id in self.retry_tracker
+            retry_attempt = self.retry_tracker.get(broadcast_id, {}).get('attempt', 0)
+            
+            logger.info(f"开始处理轮播消息 {broadcast_id}" + (f" (重试第{retry_attempt}次)" if is_retry else ""))
             
             # 使用锁避免并发发送同一条轮播消息
             async with self.sending_lock:
-                # 检查是否是重试或首次发送
-                is_retry = broadcast_id in self.retry_tracker
-                retry_attempt = self.retry_tracker.get(broadcast_id, {}).get('attempt', 0)
+                # 如果是重试，跳过锚点检查直接发送
+                should_send = True
+                reason = f"重试第{retry_attempt}次" if is_retry else ""
                 
                 # 如果不是重试，检查是否应该发送
                 if not is_retry:
@@ -736,11 +740,9 @@ class EnhancedBroadcastManager:
                         logger.info(f"轮播消息 {broadcast_id} 不应发送: {reason}")
                         self.active_broadcasts.discard(broadcast_id)
                         return
-                else:
-                    logger.info(f"轮播消息 {broadcast_id} 正在重试，第 {retry_attempt} 次尝试")
                 
                 # 发送轮播消息
-                logger.info(f"{'重试' if is_retry else '首次'}发送轮播消息: {broadcast_id}")
+                logger.info(f"准备{'重试' if is_retry else ''}发送轮播消息: {broadcast_id}")
                 success = await self.send_broadcast(broadcast)
                 
                 if success:
@@ -951,23 +953,21 @@ class EnhancedBroadcastManager:
                     
                     if is_anchor:
                         logger.info(f"检测到当前是锚点时间点")
-                        if now.second < 30:
-                            logger.info(f"秒数 {now.second} < 30，符合条件")
-                            # 只需防止同一分钟内多次发送
-                            if last_broadcast and (now - last_broadcast).total_seconds() < 55:
-                                logger.info(f"已在当前分钟发送过，距上次发送仅 {(now - last_broadcast).total_seconds():.1f} 秒")
-                                return False, "已在当前分钟发送过"
+                        # 只需防止同一分钟内多次发送
+                        if last_broadcast and (now - last_broadcast).total_seconds() < 55:
+                            logger.info(f"已在当前分钟发送过，距上次发送仅 {(now - last_broadcast).total_seconds():.1f} 秒")
+                            return False, "已在当前分钟发送过"
+                        
+                        # 计算当前是哪个锚点
+                        anchor_number = (current_minutes - base_anchor) // interval_minutes
+                        if anchor_number < 0:
+                            anchor_number += (24 * 60) // interval_minutes
                             
-                            # 计算当前是哪个锚点
-                            anchor_number = (current_minutes - base_anchor) // interval_minutes
-                            if anchor_number < 0:
-                                anchor_number += (24 * 60) // interval_minutes
-                                
-                            anchor_hour = (base_anchor + anchor_number * interval_minutes) // 60 % 24
-                            anchor_minute = (base_anchor + anchor_number * interval_minutes) % 60
-                            
-                            logger.info(f"当前是锚点时间 {anchor_hour:02d}:{anchor_minute:02d}，可以发送")
-                            return True, f"锚点时间 {anchor_hour:02d}:{anchor_minute:02d} 发送"
+                        anchor_hour = (base_anchor + anchor_number * interval_minutes) // 60 % 24
+                        anchor_minute = (base_anchor + anchor_number * interval_minutes) % 60
+                        
+                        logger.info(f"当前是锚点时间 {anchor_hour:02d}:{anchor_minute:02d}，可以发送")
+                        return True, f"锚点时间 {anchor_hour:02d}:{anchor_minute:02d} 发送"
                         else:
                             logger.info(f"秒数 {now.second} >= 30，跳过本分钟发送")
                             return False, f"秒数 {now.second} >= 30，跳过本分钟发送"
