@@ -650,16 +650,18 @@ async def handle_broadcast_force_send_callback(update: Update, context: Callback
         if bot_instance.broadcast_manager:
             logger.info(f"强制发送轮播消息: {broadcast_id}")
             try:
-                await bot_instance.broadcast_manager.send_broadcast(broadcast)
+                # 添加force=True参数
+                await bot_instance.broadcast_manager.send_broadcast(broadcast, force=True)
                 
-                # 手动更新最后发送时间
+                # 更新强制发送标记而不是更新last_broadcast
                 try:
-                    # 更新最后发送时间
                     await bot_instance.db.update_broadcast(broadcast_id, {
-                        'last_broadcast': datetime.now()
+                        'last_forced_send': datetime.now(),
+                        'force_sent': True
                     })
+                    logger.info(f"已标记轮播消息 {broadcast_id} 为强制发送")
                 except Exception as e:
-                    logger.error(f"更新轮播消息最后发送时间失败: {e}", exc_info=True)
+                    logger.error(f"更新轮播消息强制发送标记失败: {e}", exc_info=True)
                 
                 await query.edit_message_text(
                     f"✅ 已强制发送轮播消息\n\n详情ID: {broadcast_id}",
