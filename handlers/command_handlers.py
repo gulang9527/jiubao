@@ -3,6 +3,8 @@
 """
 import logging
 import html
+import math
+import time
 import datetime
 import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -120,23 +122,61 @@ async def handle_settings(update: Update, context: CallbackContext):
 
 def get_char_width(char):
     """
-    计算字符的显示宽度
+    计算字符的显示宽度，更准确的实现
     - 汉字、日文、韩文等全角字符宽度为2
     - ASCII字符宽度为1
     - 其他字符根据Unicode范围确定宽度
     """
-    if ord(char) <= 127:  # ASCII字符
+    code = ord(char)
+    
+    # ASCII字符
+    if code <= 127:
         return 1
-    # 东亚文字(中文、日文、韩文等)
+        
+    # 全角空格
+    if char == '\u3000':
+        return 2
+        
+    # 中文字符范围
     if any([
-        '\u4e00' <= char <= '\u9fff',  # 中文
-        '\u3040' <= char <= '\u30ff',  # 日文
-        '\uac00' <= char <= '\ud7a3',  # 韩文
-        '\u3000' <= char <= '\u303f',  # 中日韩符号
-        '\uff00' <= char <= '\uffef'   # 全角ASCII、全角中英文标点
+        '\u4e00' <= char <= '\u9fff',  # CJK基本汉字
+        '\u3400' <= char <= '\u4dbf',  # CJK扩展A
+        '\uf900' <= char <= '\ufaff',  # CJK兼容汉字
+        '\u20000' <= char <= '\u2a6df',  # CJK扩展B
+        '\u2a700' <= char <= '\u2b73f',  # CJK扩展C
+        '\u2b740' <= char <= '\u2b81f',  # CJK扩展D
+        '\u2b820' <= char <= '\u2ceaf',  # CJK扩展E
+        '\u2ceb0' <= char <= '\u2ebef',  # CJK扩展F
     ]):
         return 2
-    # 其他Unicode字符默认宽度1
+        
+    # 日文
+    if any([
+        '\u3040' <= char <= '\u309f',  # 平假名
+        '\u30a0' <= char <= '\u30ff',  # 片假名
+    ]):
+        return 2
+        
+    # 韩文
+    if '\uac00' <= char <= '\ud7a3':
+        return 2
+        
+    # 全角标点和符号
+    if any([
+        '\u3000' <= char <= '\u303f',  # CJK符号和标点
+        '\uff00' <= char <= '\uffef',  # 全角ASCII、全角中英文标点
+    ]):
+        return 2
+        
+    # 表情符号和特殊符号
+    if any([
+        '\u2600' <= char <= '\u27bf',  # 杂项符号
+        '\u1f300' <= char <= '\u1f64f',  # Emoji表情
+        '\u1f680' <= char <= '\u1f6ff',  # 交通和地图符号
+    ]):
+        return 2
+        
+    # 其他字符默认宽度1
     return 1
 
 def get_string_display_width(s):
@@ -166,12 +206,13 @@ def truncate_string_by_width(s, max_width):
         char_width = get_char_width(char)
         # 检查添加当前字符是否会超出最大宽度(减去省略号的宽度1)
         if width + char_width > max_width - 1:
+            # 确保不超出最大宽度
             return ''.join(result) + "…"
         
         width += char_width
         result.append(char)
         
-    return ''.join(result)
+    return ''.join(result) 
 
 # 添加一个简单内存缓存
 class SimpleCache:
@@ -289,23 +330,31 @@ async def get_message_stats_from_db(group_id: int, time_range: str = 'day', limi
             # 1. 初始匹配阶段 - 基本过滤
             {'$match': match},
             
-            # 2. 确保每条消息只被计数一次
+            # 2. 确保每条消息只被计数一次并加强过滤
             {'$group': {
                 '_id': {'msg_id': '$message_id', 'user_id': '$user_id', 'date': '$date'},
                 'message_count': {'$sum': 1},
-                'user_id': {'$first': '$user_id'}
+                'user_id': {'$first': '$user_id'},
+                'valid': {'$first': {'$gt': ['$total_messages', 0]}}
             }},
             
-            # 3. 按用户ID分组汇总
+            # 3. 按用户ID分组汇总，确保只统计有效消息
+            {'$match': {
+                'valid': True
+            }},
+            
             {'$group': {
                 '_id': '$user_id',
                 'total_messages': {'$sum': '$message_count'}
             }},
             
-            # 4. 过滤无效数据
+            # 4. 更严格的过滤条件，确保排除无效用户和消息数为0的记录
             {'$match': {
-                '_id': {'$ne': None},
-                'total_messages': {'$gt': 0}
+                '$and': [
+                    {'_id': {'$ne': None}},
+                    {'_id': {'$ne': 0}},
+                    {'total_messages': {'$gt': 0}}
+                ]
             }},
             
             # 5. 排序
@@ -327,12 +376,42 @@ async def get_message_stats_from_db(group_id: int, time_range: str = 'day', limi
         # 深度复制结果，避免引用问题
         validated_stats = []
         for stat in stats:
-            if '_id' in stat and 'total_messages' in stat and stat['total_messages'] > 0:
-                # 复制数据并确保类型正确
-                validated_stats.append({
-                    '_id': int(stat['_id']),
-                    'total_messages': int(stat['total_messages'])  # 确保是整数
-                })
+            try:
+                # 确保关键字段存在且有效
+                if not stat or '_id' not in stat or 'total_messages' not in stat:
+                    continue
+                    
+                # 确保ID不为空且为数字
+                user_id = stat.get('_id')
+                if user_id is None or not isinstance(user_id, (int, float, str)):
+                    continue
+                    
+                # 确保消息计数为正整数
+                message_count = stat.get('total_messages', 0)
+                if not isinstance(message_count, (int, float)) or message_count <= 0:
+                    continue
+                    
+                # 安全地进行类型转换
+                try:
+                    user_id_int = int(user_id)
+                    if user_id_int <= 0:  # 用户ID应为正数
+                        continue
+                        
+                    message_count_int = int(message_count)
+                    if message_count_int <= 0:  # 消息数应为正数
+                        continue
+                        
+                    validated_stats.append({
+                        '_id': user_id_int,
+                        'total_messages': message_count_int
+                    })
+                except (ValueError, TypeError):
+                    # 转换失败，跳过此记录
+                    continue
+            except Exception as e:
+                logger.error(f"验证统计数据出错: {e}", exc_info=True)
+                # 继续处理下一条记录
+                continue
         
         return validated_stats
     except asyncio.TimeoutError:
@@ -347,7 +426,7 @@ async def get_total_stats_count(group_id, time_range, context):
     try:
         bot_instance = context.application.bot_data.get('bot_instance')
         
-        # 基础过滤条件
+        # 基础过滤条件 - 与 get_message_stats_from_db 保持一致
         match = {
             'group_id': group_id,
             'total_messages': {'$gt': 0},
@@ -363,25 +442,39 @@ async def get_total_stats_count(group_id, time_range, context):
             today = datetime.datetime.now().strftime('%Y-%m-%d')
             match['date'] = {'$gte': thirty_days_ago, '$lte': today}
         
-        # 获取去重后的用户数量
+        # 使用与 get_message_stats_from_db 相同的逻辑来计数
         pipeline = [
             {'$match': match},
+            # 确保每条消息只被计数一次
             {'$group': {
-                '_id': {'msg_id': '$message_id', 'user_id': '$user_id'},
+                '_id': {'msg_id': '$message_id', 'user_id': '$user_id', 'date': '$date'},
                 'user_id': {'$first': '$user_id'}
             }},
+            # 按用户ID分组
             {'$group': {
                 '_id': '$user_id'
+            }},
+            # 过滤无效用户
+            {'$match': {
+                '_id': {'$ne': None}
             }},
             {'$count': 'total'}
         ]
         
-        result = await bot_instance.db.db.message_stats.aggregate(pipeline).to_list(None)
-        if result and result[0]:
+        # 设置超时选项
+        options = {
+            'maxTimeMS': 5000  # 5秒超时
+        }
+        
+        result = await bot_instance.db.db.message_stats.aggregate(pipeline, **options).to_list(None)
+        if result and len(result) > 0:
             return result[0].get('total', 0)
         return 0
+    except asyncio.TimeoutError:
+        logger.error(f"获取统计总数超时: 群组={group_id}, 时间范围={time_range}")
+        return 0
     except Exception as e:
-        logger.error(f"获取统计总数失败: {e}")
+        logger.error(f"获取统计总数失败: {e}", exc_info=True)
         return 0
 
 async def format_rank_rows(stats, page, group_id, context):
@@ -671,33 +764,69 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext, *a
         
         logger.info(f"处理排行榜回调: 群组={group_id}, 页码={current_page}, 时间范围={time_range}")
         
-        # 添加并发控制 - 更细粒度的锁控制
+        # 增强的并发控制和超时保护
         user_id = update.effective_user.id
         processing_key = f"rank_processing:{user_id}:{group_id}:{action}"
+        processing_time_key = f"{processing_key}_time"
         
-        if context.user_data.get(processing_key, False):
+        # 检查是否有待处理请求以及是否已超时
+        current_time = time.time()
+        last_processing_time = context.user_data.get(processing_time_key, 0)
+        is_processing = context.user_data.get(processing_key, False)
+        
+        # 如果上次处理已超过30秒，认为已超时可以重新处理
+        if is_processing and (current_time - last_processing_time) > 30:
+            logger.warning(f"用户 {user_id} 在群组 {group_id} 的排行榜请求已超时，允许新请求")
+            is_processing = False
+        
+        if is_processing:
             logger.warning(f"用户 {user_id} 在群组 {group_id} 中有待处理的排行榜请求，忽略新请求")
+            await query.answer("正在处理您的上一个请求，请稍后再试")
             return
         
+        # 设置处理标记和时间戳
         context.user_data[processing_key] = True
+        context.user_data[processing_time_key] = current_time
         
         try:
             # 改进页码逻辑：处理上一页和下一页
             if action == "prev":
                 page = max(1, current_page - 1)  # 确保页码不小于1
             elif action == "next":
-                page = current_page + 1  # 暂时允许增加，后面会检查边界
+                page = current_page  # 直接使用回调数据中的当前页值
+                                     # 因为回调数据中已经包含了正确的下一页
             else:
                 page = current_page
             
-            # 获取总记录数计算总页数 - 直接从数据库获取准确值
-            total_count = await get_total_stats_count(group_id, time_range, context)
+            # 使用缓存优化总记录数查询
+            cache_key = f"total_count:{group_id}:{time_range}"
+            total_count = context.user_data.get(cache_key)
             
-            # 计算总页数，确保至少有1页
-            total_pages = max(1, (total_count + 14) // 15)
+            # 如果没有缓存，再进行数据库查询
+            if total_count is None:
+                total_count = await get_total_stats_count(group_id, time_range, context)
+                # 缓存结果，设置较短的有效期
+                context.user_data[cache_key] = total_count
+                # 设置定时器清除缓存（如果context有job_queue）
+                if hasattr(context, 'job_queue') and context.job_queue:
+                    context.job_queue.run_once(
+                        lambda _: context.user_data.pop(cache_key, None) if cache_key in context.user_data else None,
+                        120  # 2分钟后清除缓存
+                    )
             
-            # 如果请求的页码超出范围，纠正为最后一页
-            if page > total_pages:
+            # 使用更准确的页数计算方法
+            total_pages = math.ceil(total_count / 15) if total_count > 0 else 1
+            
+            # 处理边界情况
+            if total_count == 0:
+                # 没有数据
+                await query.edit_message_text("暂无排行数据。")
+                return
+                
+            # 确保页码在有效范围内
+            if page < 1:
+                page = 1
+            elif page > total_pages:
                 page = total_pages
             
             # 安全获取排行数据 - 使用超时控制
@@ -778,8 +907,9 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext, *a
                 except:
                     pass
         finally:
-            # 清除处理标记
+            # 清除处理标记和时间戳
             context.user_data[processing_key] = False
+            context.user_data.pop(processing_time_key, None)
             
     except Exception as e:
         logger.error(f"处理排行榜回调时出错: {e}", exc_info=True)
@@ -1297,28 +1427,35 @@ async def update_message_stats(update: Update, context: CallbackContext):
     # 如果应该计数，则添加到数据库
     if should_count:
         try:
-            # 首先检查此消息ID是否已处理过 - 避免重复计数
-            duplicate_check = await bot_instance.db.db.message_stats.find_one({
-                'group_id': group_id,
-                'message_id': message_id
-            })
+            # 使用更可靠的去重方式 - 尝试使用唯一键插入
+            # 如果数据库支持唯一索引，可以考虑在 group_id 和 message_id 上创建复合唯一索引
+            # 这里使用查询+更新的原子操作
+            result = await bot_instance.db.db.message_stats.update_one(
+                {
+                    'group_id': group_id,
+                    'message_id': message_id
+                },
+                {
+                    '$setOnInsert': {
+                        'group_id': group_id,
+                        'user_id': user_id,
+                        'date': today,
+                        'message_id': message_id,
+                        'message_type': message_type,
+                        'total_messages': 1,
+                        'is_bot': False,
+                        'timestamp': datetime.datetime.now()
+                    }
+                },
+                upsert=True
+            )
             
-            if duplicate_check:
-                # 消息已被计数，跳过
+            # 如果没有插入新文档，说明消息已存在
+            if result.matched_count > 0:
                 return
-            
-            # 插入新记录，确保包含消息ID
-            await bot_instance.db.db.message_stats.insert_one({
-                'group_id': group_id,
-                'user_id': user_id,
-                'date': today,
-                'message_id': message_id,
-                'message_type': message_type,
-                'total_messages': 1,
-                'is_bot': False,
-                'timestamp': datetime.datetime.now()
-            })
-            
+                
             logger.debug(f"已记录消息统计: 用户={user_id}, 群组={group_id}, 类型={message_type}")
         except Exception as e:
             logger.error(f"记录消息统计失败: {e}", exc_info=True)
+            
+
