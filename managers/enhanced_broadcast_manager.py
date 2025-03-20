@@ -112,21 +112,21 @@ class EnhancedBroadcastManager:
             # 验证轮播消息数据
             self._validate_broadcast_data(broadcast_data)
             
-            # 优化固定时间发送和间隔处理逻辑
-            # 如果使用固定时间发送，设置好调度时间
-            if broadcast_data.get('use_fixed_time', False):
-                # 确保有start_time
-                if 'start_time' not in broadcast_data:
-                    broadcast_data['start_time'] = datetime.now()
-                
-                start_time = broadcast_data['start_time']
-                # 保存时间格式为 "HH:MM" 用于固定时间发送
-                schedule_time = f"{start_time.hour:02d}:{start_time.minute:02d}"
-                broadcast_data['schedule_time'] = schedule_time
-                logger.info(f"设置固定调度时间: {schedule_time}")
-                
-                # 重置last_broadcast，确保下次固定时间发送正常进行
-                broadcast_data['last_broadcast'] = None
+            # 强制所有轮播消息使用固定时间锚点
+            broadcast_data['use_fixed_time'] = True
+            
+            # 设置调度时间
+            if 'start_time' not in broadcast_data:
+                broadcast_data['start_time'] = datetime.now()
+            
+            start_time = broadcast_data['start_time']
+            # 保存时间格式为 "HH:MM" 用于固定时间发送
+            schedule_time = f"{start_time.hour:02d}:{start_time.minute:02d}"
+            broadcast_data['schedule_time'] = schedule_time
+            logger.info(f"设置固定调度时间: {schedule_time}")
+            
+            # 重置last_broadcast，确保下次固定时间发送正常进行
+            broadcast_data['last_broadcast'] = None
             
             # 添加到数据库
             broadcast_id = await self.db.add_broadcast(broadcast_data)
@@ -327,23 +327,23 @@ class EnhancedBroadcastManager:
             是否成功
         """
         try:
-            # 优化固定时间发送和间隔处理逻辑
-            # 如果更新了固定时间发送设置
-            if 'use_fixed_time' in broadcast_data and broadcast_data['use_fixed_time']:
-                # 检查是否有start_time
-                if 'start_time' in broadcast_data:
-                    start_time = broadcast_data['start_time']
-                    # 保存时间格式为 "HH:MM" 用于固定时间发送
+            # 强制所有轮播消息使用固定时间锚点
+            broadcast_data['use_fixed_time'] = True
+            
+            # 检查是否有start_time
+            if 'start_time' in broadcast_data:
+                start_time = broadcast_data['start_time']
+                # 保存时间格式为 "HH:MM" 用于固定时间发送
+                schedule_time = f"{start_time.hour:02d}:{start_time.minute:02d}"
+                broadcast_data['schedule_time'] = schedule_time
+                logger.info(f"更新轮播消息 {broadcast_id} 的固定调度时间: {schedule_time}")
+            else:
+                # 获取当前轮播消息
+                current_broadcast = await self.db.get_broadcast_by_id(broadcast_id)
+                if current_broadcast and 'start_time' in current_broadcast:
+                    start_time = current_broadcast['start_time']
                     schedule_time = f"{start_time.hour:02d}:{start_time.minute:02d}"
                     broadcast_data['schedule_time'] = schedule_time
-                    logger.info(f"更新轮播消息 {broadcast_id} 的固定调度时间: {schedule_time}")
-                else:
-                    # 获取当前轮播消息
-                    current_broadcast = await self.db.get_broadcast_by_id(broadcast_id)
-                    if current_broadcast and 'start_time' in current_broadcast:
-                        start_time = current_broadcast['start_time']
-                        schedule_time = f"{start_time.hour:02d}:{start_time.minute:02d}"
-                        broadcast_data['schedule_time'] = schedule_time
             
             # 更新数据库
             success = await self.db.update_broadcast(broadcast_id, broadcast_data)
@@ -842,8 +842,7 @@ class EnhancedBroadcastManager:
                     # 检查当前分钟是否满足间隔条件
                     if current_minutes % interval_minutes == schedule_minute and now.second < 30:
                         # 防止在同一分钟内重复发送
-                        if last_broadcast and (now - last_broadcast).total_seconds() < interval_minutes * 60 * 0.9:
-                            return False, "发送间隔未到"
+                        # 只检查是否是指定的发送时间点，不考虑上次发送时间
                         return True, "固定分钟发送"
                     return False, "不是发送时间点"
                     
