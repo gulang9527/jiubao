@@ -939,8 +939,10 @@ class EnhancedBroadcastManager:
                     # 计算偏移量
                     offset = ((current_minutes - base_anchor) % (24 * 60)) % interval_minutes
                     
-                    # 当前分钟是否是锚点（偏移量为0表示是锚点）
-                    is_anchor = offset == 0
+                    # 设置允许的误差范围（分钟）
+                    ANCHOR_TOLERANCE_MINUTES = 1  # 允许正负1分钟的误差
+                    # 判断是否在锚点附近
+                    is_anchor = offset == 0 or offset <= ANCHOR_TOLERANCE_MINUTES or offset >= (interval_minutes - ANCHOR_TOLERANCE_MINUTES)
                     
                     logger.info(f"当前时间分钟数: {current_minutes}")
                     logger.info(f"基准锚点分钟数: {base_anchor}")
