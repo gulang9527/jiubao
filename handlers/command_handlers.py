@@ -11,6 +11,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
 from utils.decorators import check_command_usage, handle_callback_errors, require_superadmin
 from utils.message_utils import set_message_expiry
+from db.models import GroupPermission
 
 logger = logging.getLogger(__name__)
 
@@ -82,14 +83,32 @@ async def handle_start(update: Update, context: CallbackContext):
             )
             
             # 在群组中回复一个简短的提示
-            await update.message.reply_text(
+            msg = await update.message.reply_text(
                 f"@{update.effective_user.username or update.effective_user.first_name}，我已经向你发送了帮助信息，请查看私聊。"
             )
+            
+            # 添加自动删除
+            await set_message_expiry(
+                context=context,
+                chat_id=update.effective_chat.id,
+                message_id=msg.message_id,
+                feature="command_response",
+                timeout=60  # 60秒后删除
+            )
         except Exception as e:
-            logger.error(f"无法向用户 {user_id} 发送私聊消息: {e}")
+            logger.error(f"无法向用户 {user_id} 发送私聊消息: {e}", exc_info=True)
             # 如果用户没有先私聊机器人，则在群组中提示
-            await update.message.reply_text(
+            msg = await update.message.reply_text(
                 f"@{update.effective_user.username or update.effective_user.first_name}，请先私聊我一次(@qdjiubao_bot)，这样我才能向你发送帮助信息。"
+            )
+            
+            # 添加自动删除
+            await set_message_expiry(
+                context=context,
+                chat_id=update.effective_chat.id,
+                message_id=msg.message_id,
+                feature="command_response",
+                timeout=60  # 60秒后删除
             )
     else:
         # 在私聊中正常发送欢迎消息
@@ -112,13 +131,24 @@ async def handle_settings(update: Update, context: CallbackContext):
         try:
             group_info = await context.bot.get_chat(group['group_id'])
             group_name = group_info.title or f"群组 {group['group_id']}"
-        except Exception:
+        except Exception as e:
+            logger.warning(f"获取群组 {group['group_id']} 信息失败: {e}")
             group_name = f"群组 {group['group_id']}"
             
         keyboard.append([InlineKeyboardButton(group_name, callback_data=f"settings_select_{group['group_id']}")])
         
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("请选择要管理的群组：", reply_markup=reply_markup)
+    msg = await update.message.reply_text("请选择要管理的群组：", reply_markup=reply_markup)
+    
+    # 如果在群组中，设置自动删除
+    if update.effective_chat.type in ['group', 'supergroup']:
+        await set_message_expiry(
+            context=context,
+            chat_id=update.effective_chat.id,
+            message_id=msg.message_id,
+            feature="settings_command",
+            timeout=120  # 2分钟后删除
+        )
 
 def get_char_width(char):
     """
@@ -266,13 +296,21 @@ async def get_user_display_name(chat_id, user_id, context):
             context.bot.get_chat_member(chat_id, user_id),
             timeout=2.0
         )
-        display_name = html.escape(user.user.full_name)
-        
-        # 缓存结果，24小时过期
-        await memory_cache.set(cache_key, display_name, 86400)
-        return display_name
+        # 确保用户信息有效
+        if user and user.user and user.user.full_name:
+            display_name = html.escape(user.user.full_name)
+            
+            # 缓存结果，24小时过期
+            await memory_cache.set(cache_key, display_name, 86400)
+            return display_name
+        else:
+            logger.warning(f"获取用户 {user_id} 信息不完整")
+            return f'用户{user_id}'
+    except asyncio.TimeoutError:
+        logger.warning(f"获取用户 {user_id} 信息超时")
+        return f'用户{user_id}'
     except Exception as e:
-        logger.warning(f"获取用户 {user_id} 信息失败: {e}")
+        logger.warning(f"获取用户 {user_id} 信息失败: {e}", exc_info=True)
         return f'用户{user_id}'
 
 async def get_message_stats_from_db(group_id: int, time_range: str = 'day', limit: int = 15, skip: int = 0, context=None):
@@ -448,15 +486,23 @@ async def get_total_stats_count(group_id, time_range, context):
             # 确保每条消息只被计数一次
             {'$group': {
                 '_id': {'msg_id': '$message_id', 'user_id': '$user_id', 'date': '$date'},
-                'user_id': {'$first': '$user_id'}
+                'user_id': {'$first': '$user_id'},
+                'valid': {'$first': {'$gt': ['$total_messages', 0]}}
+            }},
+            # 确保只统计有效消息
+            {'$match': {
+                'valid': True
             }},
             # 按用户ID分组
             {'$group': {
                 '_id': '$user_id'
             }},
-            # 过滤无效用户
+            # 过滤无效用户，与主查询保持一致
             {'$match': {
-                '_id': {'$ne': None}
+                '$and': [
+                    {'_id': {'$ne': None}},
+                    {'_id': {'$ne': 0}}
+                ]
             }},
             {'$count': 'total'}
         ]
@@ -711,14 +757,14 @@ async def handle_check_stats_settings(update: Update, context: CallbackContext):
     
     # 检查数据库记录
     try:
-        today = datetime.now().strftime('%Y-%m-%d')
+        today = datetime.datetime.now().strftime('%Y-%m-%d')
         count = await bot_instance.db.db.message_stats.count_documents({
             'group_id': group_id,
             'date': today
         })
         message += f"今日消息记录数: {count}\n"
         
-        thirty_days_ago = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+        thirty_days_ago = (datetime.datetime.now() - datetime.timedelta(days=30)).strftime('%Y-%m-%d')
         month_count = await bot_instance.db.db.message_stats.count_documents({
             'group_id': group_id,
             'date': {'$gte': thirty_days_ago, '$lte': today}
@@ -899,13 +945,20 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext, *a
                 logger.error(f"更新排行榜消息失败: {e}")
                 # 尝试发送新消息而不是编辑
                 try:
-                    await context.bot.send_message(
+                    message = await context.bot.send_message(
                         chat_id=group_id,
                         text=f"排行榜更新失败，请重新查询。",
                         reply_to_message_id=query.message.message_id
                     )
-                except:
-                    pass
+                    # 添加自动删除
+                    await set_message_expiry(
+                        context=context,
+                        chat_id=group_id,
+                        message_id=message.message_id,
+                        feature="rank_command"
+                    )
+                except Exception as sub_e:
+                    logger.error(f"发送排行榜失败通知失败: {sub_e}", exc_info=True)
         finally:
             # 清除处理标记和时间戳
             context.user_data[processing_key] = False
@@ -920,8 +973,23 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext, *a
                     InlineKeyboardButton("重试", callback_data=query.data)
                 ]])
             )
-        except:
-            pass
+        except Exception as e:
+            logger.error(f"编辑错误消息失败: {e}", exc_info=True)
+            try:
+                message = await context.bot.send_message(
+                    chat_id=chat.id,
+                    text="处理请求时出错，请稍后再试。",
+                    reply_to_message_id=query.message.message_id
+                )
+                # 添加自动删除
+                await set_message_expiry(
+                    context=context,
+                    chat_id=chat.id,
+                    message_id=message.message_id,
+                    feature="rank_command"
+                )
+            except Exception as sub_e:
+                logger.error(f"发送错误通知失败: {sub_e}", exc_info=True)
 
 @check_command_usage
 async def handle_admin_groups(update: Update, context: CallbackContext):
@@ -945,12 +1013,23 @@ async def handle_admin_groups(update: Update, context: CallbackContext):
         try:
             group_info = await context.bot.get_chat(group['group_id'])
             group_name = group_info.title
-        except Exception:
+        except Exception as e:
+            logger.warning(f"获取群组 {group['group_id']} 信息失败: {e}")
             group_name = f"群组 {group['group_id']}"
             
         text += f"• {group_name}\n  ID: {group['group_id']}\n  权限: {', '.join(group.get('permissions', []))}\n\n"
         
-    await update.message.reply_text(text)
+    msg = await update.message.reply_text(text)
+    
+    # 如果在群组中，设置自动删除
+    if update.effective_chat.type in ['group', 'supergroup']:
+        await set_message_expiry(
+            context=context,
+            chat_id=update.effective_chat.id,
+            message_id=msg.message_id,
+            feature="admin_groups_command",
+            timeout=120  # 2分钟后删除
+        )
 
 @check_command_usage
 async def handle_cancel(update: Update, context: CallbackContext):
@@ -973,7 +1052,17 @@ async def handle_cancel(update: Update, context: CallbackContext):
     for setting_type in active_settings:
         await bot_instance.settings_manager.clear_setting_state(user_id, setting_type)
         
-    await update.message.reply_text("✅ 已取消所有正在进行的设置操作")
+    msg = await update.message.reply_text("✅ 已取消所有正在进行的设置操作")
+    
+    # 如果在群组中，设置自动删除
+    if update.effective_chat.type in ['group', 'supergroup']:
+        await set_message_expiry(
+            context=context,
+            chat_id=update.effective_chat.id,
+            message_id=msg.message_id,
+            feature="cancel_command",
+            timeout=60  # 1分钟后删除
+        )
 
 #######################################
 # 管理员命令处理函数
@@ -1010,7 +1099,8 @@ async def handle_easy_keyword(update: Update, context: CallbackContext):
             try:
                 group_info = await context.bot.get_chat(group['group_id'])
                 group_name = group_info.title or f"群组 {group['group_id']}"
-            except Exception:
+            except Exception as e:
+                logger.warning(f"获取群组 {group['group_id']} 信息失败: {e}")
                 group_name = f"群组 {group['group_id']}"
                 
             keyboard.append([InlineKeyboardButton(
@@ -1063,7 +1153,8 @@ async def handle_easy_broadcast(update: Update, context: CallbackContext):
             try:
                 group_info = await context.bot.get_chat(group['group_id'])
                 group_name = group_info.title or f"群组 {group['group_id']}"
-            except Exception:
+            except Exception as e:
+                logger.warning(f"获取群组 {group['group_id']} 信息失败: {e}")
                 group_name = f"群组 {group['group_id']}"
                 
             keyboard.append([InlineKeyboardButton(
