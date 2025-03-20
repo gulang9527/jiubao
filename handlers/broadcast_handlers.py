@@ -1056,14 +1056,6 @@ async def show_interval_options(update: Update, context: CallbackContext):
         [InlineKeyboardButton("❌ 取消", callback_data="bcform_cancel")]
     ]
     
-    # 添加固定时间锚点选项
-    if form_data.get('use_fixed_time', False):
-        keyboard.append([InlineKeyboardButton("🔄 禁用固定时间锚点", 
-                                          callback_data=f"bcform_toggle_fixed_time")])
-    else:
-        keyboard.append([InlineKeyboardButton("⚓ 启用固定时间锚点", 
-                                          callback_data=f"bcform_toggle_fixed_time")])
-    
     keyboard.extend([
         [InlineKeyboardButton("返回", callback_data="bcform_content_received")],
         [InlineKeyboardButton("❌ 取消", callback_data="bcform_cancel")]
