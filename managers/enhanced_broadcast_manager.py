@@ -707,12 +707,15 @@ class EnhancedBroadcastManager:
         broadcast_id = str(broadcast.get('_id', ''))
         
         try:
+            logger.info(f"开始处理轮播消息 {broadcast_id}")
             # 使用锁避免并发发送同一条轮播消息
             async with self.sending_lock:
                 # 再次检查是否应该发送（可能在等待锁期间状态已变）
                 should_send, reason = await self._should_send_broadcast(broadcast)
+                logger.info(f"轮播 {broadcast_id} 发送决策: {should_send}, 原因: {reason}")
+                
                 if not should_send:
-                    logger.debug(f"轮播消息 {broadcast_id} 不应发送: {reason}")
+                    logger.info(f"轮播消息 {broadcast_id} 不应发送: {reason}")
                     self.active_broadcasts.discard(broadcast_id)
                     return
                 
@@ -724,7 +727,7 @@ class EnhancedBroadcastManager:
                     # 更新最后发送时间
                     now = datetime.now()
                     await self.db.update_broadcast_time(broadcast_id, now)
-                    logger.info(f"已发送轮播消息 {broadcast_id}")
+                    logger.info(f"已发送轮播消息 {broadcast_id}, 更新最后发送时间为 {now}")
                     
                     # 清除错误记录
                     if broadcast_id in self.error_tracker:
@@ -758,6 +761,7 @@ class EnhancedBroadcastManager:
         finally:
             # 从处理中列表移除
             self.active_broadcasts.discard(broadcast_id)
+            logger.info(f"轮播消息 {broadcast_id} 处理完成")
             
     async def _should_send_broadcast(self, broadcast: Dict[str, Any]) -> Tuple[bool, str]:
         """
