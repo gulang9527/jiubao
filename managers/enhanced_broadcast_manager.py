@@ -898,18 +898,13 @@ class EnhancedBroadcastManager:
                     # 整点的指定分钟发送 - 只检查当前是否是指定分钟
                     logger.info(f"当前分钟: {now.minute}, 调度分钟: {schedule_minute}")
                     if now.minute == schedule_minute:
-                        logger.info(f"分钟匹配，检查秒数条件")
-                        if now.second < 30:
-                            logger.info(f"秒数 {now.second} < 30，符合条件")
-                            # 只需要简单防止在同一分钟多次发送的极端情况
-                            if last_broadcast and (now - last_broadcast).total_seconds() < 55:
-                                logger.info(f"已在当前分钟 {now.minute} 发送过，距上次发送仅 {(now - last_broadcast).total_seconds():.1f} 秒")
-                                return False, f"已在当前分钟 {now.minute} 发送过"
-                            logger.info(f"当前是整点 {schedule_minute} 分，可以发送")
-                            return True, f"整点 {schedule_minute} 分发送"
-                        else:
-                            logger.info(f"秒数 {now.second} >= 30，跳过本分钟发送")
-                            return False, f"秒数 {now.second} >= 30，跳过发送"
+                        logger.info(f"分钟匹配")
+                        # 只需要简单防止在同一分钟多次发送的极端情况
+                        if last_broadcast and (now - last_broadcast).total_seconds() < 55:
+                            logger.info(f"已在当前分钟 {now.minute} 发送过，距上次发送仅 {(now - last_broadcast).total_seconds():.1f} 秒")
+                            return False, f"已在当前分钟 {now.minute} 发送过"
+                        logger.info(f"当前是整点 {schedule_minute} 分，可以发送")
+                        return True, f"整点 {schedule_minute} 分发送"
                     logger.info(f"不是发送时间点 {schedule_minute} 分，不发送")
                     return False, f"不是发送时间点 {schedule_minute} 分"
                 
@@ -917,18 +912,13 @@ class EnhancedBroadcastManager:
                     # 每天的指定时间发送 - 只检查当前是否是指定时间
                     logger.info(f"当前时间: {now.hour}:{now.minute}, 调度时间: {schedule_hour}:{schedule_minute}")
                     if now.hour == schedule_hour and now.minute == schedule_minute:
-                        logger.info(f"小时和分钟都匹配，检查秒数条件")
-                        if now.second < 30:
-                            logger.info(f"秒数 {now.second} < 30，符合条件")
-                            # 只需要简单防止在同一分钟多次发送的极端情况
-                            if last_broadcast and (now - last_broadcast).total_seconds() < 55:
-                                logger.info(f"已在当前分钟发送过，距上次发送仅 {(now - last_broadcast).total_seconds():.1f} 秒")
-                                return False, "已在当前分钟发送过"
-                            logger.info(f"当前是每日 {schedule_hour}:{schedule_minute} 时间点，可以发送")
-                            return True, f"每日 {schedule_hour}:{schedule_minute} 发送"
-                        else:
-                            logger.info(f"秒数 {now.second} >= 30，跳过本分钟发送")
-                            return False, f"秒数 {now.second} >= 30，跳过发送"
+                        logger.info(f"小时和分钟都匹配")
+                        # 只需要简单防止在同一分钟多次发送的极端情况
+                        if last_broadcast and (now - last_broadcast).total_seconds() < 55:
+                            logger.info(f"已在当前分钟发送过，距上次发送仅 {(now - last_broadcast).total_seconds():.1f} 秒")
+                            return False, "已在当前分钟发送过"
+                        logger.info(f"当前是每日 {schedule_hour}:{schedule_minute} 时间点，可以发送")
+                        return True, f"每日 {schedule_hour}:{schedule_minute} 发送"
                     logger.info(f"不是发送时间点 {schedule_hour}:{schedule_minute}，不发送")
                     return False, f"不是发送时间点 {schedule_hour}:{schedule_minute}"
                 
@@ -968,10 +958,7 @@ class EnhancedBroadcastManager:
                         
                         logger.info(f"当前是锚点时间 {anchor_hour:02d}:{anchor_minute:02d}，可以发送")
                         return True, f"锚点时间 {anchor_hour:02d}:{anchor_minute:02d} 发送"
-                        else:
-                            logger.info(f"秒数 {now.second} >= 30，跳过本分钟发送")
-                            return False, f"秒数 {now.second} >= 30，跳过本分钟发送"
-                    
+                       
                     # 找到下一个锚点时间，用于日志
                     next_anchor_minutes = current_minutes + (interval_minutes - offset) % interval_minutes
                     next_anchor_hour = (next_anchor_minutes // 60) % 24
