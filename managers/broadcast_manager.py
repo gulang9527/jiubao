@@ -781,7 +781,7 @@ class BroadcastManager:
                     if is_anchor and now.second < 30:
                         # 防止在同一分钟内重复发送
                         if last_broadcast and (now - last_broadcast).total_seconds() < 55:
-                            logger.info(f"已在当前分钟发送过，不再发送")
+                            logger.info(f"已在当前分钟发送过，距上次发送仅 {(now - last_broadcast).total_seconds():.1f} 秒")
                             return False, "已在当前分钟发送过"
                         
                         # 计算当前是哪个锚点
@@ -794,7 +794,7 @@ class BroadcastManager:
                         
                         logger.info(f"当前是锚点时间 {anchor_hour:02d}:{anchor_minute:02d}，可以发送")
                         return True, f"锚点时间 {anchor_hour:02d}:{anchor_minute:02d} 发送"
-                    
+                       
                     # 找到下一个锚点时间，用于日志
                     next_anchor_minutes = current_minutes + (interval_minutes - offset) % interval_minutes
                     next_anchor_hour = (next_anchor_minutes // 60) % 24
