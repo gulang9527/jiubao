@@ -617,12 +617,25 @@ class EnhancedBroadcastManager:
     async def process_broadcasts(self):
         """处理所有待发送的轮播消息"""
         try:
-            logger.debug("开始处理轮播消息")
+            logger.info("======= 开始处理轮播消息 =======")
             from db.models import GroupPermission
             
             # 获取所有应发送的轮播消息
             due_broadcasts = await self.db.get_due_broadcasts()
-            logger.debug(f"找到 {len(due_broadcasts)} 条待发送的轮播消息")
+            logger.info(f"找到 {len(due_broadcasts)} 条待发送的轮播消息")
+            
+            # 增加详细日志
+            for broadcast in due_broadcasts:
+                broadcast_id = str(broadcast.get('_id', ''))
+                logger.info(f"轮播消息详情 ID={broadcast_id}:")
+                logger.info(f"  group_id={broadcast['group_id']}")
+                logger.info(f"  start_time={broadcast.get('start_time')}")
+                logger.info(f"  end_time={broadcast.get('end_time')}")
+                logger.info(f"  repeat_type={broadcast.get('repeat_type')}")
+                logger.info(f"  interval={broadcast.get('interval')}")
+                logger.info(f"  use_fixed_time={broadcast.get('use_fixed_time')}")
+                logger.info(f"  schedule_time={broadcast.get('schedule_time')}")
+                logger.info(f"  last_broadcast={broadcast.get('last_broadcast')}")
             
             # 优化处理逻辑，使用asyncio.gather进行并行处理
             tasks = []
@@ -631,37 +644,56 @@ class EnhancedBroadcastManager:
                 # 跳过正在处理的轮播消息
                 broadcast_id = str(broadcast.get('_id', ''))
                 if broadcast_id in self.active_broadcasts:
-                    logger.debug(f"轮播消息 {broadcast_id} 正在处理中，跳过")
+                    logger.info(f"轮播消息 {broadcast_id} 正在处理中，跳过")
                     continue
                 
                 group_id = broadcast['group_id']
                 
                 # 检查群组权限
-                if not await self.bot.has_permission(group_id, GroupPermission.BROADCAST):
-                    logger.debug(f"群组 {group_id} 没有轮播消息权限，跳过")
+                has_permission = await self.bot.has_permission(group_id, GroupPermission.BROADCAST)
+                logger.info(f"群组 {group_id} 轮播权限: {has_permission}")
+                
+                if not has_permission:
+                    logger.warning(f"群组 {group_id} 没有轮播消息权限，跳过")
                     continue
                 
                 # 检查错误计数
                 if broadcast_id in self.error_tracker and self.error_tracker[broadcast_id]['count'] >= self.MAX_ERROR_COUNT:
                     last_error_time = self.error_tracker[broadcast_id]['timestamp']
                     # 检查是否可以重试（经过RETRY_INTERVAL后）
-                    if (datetime.now() - last_error_time).total_seconds() < self.RETRY_INTERVAL:
+                    retry_delta = (datetime.now() - last_error_time).total_seconds()
+                    logger.info(f"轮播 {broadcast_id} 错误计数: {self.error_tracker[broadcast_id]['count']}, 距上次错误: {retry_delta}秒")
+                    
+                    if retry_delta < self.RETRY_INTERVAL:
                         logger.warning(f"轮播消息 {broadcast_id} 错误次数过多，暂停发送")
                         continue
                     else:
                         # 重置错误计数，给予重试机会
+                        logger.info(f"重置轮播 {broadcast_id} 的错误计数")
                         self.error_tracker[broadcast_id]['count'] = 0
                 
                 # 添加到处理中列表
+                logger.info(f"将轮播 {broadcast_id} 添加到活动处理列表")
                 self.active_broadcasts.add(broadcast_id)
                 
                 # 创建发送任务
+                logger.info(f"创建轮播 {broadcast_id} 的处理任务")
                 task = asyncio.create_task(self._process_broadcast(broadcast))
                 tasks.append(task)
-            # 等待所有任务完成
+            
+            # 等待所有任务完成，添加更好的日志记录
             if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
-                
+                logger.info(f"开始执行 {len(tasks)} 个轮播处理任务")
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                for i, result in enumerate(results):
+                    if isinstance(result, Exception):
+                        logger.error(f"轮播任务 {i} 出错: {result}")
+                    else:
+                        logger.info(f"轮播任务 {i} 成功完成")
+            else:
+                logger.info("没有需要处理的轮播任务")
+            
+            logger.info("======= 轮播消息处理完成 =======")
         except Exception as e:
             logger.error(f"处理轮播消息出错: {e}", exc_info=True)
             
