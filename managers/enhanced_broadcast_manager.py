@@ -37,8 +37,10 @@ class EnhancedBroadcastManager:
         self.sending_lock = asyncio.Lock()  # 避免并发发送同一条轮播消息
         self.CACHE_TTL = 300  # 缓存有效期（秒）
         self.error_tracker = {}  # 记录发送错误
-        self.MAX_ERROR_COUNT = 5  # 最大错误次数，超过此值将暂停轮播
-        self.RETRY_INTERVAL = 60  # 重试间隔（秒）
+        self.retry_tracker = {}  # 新增：跟踪重试状态
+        self.MAX_ERROR_COUNT = 6  # 最大错误次数
+        self.RETRY_ATTEMPTS = 3   # 新增：最大重试次数
+        self.RETRY_INTERVALS = [60, 180]  # 新增：重试间隔（秒），第一次1分钟，第二次3分钟
         
         # 启动后台任务
         self.running = True
@@ -637,10 +639,25 @@ class EnhancedBroadcastManager:
                 logger.info(f"  schedule_time={broadcast.get('schedule_time')}")
                 logger.info(f"  last_broadcast={broadcast.get('last_broadcast')}")
             
+            # 检查需要重试的消息
+            now = datetime.now()
+            retry_broadcasts = []
+            for broadcast_id, retry_info in list(self.retry_tracker.items()):
+                if now >= retry_info['next_retry']:
+                    logger.info(f"轮播消息 {broadcast_id} 需要重试，第 {retry_info['attempt']} 次尝试")
+                    retry_broadcasts.append(retry_info['broadcast'])
+                else:
+                    remaining = (retry_info['next_retry'] - now).total_seconds()
+                    logger.info(f"轮播消息 {broadcast_id} 将在 {remaining:.1f} 秒后重试")
+            
+            # 合并待发送的消息（首次发送和需要重试的）
+            all_broadcasts = due_broadcasts + retry_broadcasts
+            logger.info(f"总共有 {len(all_broadcasts)} 条轮播消息需要处理（包括 {len(retry_broadcasts)} 条重试）")
+            
             # 优化处理逻辑，使用asyncio.gather进行并行处理
             tasks = []
             
-            for broadcast in due_broadcasts:
+            for broadcast in all_broadcasts:
                 # 跳过正在处理的轮播消息
                 broadcast_id = str(broadcast.get('_id', ''))
                 if broadcast_id in self.active_broadcasts:
@@ -657,8 +674,8 @@ class EnhancedBroadcastManager:
                     logger.warning(f"群组 {group_id} 没有轮播消息权限，跳过")
                     continue
                 
-                # 检查错误计数
-                if broadcast_id in self.error_tracker and self.error_tracker[broadcast_id]['count'] >= self.MAX_ERROR_COUNT:
+                # 检查错误计数 - 仅针对非重试消息进行
+                if broadcast_id in self.error_tracker and broadcast_id not in self.retry_tracker:
                     last_error_time = self.error_tracker[broadcast_id]['timestamp']
                     # 检查是否可以重试（经过RETRY_INTERVAL后）
                     retry_delta = (datetime.now() - last_error_time).total_seconds()
@@ -698,52 +715,86 @@ class EnhancedBroadcastManager:
             logger.error(f"处理轮播消息出错: {e}", exc_info=True)
             
     async def _process_broadcast(self, broadcast: Dict[str, Any]):
-        """
-        处理单个轮播消息
-        
-        参数:
-            broadcast: 轮播消息数据
-        """
+        """处理单个轮播消息"""
         broadcast_id = str(broadcast.get('_id', ''))
         
         try:
             logger.info(f"开始处理轮播消息 {broadcast_id}")
+            
             # 使用锁避免并发发送同一条轮播消息
             async with self.sending_lock:
-                # 再次检查是否应该发送（可能在等待锁期间状态已变）
-                should_send, reason = await self._should_send_broadcast(broadcast)
-                logger.info(f"轮播 {broadcast_id} 发送决策: {should_send}, 原因: {reason}")
+                # 检查是否是重试或首次发送
+                is_retry = broadcast_id in self.retry_tracker
+                retry_attempt = self.retry_tracker.get(broadcast_id, {}).get('attempt', 0)
                 
-                if not should_send:
-                    logger.info(f"轮播消息 {broadcast_id} 不应发送: {reason}")
-                    self.active_broadcasts.discard(broadcast_id)
-                    return
+                # 如果不是重试，检查是否应该发送
+                if not is_retry:
+                    should_send, reason = await self._should_send_broadcast(broadcast)
+                    logger.info(f"轮播 {broadcast_id} 发送决策: {should_send}, 原因: {reason}")
+                    
+                    if not should_send:
+                        logger.info(f"轮播消息 {broadcast_id} 不应发送: {reason}")
+                        self.active_broadcasts.discard(broadcast_id)
+                        return
+                else:
+                    logger.info(f"轮播消息 {broadcast_id} 正在重试，第 {retry_attempt} 次尝试")
                 
                 # 发送轮播消息
-                logger.info(f"准备发送轮播消息: {broadcast_id}")
+                logger.info(f"{'重试' if is_retry else '首次'}发送轮播消息: {broadcast_id}")
                 success = await self.send_broadcast(broadcast)
                 
                 if success:
-                    # 更新最后发送时间
+                    # 成功发送，更新最后发送时间
                     now = datetime.now()
                     await self.db.update_broadcast_time(broadcast_id, now)
                     logger.info(f"已发送轮播消息 {broadcast_id}, 更新最后发送时间为 {now}")
                     
-                    # 清除错误记录
+                    # 清除错误记录和重试状态
                     if broadcast_id in self.error_tracker:
                         del self.error_tracker[broadcast_id]
+                    if broadcast_id in self.retry_tracker:
+                        del self.retry_tracker[broadcast_id]
                 else:
-                    # 记录错误
-                    if broadcast_id not in self.error_tracker:
-                        self.error_tracker[broadcast_id] = {
-                            'count': 0,
-                            'last_error': "发送失败",
-                            'timestamp': datetime.now()
+                    # 发送失败，处理重试逻辑
+                    if not is_retry:
+                        # 首次失败，设置重试状态
+                        self.retry_tracker[broadcast_id] = {
+                            'attempt': 1,
+                            'next_retry': datetime.now() + timedelta(seconds=self.RETRY_INTERVALS[0]),
+                            'broadcast': broadcast
                         }
-                    
-                    self.error_tracker[broadcast_id]['count'] += 1
-                    self.error_tracker[broadcast_id]['timestamp'] = datetime.now()
-                    logger.warning(f"轮播消息 {broadcast_id} 发送失败，当前错误计数: {self.error_tracker[broadcast_id]['count']}")
+                        logger.info(f"轮播消息 {broadcast_id} 首次发送失败，将在 {self.RETRY_INTERVALS[0]} 秒后重试")
+                    else:
+                        # 更新重试次数
+                        retry_attempt = self.retry_tracker[broadcast_id]['attempt']
+                        
+                        if retry_attempt < len(self.RETRY_INTERVALS):
+                            # 还有重试机会
+                            next_interval = self.RETRY_INTERVALS[retry_attempt]
+                            self.retry_tracker[broadcast_id].update({
+                                'attempt': retry_attempt + 1,
+                                'next_retry': datetime.now() + timedelta(seconds=next_interval)
+                            })
+                            logger.info(f"轮播消息 {broadcast_id} 第 {retry_attempt} 次重试失败，将在 {next_interval} 秒后再次重试")
+                        else:
+                            # 所有重试都失败了
+                            logger.warning(f"轮播消息 {broadcast_id} 在 {retry_attempt} 次尝试后仍然失败")
+                            
+                            # 记录到错误跟踪器
+                            if broadcast_id not in self.error_tracker:
+                                self.error_tracker[broadcast_id] = {
+                                    'count': 0,
+                                    'last_error': "多次重试失败",
+                                    'timestamp': datetime.now()
+                                }
+                            
+                            self.error_tracker[broadcast_id]['count'] += 1
+                            self.error_tracker[broadcast_id]['timestamp'] = datetime.now()
+                            
+                            # 清除重试状态
+                            del self.retry_tracker[broadcast_id]
+                            
+                            logger.warning(f"轮播消息 {broadcast_id} 发送失败，当前错误计数: {self.error_tracker[broadcast_id]['count']}")
         except Exception as e:
             logger.error(f"处理轮播消息 {broadcast_id} 出错: {e}", exc_info=True)
             
@@ -758,6 +809,10 @@ class EnhancedBroadcastManager:
             self.error_tracker[broadcast_id]['count'] += 1
             self.error_tracker[broadcast_id]['last_error'] = str(e)
             self.error_tracker[broadcast_id]['timestamp'] = datetime.now()
+            
+            # 清除重试状态（如果有异常，不再重试）
+            if broadcast_id in self.retry_tracker:
+                del self.retry_tracker[broadcast_id]
         finally:
             # 从处理中列表移除
             self.active_broadcasts.discard(broadcast_id)
