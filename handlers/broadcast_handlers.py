@@ -1500,6 +1500,35 @@ async def handle_broadcast_form_input(update: Update, context: CallbackContext, 
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return True
+
+    elif input_type == 'broadcast_media':
+        # 处理媒体文件
+        media_type = get_media_type(message)
+        if not media_type:
+            await message.reply_text("❌ 请发送有效的媒体文件（图片、视频或文档）")
+            return True
+            
+        # 获取文件ID
+        file_id = get_file_id(message)
+        if not file_id:
+            await message.reply_text("❌ 无法获取文件ID，请重试")
+            return True
+            
+        # 存储媒体信息
+        form_data['media'] = {
+            'type': media_type,
+            'file_id': file_id
+        }
+        context.user_data['broadcast_form'] = form_data
+        context.user_data.pop('waiting_for', None)
+        
+        # 提供继续按钮
+        keyboard = [[InlineKeyboardButton("继续", callback_data="bcform_media_received")]]
+        await message.reply_text(
+            f"✅ 已设置轮播媒体（类型: {media_type}）\n\n点击「继续」进行下一步",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return True
         
     elif input_type == 'broadcast_interval':
         # 接收自定义重复间隔
