@@ -19,6 +19,71 @@ logger = logging.getLogger(__name__)
 #######################################
 # 回调处理函数
 #######################################
+async def handle_send_error(bot_instance, query, broadcast_id, group_id, error_message):
+    """
+    处理轮播消息发送错误
+    
+    参数:
+        bot_instance: 机器人实例
+        query: 回调查询
+        broadcast_id: 轮播消息ID
+        group_id: 群组ID
+        error_message: 错误消息
+    """
+    try:
+        await bot_instance.db.update_broadcast(broadcast_id, {
+            'force_sent': False,
+            'last_error': error_message,
+            'error_time': datetime.now()
+        })
+        logger.info(f"发送失败，已清除轮播消息 {broadcast_id} 的强制发送标记")
+    except Exception as ex:
+        logger.error(f"清除强制发送标记失败: {ex}", exc_info=True)
+    
+    # 检查是否是群组权限问题
+    if "kicked" in error_message.lower() or "forbidden" in error_message.lower():
+        await query.edit_message_text(
+            f"❌ 发送失败: 机器人在群组中没有权限\n\n请确保机器人在群组中并有足够权限",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
+            ]])
+        )
+    else:
+        await query.edit_message_text(
+            f"❌ 发送失败: {error_message}\n\n请检查日志获取详细信息",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
+            ]])
+        )
+
+async def handle_error(update, error_message, log_message=None, exc_info=None):
+    """
+    统一处理错误的助手函数
+    
+    参数:
+        update: 更新对象
+        error_message: 向用户显示的错误消息
+        log_message: 记录到日志的消息，如果为None则使用error_message
+        exc_info: 异常信息，用于日志记录
+    """
+    if log_message:
+        logger.error(log_message, exc_info=exc_info)
+    else:
+        logger.error(error_message, exc_info=exc_info)
+        
+    try:
+        if update.callback_query:
+            await update.callback_query.answer("发生错误")
+            await update.callback_query.edit_message_text(
+                f"❌ {error_message}",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("返回", callback_data="bcform_cancel")
+                ]])
+            )
+        elif update.effective_message:
+            await update.effective_message.reply_text(f"❌ {error_message}")
+    except Exception as e:
+        logger.error(f"尝试发送错误消息时出错: {e}")
 
 @handle_callback_errors
 async def handle_broadcast_form_callback(update: Update, context: CallbackContext, data: str):
@@ -30,8 +95,17 @@ async def handle_broadcast_form_callback(update: Update, context: CallbackContex
         context: 上下文对象
         data: 回调数据
     """
+    if not update.callback_query:
+        logger.error("处理轮播消息表单回调时缺少 callback_query")
+        return
+        
     query = update.callback_query
     bot_instance = context.application.bot_data.get('bot_instance')
+
+    if not bot_instance:
+        logger.error("无法获取 bot_instance")
+        await query.answer("系统错误，请稍后再试")
+        return
     
     # 获取用户ID，在整个函数中使用
     user_id = update.effective_user.id
@@ -313,9 +387,17 @@ async def handle_broadcast_detail_callback(update: Update, context: CallbackCont
         logger.error(f"轮播消息详情回调数据格式错误: {data}")
         await query.edit_message_text("❌ 无效的回调数据")
         return
-        
-    broadcast_id = parts[2]  # 第三部分是broadcast_id
-    group_id = int(parts[3])  # 第四部分是group_id
+    
+    try:
+        broadcast_id = parts[2]  # 第三部分是broadcast_id
+        if not broadcast_id:
+            raise ValueError("broadcast_id 为空")
+            
+        group_id = int(parts[3])  # 第四部分是group_id
+    except (IndexError, ValueError) as e:
+        logger.error(f"解析轮播消息回调数据出错: {e}, 数据: {data}")
+        await query.edit_message_text("❌ 无效的回调数据格式")
+        return
     
     logger.info(f"查看轮播消息详情: {broadcast_id}, 群组ID: {group_id}")
     
@@ -440,14 +522,40 @@ async def handle_broadcast_preview_callback(update: Update, context: CallbackCon
     # 发送预览消息
     try:
         if media and media.get('type'):
+            if not query.message:
+                logger.error("预览轮播消息时message为空")
+                await query.answer("无法获取消息对象")
+                return
+                
             if media['type'] == 'photo':
-                await query.message.reply_photo(
-                    media['file_id'], caption=text, reply_markup=reply_markup
-                )
+                if 'file_id' not in media:
+                    logger.error(f"媒体缺少file_id: {media}")
+                    await query.message.reply_text("❌ 媒体数据不完整，缺少文件ID")
+                    return
+                    
+                try:
+                    await query.message.reply_photo(
+                        media['file_id'], caption=text, reply_markup=reply_markup
+                    )
+                except telegram.error.BadRequest as e:
+                    logger.error(f"发送预览消息BadRequest错误: {e}")
+                    await query.message.reply_text(f"❌ 发送预览失败: {str(e)}\n\n{text}")
+                except Exception as e:
+                    logger.error(f"发送预览消息错误: {e}", exc_info=True)
+                    await query.message.reply_text(f"❌ 预览生成失败: {str(e)}")
             elif media['type'] == 'video':
-                await query.message.reply_video(
-                    media['file_id'], caption=text, reply_markup=reply_markup
-                )
+                if 'file_id' not in media:
+                    logger.error(f"媒体缺少file_id: {media}")
+                    await query.message.reply_text("❌ 媒体数据不完整，缺少文件ID")
+                    return
+                    
+                try:
+                    await query.message.reply_video(
+                        media['file_id'], caption=text, reply_markup=reply_markup
+                    )
+                except Exception as e:
+                    logger.error(f"发送预览视频失败: {e}")
+                    await query.message.reply_text(f"❌ 发送预览失败: {str(e)}\n\n{text}")
             elif media['type'] == 'document':
                 await query.message.reply_document(
                     media['file_id'], caption=text, reply_markup=reply_markup
@@ -621,40 +729,51 @@ async def handle_broadcast_force_send_callback(update: Update, context: Callback
             logger.info(f"强制发送轮播消息: {broadcast_id}")
             try:
                 # 发送轮播消息（已经被标记为force_sent=True）
-                await bot_instance.broadcast_manager.send_broadcast(broadcast)
+                result = await bot_instance.broadcast_manager.send_broadcast(broadcast)
                 
-                await query.edit_message_text(
-                    f"✅ 已强制发送轮播消息\n\n详情ID: {broadcast_id}",
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
-                    ]])
-                )
-            except Exception as e:
-                error_message = str(e)
-                # 清除强制发送标记（发送失败时）
-                try:
-                    await bot_instance.db.update_broadcast(broadcast_id, {
-                        'force_sent': False
-                    })
-                    logger.info(f"发送失败，已清除轮播消息 {broadcast_id} 的强制发送标记")
-                except Exception as ex:
-                    logger.error(f"清除强制发送标记失败: {ex}", exc_info=True)
-                
-                # 检查是否是群组权限问题
-                if "kicked" in error_message.lower() or "forbidden" in error_message.lower():
+                if result:
                     await query.edit_message_text(
-                        f"❌ 发送失败: 机器人在群组中没有权限\n\n请确保机器人在群组中并有足够权限",
+                        f"✅ 已强制发送轮播消息\n\n详情ID: {broadcast_id}",
                         reply_markup=InlineKeyboardMarkup([[
                             InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
                         ]])
                     )
                 else:
+                    # 发送失败但没有抛出异常
+                    logger.warning(f"强制发送轮播消息 {broadcast_id} 失败，但未抛出异常")
+                    # 清除强制发送标记
+                    try:
+                        await bot_instance.db.update_broadcast(broadcast_id, {'force_sent': False})
+                    except Exception as ex:
+                        logger.error(f"清除强制发送标记失败: {ex}", exc_info=True)
+                        
                     await query.edit_message_text(
-                        f"❌ 发送失败: {error_message}\n\n请检查日志获取详细信息",
+                        f"❌ 发送失败，未返回成功状态\n\n请检查日志获取详细信息",
                         reply_markup=InlineKeyboardMarkup([[
                             InlineKeyboardButton("返回详情", callback_data=f"broadcast_detail_{broadcast_id}_{group_id}")
                         ]])
                     )
+            except telegram.error.BadRequest as e:
+                error_message = f"请求错误: {str(e)}"
+                logger.error(f"发送轮播消息BadRequest错误: {e}, broadcast_id={broadcast_id}")
+                # 清除强制发送标记
+                await handle_send_error(bot_instance, query, broadcast_id, group_id, error_message)
+            except telegram.error.Forbidden as e:
+                error_message = "没有发送权限，可能机器人在群组中被禁用"
+                logger.error(f"发送轮播消息权限错误: {e}, broadcast_id={broadcast_id}")
+                # 清除强制发送标记
+                await handle_send_error(bot_instance, query, broadcast_id, group_id, error_message)
+            except telegram.error.TimedOut as e:
+                error_message = "发送超时，请稍后重试"
+                logger.error(f"发送轮播消息超时: {e}, broadcast_id={broadcast_id}")
+                # 清除强制发送标记
+                await handle_send_error(bot_instance, query, broadcast_id, group_id, error_message)
+            except Exception as e:
+                error_message = str(e)
+                logger.error(f"发送轮播消息出错: {e}", exc_info=True)
+                # 清除强制发送标记
+                await handle_send_error(bot_instance, query, broadcast_id, group_id, error_message)
+            
         else:
             # 清除强制发送标记（无广播管理器时）
             try:
@@ -777,8 +896,20 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
         try:
             # 验证时间格式并转换为datetime对象
             broadcast_data['start_time'] = datetime.strptime(start_time_str, '%Y-%m-%d %H:%M:%S')
-        except ValueError:
+        except ValueError as e:
+            logger.error(f"时间格式解析错误: {e}, 输入: {start_time_str}")
             await update.callback_query.answer("❌ 时间格式不正确")
+            await update.callback_query.edit_message_text(
+                f"❌ 时间格式错误: {start_time_str}\n"
+                f"请使用正确的格式: YYYY-MM-DD HH:MM:SS",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("返回", callback_data="bcform_content_received")
+                ]])
+            )
+            return
+        except Exception as e:
+            logger.error(f"处理开始时间时出错: {e}")
+            await update.callback_query.answer("❌ 处理时间数据出错")
             await show_broadcast_options(update, context)
             return
     elif start_time_str and not isinstance(start_time_str, str):
@@ -1194,10 +1325,18 @@ async def preview_broadcast_content(update: Update, context: CallbackContext):
     # 发送预览消息
     try:
         if media and media.get('type'):
-            if media['type'] == 'photo':
-                await update.callback_query.message.reply_photo(
-                    media['file_id'], caption=text, reply_markup=reply_markup
-                )
+            if not update.callback_query or not update.callback_query.message:
+                logger.error("预览轮播消息时缺少 callback_query 或 message")
+                return
+                
+            if media['type'] == 'photo' and 'file_id' in media:
+                try:
+                    await update.callback_query.message.reply_photo(
+                        media['file_id'], caption=text, reply_markup=reply_markup
+                    )
+                except Exception as e:
+                    logger.error(f"发送预览照片失败: {e}")
+                    await update.callback_query.message.reply_text(f"❌ 发送预览失败: {str(e)}\n\n{text}")
             elif media['type'] == 'video':
                 await update.callback_query.message.reply_video(
                     media['file_id'], caption=text, reply_markup=reply_markup
@@ -1305,8 +1444,24 @@ async def handle_broadcast_form_input(update: Update, context: CallbackContext, 
                         url = f"t.me/{url[1:]}" 
                         
                     # 检查URL格式
-                    if text and url and (url.startswith(('http://', 'https://', 't.me/'))):
-                        buttons.append({'text': text, 'url': url})
+                    import re
+                    
+                    # 添加到文件顶部的导入部分
+                    # 更严格的URL验证正则表达式
+                    URL_PATTERN = re.compile(
+                        r'^(?:http|https)://(?:[\w-]+\.)+[a-z]{2,}(?:/[\w-./?%&=]*)?$|^t\.me/[\w_]+$'
+                    )
+                    
+                    # 然后在处理按钮输入的地方
+                    if text and url:
+                        if url.startswith('@'):
+                            url = f"t.me/{url[1:]}"
+                            
+                        # 验证URL格式
+                        if URL_PATTERN.match(url):
+                            buttons.append({'text': text, 'url': url})
+                        else:
+                            error_lines.append(f"第 {i} 行URL格式不正确: {url}")
                         button_found = True
                         break
         
