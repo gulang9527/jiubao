@@ -114,9 +114,6 @@ class EnhancedBroadcastManager:
             # 验证轮播消息数据
             self._validate_broadcast_data(broadcast_data)
             
-            # 强制所有轮播消息使用固定时间锚点
-            broadcast_data['use_fixed_time'] = True
-            
             # 设置调度时间
             if 'start_time' not in broadcast_data:
                 broadcast_data['start_time'] = datetime.now()
@@ -352,9 +349,6 @@ class EnhancedBroadcastManager:
             是否成功
         """
         try:
-            # 强制所有轮播消息使用固定时间锚点
-            broadcast_data['use_fixed_time'] = True
-            
             # 检查是否有start_time
             if 'start_time' in broadcast_data:
                 start_time = broadcast_data['start_time']
@@ -413,13 +407,6 @@ class EnhancedBroadcastManager:
             if broadcast.get('repeat_type') == 'once':
                 logger.warning(f"轮播消息 {broadcast_id} 是单次发送，无需重置")
                 return False
-            
-            # 检查是否使用固定时间
-            use_fixed_time = broadcast.get('use_fixed_time', False)
-            if not use_fixed_time:
-                # 设置为使用固定时间
-                await self.update_broadcast(broadcast_id, {'use_fixed_time': True})
-                logger.info(f"已将轮播消息 {broadcast_id} 设置为使用固定时间发送")
             
             # 确保有schedule_time
             if 'schedule_time' not in broadcast:
@@ -546,22 +533,13 @@ class EnhancedBroadcastManager:
                     return "正在发送"
                 else:
                     # 返回发送模式
-                    if broadcast.get('use_fixed_time', False):
-                        if repeat_type == 'hourly':
-                            return "每小时固定时间发送"
-                        elif repeat_type == 'daily':
-                            return "每天固定时间发送"
-                        else:
-                            interval = broadcast.get('interval', 0)
-                            return f"每{interval}分钟固定发送"
+                    if repeat_type == 'hourly':
+                        return "每小时固定时间发送"
+                    elif repeat_type == 'daily':
+                        return "每天固定时间发送"
                     else:
-                        if repeat_type == 'hourly':
-                            return "每小时发送"
-                        elif repeat_type == 'daily':
-                            return "每天发送"
-                        else:
-                            interval = broadcast.get('interval', 0)
-                            return f"每{interval}分钟发送"
+                        interval = broadcast.get('interval', 0)
+                        return f"每{interval}分钟固定发送"
     
     def _calculate_next_send_time(self, broadcast: Dict[str, Any]) -> Optional[datetime]:
         """
@@ -576,10 +554,8 @@ class EnhancedBroadcastManager:
         now = datetime.now()
         start_time = broadcast.get('start_time')
         end_time = broadcast.get('end_time')
-        last_broadcast = broadcast.get('last_broadcast')
         repeat_type = broadcast.get('repeat_type')
         interval = broadcast.get('interval', 0)
-        use_fixed_time = broadcast.get('use_fixed_time', False)
         
         # 检查消息是否在有效期内
         if not start_time or now < start_time:
@@ -589,52 +565,53 @@ class EnhancedBroadcastManager:
         
         # 单次发送
         if repeat_type == 'once':
-            if last_broadcast:
+            if broadcast.get('last_broadcast'):
                 return None  # 已发送，不再发送
             else:
                 return start_time  # 未发送，按开始时间发送
         
         # 固定时间发送
-        if use_fixed_time:
-            schedule_time = broadcast.get('schedule_time')
-            if schedule_time:
-                hour, minute = map(int, schedule_time.split(':'))
-                
-                if repeat_type == 'hourly':
-                    # 找到下一个整点中的指定分钟
-                    next_time = now.replace(minute=minute, second=0, microsecond=0)
-                    if next_time <= now:
-                        next_time += timedelta(hours=1)
-                    return next_time
-                elif repeat_type == 'daily':
-                    # 找到今天或明天的指定时间
-                    next_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-                    if next_time <= now:
-                        next_time += timedelta(days=1)
-                    return next_time
-                else:  # custom - 固定分钟发送
-                    # 找到下一个符合间隔的时间点
-                    base_minute = minute
-                    current_minute = now.hour * 60 + now.minute
-                    next_minute = ((current_minute // interval) + 1) * interval
-                    next_hour = next_minute // 60
-                    next_minute = next_minute % 60
-                    
-                    next_time = now.replace(hour=next_hour, minute=next_minute, second=0, microsecond=0)
-                    if next_time <= now:
-                        next_time += timedelta(hours=1)
-                    return next_time
-        
-        # 常规间隔发送
-        if last_broadcast:
-            # 根据上次发送时间和间隔计算下次发送时间
+        schedule_time = broadcast.get('schedule_time')
+        if schedule_time:
+            hour, minute = map(int, schedule_time.split(':'))
+            
             if repeat_type == 'hourly':
-                next_time = last_broadcast + timedelta(minutes=60)
+                # 找到下一个整点中的指定分钟
+                next_time = now.replace(minute=minute, second=0, microsecond=0)
+                if next_time <= now:
+                    next_time += timedelta(hours=1)
+                return next_time
             elif repeat_type == 'daily':
-                next_time = last_broadcast + timedelta(minutes=1440)
-            else:  # custom
-                next_time = last_broadcast + timedelta(minutes=interval)
-            return next_time
+                # 找到今天或明天的指定时间
+                next_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                if next_time <= now:
+                    next_time += timedelta(days=1)
+                return next_time
+            else:  # custom - 固定分钟发送
+                # 找到下一个符合间隔的时间点
+                base_minute = minute
+                current_minute = now.hour * 60 + now.minute
+                next_minute = ((current_minute // interval) + 1) * interval
+                next_hour = next_minute // 60
+                next_minute = next_minute % 60
+                
+                next_time = now.replace(hour=next_hour, minute=next_minute, second=0, microsecond=0)
+                if next_time <= now:
+                    next_time += timedelta(hours=1)
+                return next_time
+        
+        # 如果没有找到有效的计划时间，使用基本逻辑
+        if broadcast.get('last_broadcast'):
+            # 基于上次发送时间和锚点模式计算
+            if repeat_type == 'hourly':
+                base_time = broadcast.get('last_broadcast')
+                return base_time + timedelta(hours=1)
+            elif repeat_type == 'daily':
+                base_time = broadcast.get('last_broadcast')
+                return base_time + timedelta(days=1)
+            else:
+                base_time = broadcast.get('last_broadcast')
+                return base_time + timedelta(minutes=interval)
         else:
             # 首次发送，按开始时间发送
             return start_time
@@ -913,122 +890,99 @@ class EnhancedBroadcastManager:
         
         logger.info(f"发送间隔: {interval_minutes} 分钟")
         
-        # 检查是否使用固定时间发送
-        use_fixed_time = broadcast.get('use_fixed_time', False)
-        logger.info(f"是否使用固定时间发送: {use_fixed_time}")
+        # 锚点模式发送逻辑
+        schedule_time = broadcast.get('schedule_time')
+        logger.info(f"调度时间设置: {schedule_time}")
         
-        # 固定时间发送
-        if use_fixed_time:
-            schedule_time = broadcast.get('schedule_time')
-            logger.info(f"调度时间设置: {schedule_time}")
-            
-            if not schedule_time:
-                logger.info(f"缺少调度时间设置，无法发送")
-                return False, "缺少调度时间设置"
-            
-            try:
-                schedule_hour, schedule_minute = map(int, schedule_time.split(':'))
-                logger.info(f"解析后的调度时间: {schedule_hour}:{schedule_minute}")
-                
-                if repeat_type == 'hourly':
-                    # 整点的指定分钟发送 - 只检查当前是否是指定分钟
-                    logger.info(f"当前分钟: {now.minute}, 调度分钟: {schedule_minute}")
-                    if now.minute == schedule_minute:
-                        logger.info(f"分钟匹配")
-                        # 只需要简单防止在同一分钟多次发送的极端情况
-                        if last_broadcast and (now - last_broadcast).total_seconds() < 55:
-                            logger.info(f"已在当前分钟 {now.minute} 发送过，距上次发送仅 {(now - last_broadcast).total_seconds():.1f} 秒")
-                            return False, f"已在当前分钟 {now.minute} 发送过"
-                        logger.info(f"当前是整点 {schedule_minute} 分，可以发送")
-                        return True, f"整点 {schedule_minute} 分发送"
-                    logger.info(f"不是发送时间点 {schedule_minute} 分，不发送")
-                    return False, f"不是发送时间点 {schedule_minute} 分"
-                
-                elif repeat_type == 'daily':
-                    # 每天的指定时间发送 - 只检查当前是否是指定时间
-                    logger.info(f"当前时间: {now.hour}:{now.minute}, 调度时间: {schedule_hour}:{schedule_minute}")
-                    if now.hour == schedule_hour and now.minute == schedule_minute:
-                        logger.info(f"小时和分钟都匹配")
-                        # 只需要简单防止在同一分钟多次发送的极端情况
-                        if last_broadcast and (now - last_broadcast).total_seconds() < 55:
-                            logger.info(f"已在当前分钟发送过，距上次发送仅 {(now - last_broadcast).total_seconds():.1f} 秒")
-                            return False, "已在当前分钟发送过"
-                        logger.info(f"当前是每日 {schedule_hour}:{schedule_minute} 时间点，可以发送")
-                        return True, f"每日 {schedule_hour}:{schedule_minute} 发送"
-                    logger.info(f"不是发送时间点 {schedule_hour}:{schedule_minute}，不发送")
-                    return False, f"不是发送时间点 {schedule_hour}:{schedule_minute}"
-                
-                else:  # custom - 自定义间隔，锚点式发送
-                    # 计算当前时间在一天中的分钟数
-                    current_minutes = now.hour * 60 + now.minute
-                        
-                    # 计算基准锚点（从当天0点开始计算的分钟数）
-                    base_anchor = schedule_hour * 60 + schedule_minute  # 基准锚点（比如19:00）
-                    
-                    # 计算当前时间与基准锚点的偏移量，正确处理24小时周期
-                    # 当current_minutes < base_anchor时，我们需要添加一天的分钟数
-                    daily_minutes = 24 * 60
-                    adjusted_current = current_minutes
-                    if current_minutes < base_anchor:
-                        adjusted_current = current_minutes + daily_minutes
-                    
-                    # 计算偏移量
-                    offset = ((current_minutes - base_anchor) % (24 * 60)) % interval_minutes
-                    
-                    # 设置允许的误差范围（分钟）
-                    ANCHOR_TOLERANCE_MINUTES = 1  # 允许正负1分钟的误差
-                    # 判断是否在锚点附近
-                    is_anchor = offset == 0 or offset <= ANCHOR_TOLERANCE_MINUTES or offset >= (interval_minutes - ANCHOR_TOLERANCE_MINUTES)
-                    
-                    logger.info(f"当前时间分钟数: {current_minutes}")
-                    logger.info(f"基准锚点分钟数: {base_anchor}")
-                    logger.info(f"偏移量: {offset}")
-                    logger.info(f"是否是锚点: {is_anchor}")
-                    
-                    if is_anchor:
-                        logger.info(f"检测到当前是锚点时间点")
-                        # 只需防止同一分钟内多次发送
-                        if last_broadcast and (now - last_broadcast).total_seconds() < 55:
-                            logger.info(f"已在当前分钟发送过，距上次发送仅 {(now - last_broadcast).total_seconds():.1f} 秒")
-                            return False, "已在当前分钟发送过"
-                        
-                        # 计算当前是哪个锚点
-                        anchor_number = (current_minutes - base_anchor) // interval_minutes
-                        if anchor_number < 0:
-                            anchor_number += (24 * 60) // interval_minutes
-                            
-                        anchor_hour = (base_anchor + anchor_number * interval_minutes) // 60 % 24
-                        anchor_minute = (base_anchor + anchor_number * interval_minutes) % 60
-                        
-                        logger.info(f"当前是锚点时间 {anchor_hour:02d}:{anchor_minute:02d}，可以发送")
-                        return True, f"锚点时间 {anchor_hour:02d}:{anchor_minute:02d} 发送"
-                       
-                    # 找到下一个锚点时间，用于日志
-                    next_anchor_minutes = current_minutes + (interval_minutes - offset) % interval_minutes
-                    next_anchor_hour = (next_anchor_minutes // 60) % 24
-                    next_anchor_minute = next_anchor_minutes % 60
-                    
-                    logger.info(f"不是锚点时间，下一个锚点: {next_anchor_hour:02d}:{next_anchor_minute:02d}，不发送")
-                    return False, f"不是锚点时间，下一个锚点: {next_anchor_hour:02d}:{next_anchor_minute:02d}"
-                    
-            except Exception as e:
-                logger.error(f"解析调度时间出错: {e}, broadcast_id={broadcast_id}", exc_info=True)
-                return False, f"调度时间错误: {e}"
+        if not schedule_time:
+            logger.info(f"缺少调度时间设置，无法发送")
+            return False, "缺少调度时间设置"
         
-        # 常规间隔发送
-        else:
-            # 如果没有上次发送记录，现在就可以发送
-            if not last_broadcast:
-                logger.info(f"首次发送，可以发送")
-                return True, "首次发送"
+        try:
+            schedule_hour, schedule_minute = map(int, schedule_time.split(':'))
+            logger.info(f"解析后的调度时间: {schedule_hour}:{schedule_minute}")
             
-            # 计算是否达到发送间隔
-            elapsed_minutes = (now - last_broadcast).total_seconds() / 60
-            logger.info(f"距离上次发送已经过去: {elapsed_minutes:.1f} 分钟, 间隔设置: {interval_minutes} 分钟")
+            if repeat_type == 'hourly':
+                # 整点的指定分钟发送 - 只检查当前是否是指定分钟
+                logger.info(f"当前分钟: {now.minute}, 调度分钟: {schedule_minute}")
+                if now.minute == schedule_minute:
+                    logger.info(f"分钟匹配")
+                    # 只需要简单防止在同一分钟多次发送的极端情况
+                    if last_broadcast and (now - last_broadcast).total_seconds() < 55:
+                        logger.info(f"已在当前分钟 {now.minute} 发送过，距上次发送仅 {(now - last_broadcast).total_seconds():.1f} 秒")
+                        return False, f"已在当前分钟 {now.minute} 发送过"
+                    logger.info(f"当前是整点 {schedule_minute} 分，可以发送")
+                    return True, f"整点 {schedule_minute} 分发送"
+                logger.info(f"不是发送时间点 {schedule_minute} 分，不发送")
+                return False, f"不是发送时间点 {schedule_minute} 分"
             
-            if elapsed_minutes >= interval_minutes:
-                logger.info(f"达到发送间隔，可以发送")
-                return True, f"达到发送间隔 ({elapsed_minutes:.1f} >= {interval_minutes})"
+            elif repeat_type == 'daily':
+                # 每天的指定时间发送 - 只检查当前是否是指定时间
+                logger.info(f"当前时间: {now.hour}:{now.minute}, 调度时间: {schedule_hour}:{schedule_minute}")
+                if now.hour == schedule_hour and now.minute == schedule_minute:
+                    logger.info(f"小时和分钟都匹配")
+                    # 只需要简单防止在同一分钟多次发送的极端情况
+                    if last_broadcast and (now - last_broadcast).total_seconds() < 55:
+                        logger.info(f"已在当前分钟发送过，距上次发送仅 {(now - last_broadcast).total_seconds():.1f} 秒")
+                        return False, "已在当前分钟发送过"
+                    logger.info(f"当前是每日 {schedule_hour}:{schedule_minute} 时间点，可以发送")
+                    return True, f"每日 {schedule_hour}:{schedule_minute} 发送"
+                logger.info(f"不是发送时间点 {schedule_hour}:{schedule_minute}，不发送")
+                return False, f"不是发送时间点 {schedule_hour}:{schedule_minute}"
             
-            logger.info(f"发送间隔未到，不发送")
-            return False, f"发送间隔未到 ({elapsed_minutes:.1f} < {interval_minutes})"
+            else:  # custom - 自定义间隔，锚点式发送
+                # 计算当前时间在一天中的分钟数
+                current_minutes = now.hour * 60 + now.minute
+                    
+                # 计算基准锚点（从当天0点开始计算的分钟数）
+                base_anchor = schedule_hour * 60 + schedule_minute  # 基准锚点（比如19:00）
+                
+                # 计算当前时间与基准锚点的偏移量，正确处理24小时周期
+                # 当current_minutes < base_anchor时，我们需要添加一天的分钟数
+                daily_minutes = 24 * 60
+                adjusted_current = current_minutes
+                if current_minutes < base_anchor:
+                    adjusted_current = current_minutes + daily_minutes
+                
+                # 计算偏移量
+                offset = ((current_minutes - base_anchor) % (24 * 60)) % interval_minutes
+                
+                # 设置允许的误差范围（分钟）
+                ANCHOR_TOLERANCE_MINUTES = 1  # 允许正负1分钟的误差
+                # 判断是否在锚点附近
+                is_anchor = offset == 0 or offset <= ANCHOR_TOLERANCE_MINUTES or offset >= (interval_minutes - ANCHOR_TOLERANCE_MINUTES)
+                
+                logger.info(f"当前时间分钟数: {current_minutes}")
+                logger.info(f"基准锚点分钟数: {base_anchor}")
+                logger.info(f"偏移量: {offset}")
+                logger.info(f"是否是锚点: {is_anchor}")
+                
+                if is_anchor:
+                    logger.info(f"检测到当前是锚点时间点")
+                    # 只需防止同一分钟内多次发送
+                    if last_broadcast and (now - last_broadcast).total_seconds() < 55:
+                        logger.info(f"已在当前分钟发送过，距上次发送仅 {(now - last_broadcast).total_seconds():.1f} 秒")
+                        return False, "已在当前分钟发送过"
+                    
+                    # 计算当前是哪个锚点
+                    anchor_number = (current_minutes - base_anchor) // interval_minutes
+                    if anchor_number < 0:
+                        anchor_number += (24 * 60) // interval_minutes
+                        
+                    anchor_hour = (base_anchor + anchor_number * interval_minutes) // 60 % 24
+                    anchor_minute = (base_anchor + anchor_number * interval_minutes) % 60
+                    
+                    logger.info(f"当前是锚点时间 {anchor_hour:02d}:{anchor_minute:02d}，可以发送")
+                    return True, f"锚点时间 {anchor_hour:02d}:{anchor_minute:02d} 发送"
+                   
+                # 找到下一个锚点时间，用于日志
+                next_anchor_minutes = current_minutes + (interval_minutes - offset) % interval_minutes
+                next_anchor_hour = (next_anchor_minutes // 60) % 24
+                next_anchor_minute = next_anchor_minutes % 60
+                
+                logger.info(f"不是锚点时间，下一个锚点: {next_anchor_hour:02d}:{next_anchor_minute:02d}，不发送")
+                return False, f"不是锚点时间，下一个锚点: {next_anchor_hour:02d}:{next_anchor_minute:02d}"
+                
+        except Exception as e:
+            logger.error(f"解析调度时间出错: {e}, broadcast_id={broadcast_id}", exc_info=True)
+            return False, f"调度时间错误: {e}"
