@@ -1180,12 +1180,13 @@ class Database:
                 logger.info(f"未发送轮播: ID={bc['_id']}, 群组={bc.get('group_id')}, "
                            f"开始时间={bc.get('start_time')}, 结束时间={bc.get('end_time')}")
             
-            # 3. 查询已发送但间隔已到的轮播消息
+            # 3. 查询已发送但应再次发送的轮播消息
             interval_query = {
                 'start_time': {'$lte': now},
                 'end_time': {'$gt': now},
                 'last_broadcast': {'$exists': True, '$ne': None},
-                'interval': {'$gt': 0}
+                'interval': {'$gt': 0},
+                'repeat_type': {'$ne': 'once'}  # 排除单次发送的消息
             }
             
             interval_broadcasts = await self.db.broadcasts.find(interval_query).to_list(None)
@@ -1216,6 +1217,19 @@ class Database:
                     else:
                         continue
                 
+                # 确保schedule_time字段存在且格式正确
+                if not bc.get('schedule_time'):
+                    logger.warning(f"轮播 {bc_id} 缺少schedule_time字段，设置为默认值")
+                    # 使用start_time或last_broadcast时间作为基准设置schedule_time
+                    reference_time = bc.get('start_time') or last_broadcast
+                    schedule_time = f"{reference_time.hour}:{reference_time.minute:02d}"
+                    await self.db.broadcasts.update_one(
+                        {'_id': bc['_id']},
+                        {'$set': {'schedule_time': schedule_time}}
+                    )
+                    bc['schedule_time'] = schedule_time
+                    logger.info(f"为轮播 {bc_id} 设置默认schedule_time: {schedule_time}")
+                
                 # 移除间隔检查，直接添加所有轮播消息
                 # 添加记录时间差的日志，但不用它来过滤消息
                 time_diff = (now - last_broadcast).total_seconds() / 60
@@ -1226,7 +1240,6 @@ class Database:
             # 4. 合并并返回所有需要发送的轮播消息
             due_broadcasts = not_sent_broadcasts + due_interval_broadcasts
             logger.info(f"总共有 {len(due_broadcasts)} 个轮播消息需要发送（使用锚点模式，最终发送由 _should_send_broadcast 决定）")
-
             
             return due_broadcasts
         
@@ -1364,34 +1377,6 @@ class Database:
         except Exception as e:
             logger.error(f"检查轮播消息失败: {e}", exc_info=True)
             return False
-
-    async def update_broadcast(self, broadcast_id: str, update_data: Dict[str, Any]):
-        """
-        更新轮播消息
-        
-        参数:
-            broadcast_id: 轮播消息ID
-            update_data: 要更新的数据
-        """
-        await self.ensure_connected()
-        try:
-            obj_id = ObjectId(broadcast_id)
-            update_data['updated_at'] = datetime.now()
-            
-            result = await self.db.broadcasts.update_one(
-                {'_id': obj_id},
-                {'$set': update_data}
-            )
-            
-            if result.modified_count == 0:
-                logger.warning(f"未能更新轮播消息: {broadcast_id}")
-            else:
-                logger.info(f"已更新轮播消息: {broadcast_id}")
-                
-            return result.modified_count > 0
-        except Exception as e:
-            logger.error(f"更新轮播消息失败: {e}", exc_info=True)
-            raise
 
     async def migrate_broadcast_datetime_fields(self):
         """将轮播消息中的字符串时间字段转换为datetime对象"""
