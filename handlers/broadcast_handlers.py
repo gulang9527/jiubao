@@ -1283,6 +1283,9 @@ async def handle_broadcast_form_input(update: Update, context: CallbackContext, 
         
     elif input_type == 'broadcast_buttons':
         # 接收按钮配置
+        if not message.text:
+            await message.reply_text("⚠️ 请发送文本消息")
+            return True
         lines = message.text.strip().split('\n')
         buttons = []
         error_lines = []
