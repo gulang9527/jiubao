@@ -1057,7 +1057,7 @@ class EnhancedBroadcastManager:
                     return True, f"锚点时间 {anchor_hour:02d}:{anchor_minute:02d} 发送", current_anchor_id
                                     
                 # 找到下一个锚点时间，用于日志
-                next_anchor_minutes = current_minutes + (interval_minutes - offset) % interval_minutes
+                next_anchor_minutes = current_anchor_minutes + interval_minutes
                 next_anchor_hour = (next_anchor_minutes // 60) % 24
                 next_anchor_minute = next_anchor_minutes % 60
                 
