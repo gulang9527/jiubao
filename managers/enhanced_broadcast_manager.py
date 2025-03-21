@@ -700,11 +700,13 @@ class EnhancedBroadcastManager:
             
             # 等待所有任务完成，添加更好的日志记录
             if tasks:
-                logger.info(f"开始执行 {len(tasks)} 个轮播处理任务")
+                task_map = {id(task): broadcast_id for task, broadcast_id in zip(tasks, broadcast_ids)}
                 results = await asyncio.gather(*tasks, return_exceptions=True)
                 for i, result in enumerate(results):
                     if isinstance(result, Exception):
-                        logger.error(f"轮播任务 {i} 出错: {result}")
+                        task_id = id(tasks[i])
+                        broadcast_id = task_map.get(task_id, "未知")
+                        logger.error(f"轮播任务 {broadcast_id} 出错: {result}")
                     else:
                         logger.info(f"轮播任务 {i} 成功完成")
             else:
@@ -810,8 +812,17 @@ class EnhancedBroadcastManager:
                             del self.retry_tracker[broadcast_id]
                             
                             logger.warning(f"轮播消息 {broadcast_id} 发送失败，当前错误计数: {self.error_tracker[broadcast_id]['count']}")
+
         except Exception as e:
             logger.error(f"处理轮播消息 {broadcast_id} 出错: {e}", exc_info=True)
+            # 更新数据库中的错误状态
+            try:
+                await self.db.update_broadcast(broadcast_id, {
+                    'error': str(e),
+                    'error_time': datetime.now()
+                })
+            except Exception as db_error:
+                logger.error(f"更新轮播消息错误状态失败: {db_error}")
             
             # 记录错误
             if broadcast_id not in self.error_tracker:
