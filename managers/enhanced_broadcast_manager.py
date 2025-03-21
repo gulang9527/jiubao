@@ -920,10 +920,6 @@ class EnhancedBroadcastManager:
                 logger.info(f"当前分钟: {now.minute}, 调度分钟: {schedule_minute}")
                 if now.minute == schedule_minute:
                     logger.info(f"分钟匹配")
-                    # 只需要简单防止在同一分钟多次发送的极端情况
-                    if last_broadcast and (now - last_broadcast).total_seconds() < 55:
-                        logger.info(f"已在当前分钟 {now.minute} 发送过，距上次发送仅 {(now - last_broadcast).total_seconds():.1f} 秒")
-                        return False, f"已在当前分钟 {now.minute} 发送过"
                     logger.info(f"当前是整点 {schedule_minute} 分，可以发送")
                     return True, f"整点 {schedule_minute} 分发送"
                 logger.info(f"不是发送时间点 {schedule_minute} 分，不发送")
@@ -934,10 +930,6 @@ class EnhancedBroadcastManager:
                 logger.info(f"当前时间: {now.hour}:{now.minute}, 调度时间: {schedule_hour}:{schedule_minute}")
                 if now.hour == schedule_hour and now.minute == schedule_minute:
                     logger.info(f"小时和分钟都匹配")
-                    # 只需要简单防止在同一分钟多次发送的极端情况
-                    if last_broadcast and (now - last_broadcast).total_seconds() < 55:
-                        logger.info(f"已在当前分钟发送过，距上次发送仅 {(now - last_broadcast).total_seconds():.1f} 秒")
-                        return False, "已在当前分钟发送过"
                     logger.info(f"当前是每日 {schedule_hour}:{schedule_minute} 时间点，可以发送")
                     return True, f"每日 {schedule_hour}:{schedule_minute} 发送"
                 logger.info(f"不是发送时间点 {schedule_hour}:{schedule_minute}，不发送")
@@ -972,10 +964,6 @@ class EnhancedBroadcastManager:
                 
                 if is_anchor:
                     logger.info(f"检测到当前是锚点时间点")
-                    # 只需防止同一分钟内多次发送
-                    if last_broadcast and (now - last_broadcast).total_seconds() < 55:
-                        logger.info(f"已在当前分钟发送过，距上次发送仅 {(now - last_broadcast).total_seconds():.1f} 秒")
-                        return False, "已在当前分钟发送过"
                     
                     # 计算当前是哪个锚点
                     anchor_number = (current_minutes - base_anchor) // interval_minutes
