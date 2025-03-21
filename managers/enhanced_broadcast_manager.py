@@ -992,45 +992,69 @@ class EnhancedBroadcastManager:
                 # 计算基准锚点（从当天0点开始计算的分钟数）
                 base_anchor = schedule_hour * 60 + schedule_minute  # 基准锚点（比如19:00）
                 
-                # 计算偏移量 - 简化计算逻辑，更加直观
-                offset = (current_minutes - base_anchor) % interval_minutes
-                if offset > interval_minutes / 2:
-                    offset = interval_minutes - offset  # 转换为最接近锚点的偏移量
+                # 简化锚点计算逻辑 - 直接找出最近的锚点时间
+                minutes_since_base = (current_minutes - base_anchor) % (24 * 60)
+                anchor_count = minutes_since_base // interval_minutes
+                
+                # 计算当前最接近的锚点时间（分钟数）
+                current_anchor_minutes = (base_anchor + anchor_count * interval_minutes) % (24 * 60)
+                anchor_hour = current_anchor_minutes // 60
+                anchor_minute = current_anchor_minutes % 60
+                
+                # 计算当前时间与锚点时间的差距（分钟）
+                minutes_diff = abs(current_minutes - current_anchor_minutes)
+                if minutes_diff > interval_minutes / 2:
+                    minutes_diff = interval_minutes - minutes_diff
                 
                 # 设置允许的误差范围（分钟）
                 ANCHOR_TOLERANCE_MINUTES = 1  # 允许正负1分钟的误差
                 # 判断是否在锚点附近
-                is_anchor = offset <= ANCHOR_TOLERANCE_MINUTES
+                is_anchor = minutes_diff <= ANCHOR_TOLERANCE_MINUTES
                 
                 logger.info(f"当前时间分钟数: {current_minutes}")
                 logger.info(f"基准锚点分钟数: {base_anchor}")
-                logger.info(f"偏移量: {offset}")
+                logger.info(f"计算的当前锚点时间: {anchor_hour:02d}:{anchor_minute:02d}")
+                logger.info(f"与锚点时间差距: {minutes_diff}分钟")
                 logger.info(f"是否是锚点: {is_anchor}")
                 
                 if is_anchor:
                     logger.info(f"检测到当前是锚点时间点")
                     
-                    # 计算当前是哪个锚点
-                    anchor_number = ((current_minutes - base_anchor) % (24 * 60)) // interval_minutes
-                    anchor_hour = ((base_anchor + anchor_number * interval_minutes) % (24 * 60)) // 60
-                    anchor_minute = (base_anchor + anchor_number * interval_minutes) % 60
-                    
-                    # 构建当前锚点的唯一标识
+                    # 构建当前锚点的唯一标识（使用日期+实际锚点时间）
                     current_anchor_id = f"{now.strftime('%Y-%m-%d')}-{anchor_hour:02d}:{anchor_minute:02d}"
                     
-                    # 检查此锚点是否已处理
-                    if last_broadcast:
-                        # 计算上次发送到现在的时间差(秒)
-                        time_diff = (now - last_broadcast).total_seconds()
+                    # 增强锚点检查逻辑
+                    # 1. 检查是否已在内存中记录处理过这个锚点
+                    if broadcast_id in self.anchor_processed and current_anchor_id in self.anchor_processed[broadcast_id]:
+                        last_process_time = self.anchor_processed[broadcast_id][current_anchor_id]
+                        time_diff = (now - last_process_time).total_seconds()
+                        logger.info(f"此锚点 {current_anchor_id} 已在 {time_diff:.1f} 秒前处理过，跳过")
+                        return False, f"锚点 {current_anchor_id} 已处理"
                         
-                        # 如果在短时间内曾经发送过消息，并且上次发送的是当前锚点
+                    # 2. 检查数据库中记录的上次发送时间和锚点
+                    if last_broadcast:
+                        # 计算上次发送到现在的时间差(分钟)
+                        time_diff_minutes = (now - last_broadcast).total_seconds() / 60
+                        
+                        # 如果距离上次发送时间小于间隔的70%，则跳过
+                        if time_diff_minutes < (interval_minutes * 0.7):
+                            logger.info(f"距上次发送仅 {time_diff_minutes:.1f} 分钟，小于间隔的70% ({interval_minutes * 0.7:.1f} 分钟)，跳过")
+                            return False, f"发送间隔过短"
+                            
+                        # 检查上次发送的锚点ID是否与当前一致
                         last_anchor_id = broadcast.get('last_anchor_id')
-                        if time_diff < (interval_minutes * 30) and last_anchor_id == current_anchor_id:
-                            logger.info(f"此锚点 {current_anchor_id} 已在 {time_diff:.1f} 秒前处理过，跳过")
-                            return False, f"锚点 {anchor_hour:02d}:{anchor_minute:02d} 已处理"
+                        if last_anchor_id == current_anchor_id:
+                            logger.info(f"此锚点 {current_anchor_id} 已经处理过，跳过")
+                            return False, f"锚点 {current_anchor_id} 已处理"
                     
                     logger.info(f"当前是锚点时间 {anchor_hour:02d}:{anchor_minute:02d}，可以发送")
-                    return True, f"锚点时间 {anchor_hour:02d}:{anchor_minute:02d} 发送", current_anchor_id 
+                    
+                    # 记录处理状态到内存
+                    if broadcast_id not in self.anchor_processed:
+                        self.anchor_processed[broadcast_id] = {}
+                    self.anchor_processed[broadcast_id][current_anchor_id] = now
+                    
+                    return True, f"锚点时间 {anchor_hour:02d}:{anchor_minute:02d} 发送", current_anchor_id
                                     
                 # 找到下一个锚点时间，用于日志
                 next_anchor_minutes = current_minutes + (interval_minutes - offset) % interval_minutes
