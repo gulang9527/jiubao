@@ -1449,7 +1449,7 @@ async def handle_broadcast_form_input(update: Update, context: CallbackContext, 
                     # 添加到文件顶部的导入部分
                     # 更严格的URL验证正则表达式
                     URL_PATTERN = re.compile(
-                        r'^(?:http|https)://(?:[\w-]+\.)+[a-z]{2,}(?:/[\w-./?%&=]*)?$|^t\.me/[\w_]+$'
+                        r'^(?:http|https)://(?:[\w-]+\.)+[a-z]{2,}(?:/[\w.-/?%&=]*)?$|^t\.me/[\w_]+$'
                     )
                     
                     # 然后在处理按钮输入的地方
