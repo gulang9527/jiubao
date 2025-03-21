@@ -379,6 +379,7 @@ async def handle_broadcast_detail_callback(update: Update, context: CallbackCont
         context: 上下文对象
         data: 回调数据
     """
+    from utils.time_utils import format_datetime
     query = update.callback_query
     bot_instance = context.application.bot_data.get('bot_instance')
     
@@ -491,6 +492,7 @@ async def handle_broadcast_preview_callback(update: Update, context: CallbackCon
         context: 上下文对象
         data: 回调数据
     """
+    from telegram.error import BadRequest
     query = update.callback_query
     bot_instance = context.application.bot_data.get('bot_instance')
     
@@ -691,6 +693,7 @@ async def handle_broadcast_force_send_callback(update: Update, context: Callback
         context: 上下文对象
         data: 回调数据
     """
+    from telegram.error import BadRequest, Forbidden, TimedOut
     query = update.callback_query
     bot_instance = context.application.bot_data.get('bot_instance')
     
@@ -866,6 +869,7 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
         update: 更新对象
         context: 上下文对象
     """
+    from utils.time_utils import format_datetime
     logger.info("提交轮播消息表单")
     form_data = context.user_data.get('broadcast_form', {})
     logger.info(f"提交的表单数据: {form_data}")
@@ -1195,6 +1199,8 @@ async def show_broadcast_options(update: Update, context: CallbackContext):
         update: 更新对象
         context: 上下文对象
     """
+    from utils.time_utils import format_datetime
+    from telegram.error import BadRequest
     logger.info("显示轮播消息设置选项")
     form_data = context.user_data.get('broadcast_form', {})
     logger.info(f"当前轮播消息表单数据: {form_data}")
@@ -1395,6 +1401,8 @@ async def handle_broadcast_form_input(update: Update, context: CallbackContext, 
     返回:
         是否处理了输入
     """
+    import re
+    from utils.time_utils import format_datetime, validate_time_format
     message = update.effective_message
     form_data = context.user_data.get('broadcast_form', {})
     user_id = update.effective_user.id
