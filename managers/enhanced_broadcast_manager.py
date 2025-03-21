@@ -656,6 +656,7 @@ class EnhancedBroadcastManager:
             
             # 优化处理逻辑，使用asyncio.gather进行并行处理
             tasks = []
+            broadcast_ids = []  # 用于收集广播ID
             
             for broadcast in all_broadcasts:
                 # 跳过正在处理的轮播消息
@@ -697,6 +698,7 @@ class EnhancedBroadcastManager:
                 logger.info(f"创建轮播 {broadcast_id} 的处理任务")
                 task = asyncio.create_task(self._process_broadcast(broadcast))
                 tasks.append(task)
+                broadcast_ids.append(broadcast_id)  # 记录对应的广播ID
             
             # 等待所有任务完成，添加更好的日志记录
             if tasks:
