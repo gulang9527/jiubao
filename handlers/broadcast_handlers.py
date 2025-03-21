@@ -3,6 +3,7 @@
 """
 import re
 import logging
+import telegram
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 
@@ -15,6 +16,11 @@ from utils.time_utils import validate_time_format, format_datetime, format_durat
 from db.models import GroupPermission
 
 logger = logging.getLogger(__name__)
+
+# 定义URL验证的正则表达式常量
+URL_PATTERN = re.compile(
+    r'^(?:http|https)://(?:[\w-]+\.)+[a-z]{2,}(?:/[\w.-/?%&=]*)?$|^t\.me/[\w_]+$'
+)
 
 #######################################
 # 回调处理函数
@@ -1446,11 +1452,7 @@ async def handle_broadcast_form_input(update: Update, context: CallbackContext, 
                     # 检查URL格式
                     import re
                     
-                    # 添加到文件顶部的导入部分
-                    # 更严格的URL验证正则表达式
-                    URL_PATTERN = re.compile(
-                        r'^(?:http|https)://(?:[\w-]+\.)+[a-z]{2,}(?:/[\w.-/?%&=]*)?$|^t\.me/[\w_]+$'
-                    )
+                    # 使用全局定义的URL_PATTERN
                     
                     # 然后在处理按钮输入的地方
                     if text and url:
