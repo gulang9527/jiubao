@@ -237,7 +237,8 @@ async def handle_private_message(update: Update, context: CallbackContext):
         
         # 轮播消息表单处理
         elif waiting_for.startswith('broadcast_'):
-            logger.info(f"尝试处理轮播消息表单输入: {waiting_for}, 消息类型: {message.content_type}")
+            media_type, _ = get_media_type(message)
+            logger.info(f"尝试处理轮播消息表单输入: {waiting_for}, 消息类型: {media_type}")
             from handlers.broadcast_handlers import handle_broadcast_form_input
             try:
                 logger.info(f"调用 handle_broadcast_form_input 之前, 消息有photo: {bool(message.photo)}")
