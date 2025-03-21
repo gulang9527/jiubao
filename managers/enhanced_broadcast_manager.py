@@ -734,7 +734,14 @@ class EnhancedBroadcastManager:
                 
             # 如果不是重试，检查是否应该发送
             if not is_retry:
-                should_send, reason = await self._should_send_broadcast(broadcast)
+                # 调用修改后的函数，可能会返回3个值
+                result = await self._should_send_broadcast(broadcast)
+                if len(result) == 3:
+                    should_send, reason, current_anchor_id = result
+                    # 保存锚点ID以便后续使用
+                    broadcast['current_anchor_id'] = current_anchor_id
+                else:
+                    should_send, reason = result
                 logger.info(f"轮播 {broadcast_id} 发送决策: {should_send}, 原因: {reason}")
             
             # 检查是否是强制发送标记
@@ -760,8 +767,15 @@ class EnhancedBroadcastManager:
                     })
                     logger.info(f"已强制发送轮播消息 {broadcast_id}, 更新last_forced_send时间为 {now}，并重置force_sent标记")
                 else:
-                    # 正常发送，更新最后发送时间
-                    await self.db.update_broadcast_time(broadcast_id, now)
+                    # 正常发送，更新最后发送时间和锚点ID
+                    update_data = {'last_broadcast': now}
+                    
+                    # 如果有锚点ID，也更新它
+                    if 'current_anchor_id' in broadcast:
+                        update_data['last_anchor_id'] = broadcast['current_anchor_id']
+                        logger.info(f"更新锚点ID: {broadcast['current_anchor_id']}")
+                        
+                    await self.db.update_broadcast(broadcast_id, update_data)
                     logger.info(f"已发送轮播消息 {broadcast_id}, 更新最后发送时间为 {now}")
                 
                 # 清除错误记录和重试状态
@@ -872,6 +886,10 @@ class EnhancedBroadcastManager:
         if end_time and now > end_time:
             logger.info(f"已过结束时间，不发送: 当前={now}, 结束={end_time}")
             return False, "已过结束时间"
+
+        if broadcast.get('force_sent', False):
+            logger.info(f"检测到强制发送标记，忽略锚点时间检查")
+            return True, "强制发送"
         
         # 检查重复类型
         repeat_type = broadcast.get('repeat_type')
@@ -974,20 +992,15 @@ class EnhancedBroadcastManager:
                 # 计算基准锚点（从当天0点开始计算的分钟数）
                 base_anchor = schedule_hour * 60 + schedule_minute  # 基准锚点（比如19:00）
                 
-                # 计算当前时间与基准锚点的偏移量，正确处理24小时周期
-                # 当current_minutes < base_anchor时，我们需要添加一天的分钟数
-                daily_minutes = 24 * 60
-                adjusted_current = current_minutes
-                if current_minutes < base_anchor:
-                    adjusted_current = current_minutes + daily_minutes
-                
-                # 计算偏移量
-                offset = ((current_minutes - base_anchor) % (24 * 60)) % interval_minutes
+                # 计算偏移量 - 简化计算逻辑，更加直观
+                offset = (current_minutes - base_anchor) % interval_minutes
+                if offset > interval_minutes / 2:
+                    offset = interval_minutes - offset  # 转换为最接近锚点的偏移量
                 
                 # 设置允许的误差范围（分钟）
                 ANCHOR_TOLERANCE_MINUTES = 1  # 允许正负1分钟的误差
                 # 判断是否在锚点附近
-                is_anchor = offset == 0 or offset <= ANCHOR_TOLERANCE_MINUTES or offset >= (interval_minutes - ANCHOR_TOLERANCE_MINUTES)
+                is_anchor = offset <= ANCHOR_TOLERANCE_MINUTES
                 
                 logger.info(f"当前时间分钟数: {current_minutes}")
                 logger.info(f"基准锚点分钟数: {base_anchor}")
@@ -998,32 +1011,27 @@ class EnhancedBroadcastManager:
                     logger.info(f"检测到当前是锚点时间点")
                     
                     # 计算当前是哪个锚点
-                    anchor_number = (current_minutes - base_anchor) // interval_minutes
-                    if anchor_number < 0:
-                        anchor_number += (24 * 60) // interval_minutes
-                        
-                    anchor_hour = (base_anchor + anchor_number * interval_minutes) // 60 % 24
+                    anchor_number = ((current_minutes - base_anchor) % (24 * 60)) // interval_minutes
+                    anchor_hour = ((base_anchor + anchor_number * interval_minutes) % (24 * 60)) // 60
                     anchor_minute = (base_anchor + anchor_number * interval_minutes) % 60
                     
-                    # 构建当前锚点标识
-                    current_anchor = f"{now.year}-{now.month}-{now.day}-{anchor_hour}:{anchor_minute}"
+                    # 构建当前锚点的唯一标识
+                    current_anchor_id = f"{now.strftime('%Y-%m-%d')}-{anchor_hour:02d}:{anchor_minute:02d}"
                     
-                    # 检查此锚点是否已处理过
-                    if broadcast_id in self.anchor_processed and current_anchor in self.anchor_processed[broadcast_id]:
-                        last_process_time = self.anchor_processed[broadcast_id][current_anchor]
-                        time_diff = (now - last_process_time).total_seconds()
-                        logger.info(f"此锚点 {current_anchor} 已在 {time_diff:.1f} 秒前处理过，跳过")
-                        return False, f"锚点 {anchor_hour:02d}:{anchor_minute:02d} 已处理"
+                    # 检查此锚点是否已处理
+                    if last_broadcast:
+                        # 计算上次发送到现在的时间差(秒)
+                        time_diff = (now - last_broadcast).total_seconds()
+                        
+                        # 如果在短时间内曾经发送过消息，并且上次发送的是当前锚点
+                        last_anchor_id = broadcast.get('last_anchor_id')
+                        if time_diff < (interval_minutes * 30) and last_anchor_id == current_anchor_id:
+                            logger.info(f"此锚点 {current_anchor_id} 已在 {time_diff:.1f} 秒前处理过，跳过")
+                            return False, f"锚点 {anchor_hour:02d}:{anchor_minute:02d} 已处理"
                     
                     logger.info(f"当前是锚点时间 {anchor_hour:02d}:{anchor_minute:02d}，可以发送")
-                    
-                    # 记录处理状态
-                    if broadcast_id not in self.anchor_processed:
-                        self.anchor_processed[broadcast_id] = {}
-                    self.anchor_processed[broadcast_id][current_anchor] = now
-                    
-                    return True, f"锚点时间 {anchor_hour:02d}:{anchor_minute:02d} 发送"
-                   
+                    return True, f"锚点时间 {anchor_hour:02d}:{anchor_minute:02d} 发送", current_anchor_id 
+                                    
                 # 找到下一个锚点时间，用于日志
                 next_anchor_minutes = current_minutes + (interval_minutes - offset) % interval_minutes
                 next_anchor_hour = (next_anchor_minutes // 60) % 24
