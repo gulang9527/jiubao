@@ -1036,9 +1036,9 @@ class EnhancedBroadcastManager:
                         # 计算上次发送到现在的时间差(分钟)
                         time_diff_minutes = (now - last_broadcast).total_seconds() / 60
                         
-                        # 如果距离上次发送时间小于间隔的70%，则跳过
-                        if time_diff_minutes < (interval_minutes * 0.7):
-                            logger.info(f"距上次发送仅 {time_diff_minutes:.1f} 分钟，小于间隔的70% ({interval_minutes * 0.7:.1f} 分钟)，跳过")
+                        # 如果距离上次发送时间小于间隔的20%，则跳过
+                        if time_diff_minutes < (interval_minutes * 0.2):
+                            logger.info(f"距上次发送仅 {time_diff_minutes:.1f} 分钟，小于间隔的20% ({interval_minutes * 0.2:.1f} 分钟)，跳过")
                             return False, f"发送间隔过短"
                             
                         # 检查上次发送的锚点ID是否与当前一致
