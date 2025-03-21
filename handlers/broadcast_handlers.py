@@ -895,6 +895,13 @@ async def submit_broadcast_form(update: Update, context: CallbackContext):
             message_text,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+    except Exception as e:
+        logger.error(f"添加/更新轮播消息错误: {e}", exc_info=True)
+        await update.callback_query.answer("❌ 操作失败")
+        await update.callback_query.edit_message_text(
+            f"❌ 操作失败: {str(e)}\n\n"
+            "请重试或联系管理员"
+        )
 
 #######################################
 # 表单功能函数
