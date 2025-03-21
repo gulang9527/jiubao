@@ -1,6 +1,6 @@
 """
 增强版轮播消息管理器，处理定时消息发送
-支持固定时间发送和间隔发送两种模式
+添加锚点时间状态记录，避免重复发送
 """
 import logging
 import asyncio
@@ -21,14 +21,7 @@ class EnhancedBroadcastManager:
     支持固定时间发送和间隔发送两种模式
     """
     def __init__(self, db, bot_instance, apply_defaults=True):
-        """
-        初始化轮播消息管理器
-        
-        参数:
-            db: 数据库实例
-            bot_instance: 机器人实例
-            apply_defaults: 是否应用默认设置
-        """
+        """初始化轮播消息管理器"""
         self.db = db
         self.bot = bot_instance
         self.active_broadcasts = set()  # 用于跟踪正在处理的轮播消息
@@ -37,10 +30,14 @@ class EnhancedBroadcastManager:
         self.sending_lock = asyncio.Lock()  # 避免并发发送同一条轮播消息
         self.CACHE_TTL = 300  # 缓存有效期（秒）
         self.error_tracker = {}  # 记录发送错误
-        self.retry_tracker = {}  # 新增：跟踪重试状态
+        self.retry_tracker = {}  # 跟踪重试状态
         self.MAX_ERROR_COUNT = 6  # 最大错误次数
-        self.RETRY_ATTEMPTS = 3   # 新增：最大重试次数
-        self.RETRY_INTERVALS = [60, 180]  # 新增：重试间隔（秒），第一次1分钟，第二次3分钟
+        self.RETRY_ATTEMPTS = 3   # 最大重试次数
+        self.RETRY_INTERVALS = [60, 180]  # 重试间隔（秒）
+        
+        # 新增：锚点处理状态记录
+        self.anchor_processed = {}  # 格式: {broadcast_id: {anchor_time: timestamp}}
+        self.ANCHOR_RECORD_TTL = 3600  # 锚点记录保留1小时
         
         # 启动后台任务
         self.running = True
@@ -917,20 +914,56 @@ class EnhancedBroadcastManager:
             if repeat_type == 'hourly':
                 # 整点的指定分钟发送 - 只检查当前是否是指定分钟
                 logger.info(f"当前分钟: {now.minute}, 调度分钟: {schedule_minute}")
+                
+                # 构建当前锚点标识
+                current_anchor = f"{now.year}-{now.month}-{now.day}-{now.hour}:{schedule_minute}"
+                
                 if now.minute == schedule_minute:
+                    # 检查此锚点是否已处理过
+                    if broadcast_id in self.anchor_processed and current_anchor in self.anchor_processed[broadcast_id]:
+                        last_process_time = self.anchor_processed[broadcast_id][current_anchor]
+                        time_diff = (now - last_process_time).total_seconds()
+                        logger.info(f"此锚点 {current_anchor} 已在 {time_diff:.1f} 秒前处理过，跳过")
+                        return False, f"锚点 {current_anchor} 已处理"
+                    
                     logger.info(f"分钟匹配")
                     logger.info(f"当前是整点 {schedule_minute} 分，可以发送")
+                    
+                    # 记录处理状态
+                    if broadcast_id not in self.anchor_processed:
+                        self.anchor_processed[broadcast_id] = {}
+                    self.anchor_processed[broadcast_id][current_anchor] = now
+                    
                     return True, f"整点 {schedule_minute} 分发送"
+                
                 logger.info(f"不是发送时间点 {schedule_minute} 分，不发送")
                 return False, f"不是发送时间点 {schedule_minute} 分"
             
             elif repeat_type == 'daily':
                 # 每天的指定时间发送 - 只检查当前是否是指定时间
                 logger.info(f"当前时间: {now.hour}:{now.minute}, 调度时间: {schedule_hour}:{schedule_minute}")
+                
+                # 构建当前锚点标识
+                current_anchor = f"{now.year}-{now.month}-{now.day}-{schedule_hour}:{schedule_minute}"
+                
                 if now.hour == schedule_hour and now.minute == schedule_minute:
+                    # 检查此锚点是否已处理过
+                    if broadcast_id in self.anchor_processed and current_anchor in self.anchor_processed[broadcast_id]:
+                        last_process_time = self.anchor_processed[broadcast_id][current_anchor]
+                        time_diff = (now - last_process_time).total_seconds()
+                        logger.info(f"此锚点 {current_anchor} 已在 {time_diff:.1f} 秒前处理过，跳过")
+                        return False, f"锚点 {current_anchor} 已处理"
+                        
                     logger.info(f"小时和分钟都匹配")
                     logger.info(f"当前是每日 {schedule_hour}:{schedule_minute} 时间点，可以发送")
+                    
+                    # 记录处理状态
+                    if broadcast_id not in self.anchor_processed:
+                        self.anchor_processed[broadcast_id] = {}
+                    self.anchor_processed[broadcast_id][current_anchor] = now
+                    
                     return True, f"每日 {schedule_hour}:{schedule_minute} 发送"
+                
                 logger.info(f"不是发送时间点 {schedule_hour}:{schedule_minute}，不发送")
                 return False, f"不是发送时间点 {schedule_hour}:{schedule_minute}"
             
@@ -972,7 +1005,23 @@ class EnhancedBroadcastManager:
                     anchor_hour = (base_anchor + anchor_number * interval_minutes) // 60 % 24
                     anchor_minute = (base_anchor + anchor_number * interval_minutes) % 60
                     
+                    # 构建当前锚点标识
+                    current_anchor = f"{now.year}-{now.month}-{now.day}-{anchor_hour}:{anchor_minute}"
+                    
+                    # 检查此锚点是否已处理过
+                    if broadcast_id in self.anchor_processed and current_anchor in self.anchor_processed[broadcast_id]:
+                        last_process_time = self.anchor_processed[broadcast_id][current_anchor]
+                        time_diff = (now - last_process_time).total_seconds()
+                        logger.info(f"此锚点 {current_anchor} 已在 {time_diff:.1f} 秒前处理过，跳过")
+                        return False, f"锚点 {anchor_hour:02d}:{anchor_minute:02d} 已处理"
+                    
                     logger.info(f"当前是锚点时间 {anchor_hour:02d}:{anchor_minute:02d}，可以发送")
+                    
+                    # 记录处理状态
+                    if broadcast_id not in self.anchor_processed:
+                        self.anchor_processed[broadcast_id] = {}
+                    self.anchor_processed[broadcast_id][current_anchor] = now
+                    
                     return True, f"锚点时间 {anchor_hour:02d}:{anchor_minute:02d} 发送"
                    
                 # 找到下一个锚点时间，用于日志
@@ -986,3 +1035,51 @@ class EnhancedBroadcastManager:
         except Exception as e:
             logger.error(f"解析调度时间出错: {e}, broadcast_id={broadcast_id}", exc_info=True)
             return False, f"调度时间错误: {e}"
+    
+    async def _cleanup_cache(self):
+        """定期清理过期缓存和锚点记录"""
+        while self.running:
+            try:
+                # 每10分钟执行一次清理
+                await asyncio.sleep(600)
+                
+                now = datetime.now()
+                if (now - self.last_cache_cleanup).total_seconds() > 600:
+                    # 清理过期的缓存
+                    to_remove = []
+                    for broadcast_id, data in self.broadcast_cache.items():
+                        if 'timestamp' in data and (now - data['timestamp']).total_seconds() > self.CACHE_TTL:
+                            to_remove.append(broadcast_id)
+                    
+                    # 删除过期的缓存
+                    for broadcast_id in to_remove:
+                        if broadcast_id in self.broadcast_cache:
+                            del self.broadcast_cache[broadcast_id]
+                    
+                    # 清理过期的锚点记录
+                    anchors_removed = 0
+                    for broadcast_id in list(self.anchor_processed.keys()):
+                        # 找出过期的锚点记录
+                        expired_anchors = []
+                        for anchor, timestamp in self.anchor_processed[broadcast_id].items():
+                            if (now - timestamp).total_seconds() > self.ANCHOR_RECORD_TTL:
+                                expired_anchors.append(anchor)
+                        
+                        # 删除过期记录
+                        for anchor in expired_anchors:
+                            del self.anchor_processed[broadcast_id][anchor]
+                            anchors_removed += 1
+                        
+                        # 如果没有记录了，删除整个broadcast_id键
+                        if not self.anchor_processed[broadcast_id]:
+                            del self.anchor_processed[broadcast_id]
+                    
+                    self.last_cache_cleanup = now
+                    logger.debug(f"清理完成: 移除 {len(to_remove)} 项缓存, {anchors_removed} 项锚点记录")
+            except asyncio.CancelledError:
+                logger.info("清理任务被取消")
+                break
+            except Exception as e:
+                logger.error(f"清理任务出错: {e}", exc_info=True)
+                await asyncio.sleep(300)  # 出错后5分钟再试
+
