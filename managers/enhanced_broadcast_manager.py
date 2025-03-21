@@ -735,24 +735,23 @@ class EnhancedBroadcastManager:
                 should_send = True
                 reason = f"重试第{retry_attempt}次" if is_retry else ""
                 
-                # 如果不是重试，检查是否应该发送
-                if not is_retry:
-                    should_send, reason = await self._should_send_broadcast(broadcast)
-                    logger.info(f"轮播 {broadcast_id} 发送决策: {should_send}, 原因: {reason}")
-    
-                # 检查是否是强制发送标记
-                is_forced_send = broadcast.get('force_sent', False)
-                if is_forced_send:
-                    logger.info(f"检测到轮播消息 {broadcast_id} 有强制发送标记，不影响锚点判断")
-                    
-                    if not should_send:
-                        logger.info(f"轮播消息 {broadcast_id} 不应发送: {reason}")
-                        self.active_broadcasts.discard(broadcast_id)
-                        return
-                
-                # 发送轮播消息
-                logger.info(f"准备{'重试' if is_retry else ''}发送轮播消息: {broadcast_id}")
-                success = await self.send_broadcast(broadcast)
+            # 如果不是重试，检查是否应该发送
+            if not is_retry:
+                should_send, reason = await self._should_send_broadcast(broadcast)
+                logger.info(f"轮播 {broadcast_id} 发送决策: {should_send}, 原因: {reason}")
+            
+            # 检查是否是强制发送标记
+            is_forced_send = broadcast.get('force_sent', False)
+            if is_forced_send:
+                logger.info(f"检测到轮播消息 {broadcast_id} 有强制发送标记，不影响锚点判断")
+            elif not should_send:  # 添加这个条件：如果不是强制发送且不应该发送，则直接返回
+                logger.info(f"轮播消息 {broadcast_id} 不应发送: {reason}")
+                self.active_broadcasts.discard(broadcast_id)
+                return
+            
+            # 发送轮播消息
+            logger.info(f"准备{'重试' if is_retry else ''}发送轮播消息: {broadcast_id}")
+            success = await self.send_broadcast(broadcast)
                 
                 if success:
                     # 如果是强制发送，只更新last_forced_send，不更新last_broadcast
