@@ -1191,14 +1191,14 @@ class Database:
             interval_broadcasts = await self.db.broadcasts.find(interval_query).to_list(None)
             logger.info(f"找到 {len(interval_broadcasts)} 个可能需要再次发送的轮播消息")
             
-            # 手动过滤达到间隔时间的轮播消息
+            # 不检查间隔时间，直接全部添加到待发送列表，让轮播管理器基于锚点时间判断
             due_interval_broadcasts = []
             for bc in interval_broadcasts:
                 bc_id = str(bc['_id'])
                 last_broadcast = bc.get('last_broadcast')
                 interval_minutes = bc.get('interval', 0)
                 
-                # 确保last_broadcast是datetime对象
+                # 确保last_broadcast是datetime对象（保留这部分，确保数据类型正确）
                 if not isinstance(last_broadcast, datetime):
                     logger.warning(f"轮播 {bc_id} 的last_broadcast不是datetime类型: {type(last_broadcast)}")
                     if isinstance(last_broadcast, str):
@@ -1216,19 +1216,17 @@ class Database:
                     else:
                         continue
                 
-                # 计算时间差
+                # 移除间隔检查，直接添加所有轮播消息
+                # 添加记录时间差的日志，但不用它来过滤消息
                 time_diff = (now - last_broadcast).total_seconds() / 60
                 logger.info(f"轮播 {bc_id}: 上次发送: {last_broadcast}, 距现在: {time_diff:.2f}分钟, 配置间隔: {interval_minutes}分钟")
-                
-                if time_diff >= interval_minutes:
-                    logger.info(f"轮播 {bc_id} 已达到发送间隔，添加到待发送列表")
-                    due_interval_broadcasts.append(bc)
-                else:
-                    logger.info(f"轮播 {bc_id} 未达到发送间隔，跳过")
+                logger.info(f"轮播 {bc_id} 添加到待发送列表（锚点模式，不检查时间间隔）")
+                due_interval_broadcasts.append(bc)
             
             # 4. 合并并返回所有需要发送的轮播消息
             due_broadcasts = not_sent_broadcasts + due_interval_broadcasts
-            logger.info(f"总共有 {len(due_broadcasts)} 个轮播消息需要发送")
+            logger.info(f"总共有 {len(due_broadcasts)} 个轮播消息需要发送（使用锚点模式，最终发送由 _should_send_broadcast 决定）")
+
             
             return due_broadcasts
         
