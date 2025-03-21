@@ -9,7 +9,7 @@ from telegram import Update, Message
 from telegram.ext import CallbackContext
 
 from utils.decorators import error_handler
-from utils.message_utils import get_media_type, validate_delete_timeout
+from utils.message_utils import get_media_type, get_file_id, validate_delete_timeout
 from db.models import GroupPermission
 
 logger = logging.getLogger(__name__)
@@ -237,7 +237,8 @@ async def handle_private_message(update: Update, context: CallbackContext):
         
         # 轮播消息表单处理
         elif waiting_for.startswith('broadcast_'):
-            media_type, _ = get_media_type(message)
+            media_type = get_media_type(message)
+            file_id = get_file_id(message) if media_type else None
             logger.info(f"尝试处理轮播消息表单输入: {waiting_for}, 消息类型: {media_type}")
             from handlers.broadcast_handlers import handle_broadcast_form_input
             try:
