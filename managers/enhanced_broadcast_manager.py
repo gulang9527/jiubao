@@ -333,6 +333,40 @@ class EnhancedBroadcastManager:
         except Exception as e:
             logger.error(f"发送轮播消息错误: {e}, broadcast_id={broadcast_id}", exc_info=True)
             return False
+
+    async def send_broadcast_now(self, broadcast_id: str, group_id: int) -> bool:
+        """
+        立即发送轮播消息，用于强制发送
+        
+        参数:
+            broadcast_id: 轮播消息ID
+            group_id: 群组ID
+            
+        返回:
+            是否发送成功
+        """
+        try:
+            # 获取轮播消息数据
+            broadcast = await self.db.get_broadcast_by_id(broadcast_id)
+            if not broadcast:
+                logger.error(f"找不到轮播消息: {broadcast_id}")
+                return False
+                
+            # 发送消息
+            success = await self.send_broadcast(broadcast)
+            
+            if success:
+                # 更新最后发送时间
+                now = datetime.now()
+                await self.db.update_broadcast_time(broadcast_id, now)
+                logger.info(f"强制发送轮播消息成功: {broadcast_id}, 更新最后发送时间为 {now}")
+                return True
+            else:
+                logger.error(f"强制发送轮播消息失败: {broadcast_id}")
+                return False
+        except Exception as e:
+            logger.error(f"强制发送轮播消息出错: {broadcast_id}, {e}", exc_info=True)
+            return False
     
     async def update_broadcast(self, broadcast_id: str, broadcast_data: Dict[str, Any]) -> bool:
         """
