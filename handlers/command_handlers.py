@@ -12,6 +12,8 @@ from telegram.ext import CallbackContext
 from utils.decorators import check_command_usage, handle_callback_errors, require_superadmin
 from utils.message_utils import set_message_expiry
 from db.models import GroupPermission
+from utils.decorators import debounce
+from utils.message_utils import update_message_safely
 
 logger = logging.getLogger(__name__)
 
@@ -620,6 +622,8 @@ async def format_rank_rows(stats, page, group_id, context):
         
     # 不添加恢复数据的解释
     result = "\n".join(rows)
+    import time
+    result += f"\n<!-- {int(time.time())} -->"
     return result
 
 @check_command_usage
@@ -777,6 +781,7 @@ async def handle_check_stats_settings(update: Update, context: CallbackContext):
     await update.message.reply_text(message)
 
 @handle_callback_errors
+@debounce(cooldown_seconds=1.5)
 async def handle_rank_page_callback(update: Update, context: CallbackContext, *args, **kwargs):
     """处理排行榜分页回调，优化以防止快速翻页崩溃"""
     query = update.callback_query
@@ -936,10 +941,13 @@ async def handle_rank_page_callback(update: Update, context: CallbackContext, *a
             
             # 更新消息内容，使用异常处理增强稳定性
             try:
-                await query.edit_message_text(
+                await update_message_safely(
+                    context.bot,
+                    chat_id=chat.id,
+                    message_id=query.message.message_id,
                     text=text,
-                    parse_mode="HTML",
-                    reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None
+                    reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None,
+                    parse_mode="HTML"
                 )
             except Exception as e:
                 logger.error(f"更新排行榜消息失败: {e}")
