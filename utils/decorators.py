@@ -3,6 +3,7 @@
 """
 import logging
 import functools
+import time
 from typing import Callable, Any, Optional
 
 from telegram import Update
@@ -314,3 +315,43 @@ def require_group_chat(func: Callable) -> Callable:
         return await func(update, context, *args, **kwargs)
     
     return wrapper
+
+def debounce(cooldown_seconds=1.5):
+    """
+    防抖装饰器，防止用户短时间内多次点击同一按钮
+    
+    参数:
+        cooldown_seconds: 冷却时间（秒）
+        
+    返回:
+        装饰器函数
+    """
+    def decorator(func: Callable) -> Callable:
+        # 使用字典存储每个用户最后一次操作的时间
+        last_call_time = {}
+        
+        @functools.wraps(func)
+        async def wrapper(update: Update, context: CallbackContext, *args, **kwargs):
+            if update.callback_query:
+                user_id = update.effective_user.id
+                callback_data = update.callback_query.data
+                
+                # 创建唯一键，包含用户ID和回调数据
+                key = f"{user_id}:{callback_data}"
+                current_time = time.time()
+                
+                # 检查是否在冷却期内
+                if key in last_call_time and current_time - last_call_time[key] < cooldown_seconds:
+                    await update.callback_query.answer("请稍等片刻再操作")
+                    logger.debug(f"防抖：跳过用户 {user_id} 的回调 {callback_data}")
+                    return
+                
+                # 更新最后调用时间
+                last_call_time[key] = current_time
+            
+            # 调用原始函数
+            return await func(update, context, *args, **kwargs)
+        
+        return wrapper
+    
+    return decorator
