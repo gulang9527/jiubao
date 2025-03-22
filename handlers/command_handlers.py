@@ -621,10 +621,10 @@ async def format_rank_rows(stats, page, group_id, context):
             return "没有更多数据了"
         
     # 不添加恢复数据的解释
-    result = "\n".join(rows)
-    import time
-    result += f"\n<!-- {int(time.time())} -->"
-    return result
+result = "\n".join(rows)
+import time
+result += f"\n {int(time.time())}"  
+return result
 
 @check_command_usage
 async def handle_rank_command(update: Update, context: CallbackContext):
