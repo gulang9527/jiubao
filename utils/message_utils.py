@@ -438,3 +438,37 @@ async def set_message_expiry(context, chat_id, message_id, feature=None):
             logger.info(f"已安排消息 {message_id} 在 {timeout}秒后删除")
     except Exception as e:
         logger.error(f"设置消息过期时间失败: {e}", exc_info=True)
+
+async def update_message_safely(bot, chat_id, message_id, text, reply_markup=None, parse_mode=None):
+    """
+    安全地更新消息，忽略"消息未修改"错误
+    
+    参数:
+        bot: 机器人实例
+        chat_id: 聊天ID
+        message_id: 消息ID
+        text: 新消息文本
+        reply_markup: 回复标记
+        parse_mode: 解析模式
+        
+    返回:
+        是否成功更新
+    """
+    try:
+        await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode
+        )
+        return True
+    except Exception as e:
+        if "message is not modified" in str(e).lower():
+            # 这不是真正的错误，使用debug级别记录
+            logger.debug("消息内容相同，无需更新")
+            return True
+        else:
+            # 记录其他错误
+            logger.error(f"更新消息失败: {str(e)}")
+            return False
