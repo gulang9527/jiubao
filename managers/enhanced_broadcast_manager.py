@@ -1051,11 +1051,33 @@ class EnhancedBroadcastManager:
                 logger.info(f"与锚点时间差距: {minutes_diff}分钟")
                 logger.info(f"是否是锚点: {is_anchor}")
                 
+
                 if is_anchor:
                     logger.info(f"检测到当前是锚点时间点")
                     
                     # 构建当前锚点的唯一标识（使用日期+实际锚点时间）
                     current_anchor_id = f"{now.strftime('%Y-%m-%d')}-{anchor_hour:02d}:{anchor_minute:02d}"
+                    
+                    # 添加额外的时间范围检查，避免日期变更导致的错误匹配
+                    from datetime import time
+                    actual_time = now.timestamp()
+                    anchor_time = datetime.combine(now.date(), 
+                                                  time(hour=anchor_hour, minute=anchor_minute)).timestamp()
+                    
+                    # 如果锚点时间大于当前时间，可能是昨天的锚点
+                    if anchor_time > actual_time + 60*60:  # 加一小时的缓冲，避免时区问题
+                        anchor_time = datetime.combine(now.date() - timedelta(days=1), 
+                                                     time(hour=anchor_hour, minute=anchor_minute)).timestamp()
+                    # 如果锚点时间小于当前时间太多，可能是明天的锚点
+                    elif actual_time > anchor_time + 60*60*22:  # 如果差超过22小时，可能是明天的锚点
+                        anchor_time = datetime.combine(now.date() + timedelta(days=1), 
+                                                     time(hour=anchor_hour, minute=anchor_minute)).timestamp()
+                    
+                    # 检查差值是否在合理范围内（例如10分钟）
+                    time_diff_minutes = abs(actual_time - anchor_time) / 60
+                    if time_diff_minutes > 10:  # 设置一个合理的阈值，如10分钟
+                        logger.info(f"锚点时间 {anchor_hour:02d}:{anchor_minute:02d} 与实际时间相差 {time_diff_minutes:.1f} 分钟，超出合理范围，跳过")
+                        return False, f"时间差异过大（{time_diff_minutes:.1f}分钟）"
                     
                     # 增强锚点检查逻辑
                     # 1. 检查是否已在内存中记录处理过这个锚点
