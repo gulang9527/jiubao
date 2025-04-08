@@ -39,10 +39,16 @@ async def handle_id_command(update: Update, context: CallbackContext) -> None:
             await handle_id_query(update, context, query)
             return
         
-        # 检查是否是回复消息
-        has_reply = update.effective_message.reply_to_message is not None
+        # 检查是否是回复消息 - 这里是关键
+        reply_to_message = update.effective_message.reply_to_message
         
-        if has_reply:
+        # 记录更多调试信息
+        if reply_to_message:
+            logger.info(f"处理回复消息: 当前用户={update.effective_user.id}, 回复消息ID={reply_to_message.message_id}")
+            if reply_to_message.from_user:
+                logger.info(f"被回复用户ID: {reply_to_message.from_user.id}")
+        
+        if reply_to_message and reply_to_message.from_user:
             # 如果是回复消息，显示被回复用户的ID和用户名
             await handle_reply_id(update, context)
         else:
@@ -114,25 +120,40 @@ async def handle_current_chat_id(update: Update, context: CallbackContext) -> No
 async def handle_reply_id(update: Update, context: CallbackContext) -> None:
     """处理回复消息的ID查询"""
     chat = update.effective_chat
-    reply_msg = update.effective_message.reply_to_message
+    message = update.effective_message
     
-    if not chat or not reply_msg:
-        logger.warning("回复消息不存在")
+    if not chat or not message:
+        logger.warning("无法获取聊天或消息信息")
+        return
+        
+    # 检查是否是回复消息
+    reply_to_message = message.reply_to_message
+    if not reply_to_message:
+        logger.warning("不是回复消息")
+        try:
+            await context.bot.send_message(
+                chat_id=chat.id,
+                text="❌ 无法确定被回复的消息"
+            )
+        except Exception as e:
+            logger.error(f"发送错误消息失败: {e}")
         return
     
-    # 获取被回复的用户
-    replied_user = reply_msg.from_user
-    
+    # 获取被回复消息的发送者
+    replied_user = reply_to_message.from_user
     if not replied_user:
-        logger.warning("无法获取被回复用户信息")
+        logger.warning("无法获取被回复消息的发送者")
         try:
             await context.bot.send_message(
                 chat_id=chat.id,
                 text="❌ 无法获取被回复用户的信息"
             )
         except Exception as e:
-            logger.error(f"发送错误消息失败: {e}", exc_info=True)
+            logger.error(f"发送错误消息失败: {e}")
         return
+    
+    # 记录详细信息以进行调试
+    logger.info(f"当前用户ID: {update.effective_user.id}, 被回复用户ID: {replied_user.id}")
     
     # 构建消息文本
     text = f"👤 <b>被回复用户信息</b>\n"
