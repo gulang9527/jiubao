@@ -18,6 +18,7 @@ from handlers.message_handlers import handle_message
 from handlers.callback_handlers import (
     handle_callback, handle_manageable_groups_callback
 )
+from handlers.id_handlers import handle_id_command
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ def register_all_handlers(application, callback_handler):
     application.add_handler(MessageHandler(filters.ANIMATION, handle_message))
     application.add_handler(CommandHandler("checkstats", handle_check_stats_settings))
     application.add_handler(CommandHandler("cleanupinvalidgroups", handle_cleanup_invalid_groups))
-            
+    application.add_handler(CommandHandler("id", handle_id_command))
     
     # 添加简化的关键词和广播处理器
     application.add_handler(CommandHandler("easykeyword", handle_easy_keyword))
