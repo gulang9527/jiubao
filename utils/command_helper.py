@@ -35,6 +35,12 @@ class CommandHelper:
             'example': '/tongji30 2',
             'admin_only': False
         },
+        'id': {
+            'usage': '/id [@用户名/回复消息/群组链接]',
+            'description': '查询用户或群组ID',
+            'example': '/id @username, /id',
+            'admin_only': False
+        },
         'admingroups': {
             'usage': '/admingroups',
             'description': '查看可管理的群组',
