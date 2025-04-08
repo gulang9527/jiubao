@@ -48,6 +48,7 @@ async def handle_start(update: Update, context: CallbackContext):
         "📈 /tongji30 - 查看30日统计\n"
         "🚫 /cancel - 取消当前操作\n"
         "📊 /checkstats - 检查统计设置\n"
+        "🔍 /id - 查询用户或群组ID\n"
     )
     
     # 添加管理员命令
