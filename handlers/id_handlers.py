@@ -15,7 +15,15 @@ logger = logging.getLogger(__name__)
 
 @check_command_usage
 async def handle_id_command(update: Update, context: CallbackContext) -> None:
-    """处理/id命令，查询用户和群组ID"""
+    """
+    处理/id命令，查询用户和群组ID
+    
+    支持以下用法:
+    - /id: 显示当前聊天的ID
+    - 回复某人的消息并发送/id: 显示被回复用户的ID和用户名
+    - /id @username: 查询指定用户或群组的ID
+    - /id t.me/xxx 或 /id https://t.me/xxx: 查询群组ID
+    """
     # 检查必要组件
     if not update.effective_chat or not update.effective_user or not update.effective_message:
         logger.warning("无法获取必要的信息")
@@ -32,7 +40,7 @@ async def handle_id_command(update: Update, context: CallbackContext) -> None:
             return
         
         # 检查是否是回复消息
-        has_reply = bool(update.effective_message.reply_to_message)
+        has_reply = update.effective_message.reply_to_message is not None
         
         if has_reply:
             # 如果是回复消息，显示被回复用户的ID和用户名
@@ -42,14 +50,7 @@ async def handle_id_command(update: Update, context: CallbackContext) -> None:
             await handle_current_chat_id(update, context)
     except Exception as e:
         logger.error(f"处理ID命令时出错: {e}", exc_info=True)
-        # 只有在主要处理函数完全失败时，才尝试发送简化消息
-        simple_text = f"👤 用户ID: {update.effective_user.id}\n💬 聊天ID: {update.effective_chat.id}"
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=simple_text
-        )
 
-@check_command_usage
 async def handle_current_chat_id(update: Update, context: CallbackContext) -> None:
     """处理当前聊天的ID查询"""
     chat = update.effective_chat
@@ -105,30 +106,32 @@ async def handle_current_chat_id(update: Update, context: CallbackContext) -> No
                 context=context,
                 chat_id=chat.id,
                 message_id=msg.message_id,
-                feature="command_response",
-                timeout=60  # 60秒后删除
+                feature="command_response"
             )
     except Exception as e:
-        logger.error(f"发送HTML格式ID信息失败: {e}", exc_info=True)
-        # 此时才尝试发送纯文本格式
-        await context.bot.send_message(
-            chat_id=chat.id,
-            text=f"用户ID: {user.id}\n聊天ID: {chat.id}"
-        )
-        
+        logger.error(f"发送ID信息失败: {e}", exc_info=True)
+
 async def handle_reply_id(update: Update, context: CallbackContext) -> None:
     """处理回复消息的ID查询"""
     chat = update.effective_chat
     reply_msg = update.effective_message.reply_to_message
     
     if not chat or not reply_msg:
+        logger.warning("回复消息不存在")
         return
     
     # 获取被回复的用户
     replied_user = reply_msg.from_user
     
     if not replied_user:
-        await update.effective_message.reply_text("❌ 无法获取被回复用户的信息")
+        logger.warning("无法获取被回复用户信息")
+        try:
+            await context.bot.send_message(
+                chat_id=chat.id,
+                text="❌ 无法获取被回复用户的信息"
+            )
+        except Exception as e:
+            logger.error(f"发送错误消息失败: {e}", exc_info=True)
         return
     
     # 构建消息文本
@@ -147,21 +150,24 @@ async def handle_reply_id(update: Update, context: CallbackContext) -> None:
     if replied_user.is_bot:
         text += "类型: 机器人\n"
     
-    # 发送消息
-    msg = await update.effective_message.reply_text(
-        text,
-        parse_mode='HTML'
-    )
-    
-    # 在群组中自动删除
-    if chat.type in ['group', 'supergroup']:
-        await set_message_expiry(
-            context=context,
+    # 直接发送消息，不使用回复
+    try:
+        msg = await context.bot.send_message(
             chat_id=chat.id,
-            message_id=msg.message_id,
-            feature="command_response",
-            timeout=60  # 60秒后删除
+            text=text,
+            parse_mode='HTML'
         )
+        
+        # 在群组中自动删除
+        if chat.type in ['group', 'supergroup']:
+            await set_message_expiry(
+                context=context,
+                chat_id=chat.id,
+                message_id=msg.message_id,
+                feature="command_response"
+            )
+    except Exception as e:
+        logger.error(f"发送ID信息失败: {e}", exc_info=True)
 
 async def handle_id_query(update: Update, context: CallbackContext, query: str) -> None:
     """
@@ -234,8 +240,8 @@ async def fetch_entity_info(update: Update, context: CallbackContext, entity_que
         except (BadRequest, Forbidden) as e:
             # 如果不是聊天，可能是用户
             try:
-                # 尝试获取用户信息（可能需要额外API或工作区）
-                pass
+                # 尝试获取用户信息（注意：获取用户信息可能受限）
+                chat_info = await context.bot.get_chat(f"@{username}")
             except Exception as sub_e:
                 error_msg = f"找不到与 @{html.escape(username)} 相关的用户或群组"
         
@@ -248,8 +254,9 @@ async def fetch_entity_info(update: Update, context: CallbackContext, entity_que
             text = f"❌ {error_msg or f'无法找到 @{html.escape(username)}'}"
         
         # 发送结果
-        msg = await update.effective_message.reply_text(
-            text,
+        msg = await context.bot.send_message(
+            chat_id=chat.id,
+            text=text,
             parse_mode='HTML'
         )
         
@@ -259,13 +266,18 @@ async def fetch_entity_info(update: Update, context: CallbackContext, entity_que
                 context=context,
                 chat_id=chat.id,
                 message_id=msg.message_id,
-                feature="command_response",
-                timeout=60  # 60秒后删除
+                feature="command_response"
             )
         
     except Exception as e:
         logger.error(f"获取实体信息时出错: {e}", exc_info=True)
-        await update.effective_message.reply_text(f"❌ 查询实体信息时出错: {str(e)}")
+        try:
+            await context.bot.send_message(
+                chat_id=chat.id,
+                text=f"❌ 查询实体信息时出错"
+            )
+        except Exception as sub_e:
+            logger.error(f"发送错误信息失败: {sub_e}", exc_info=True)
 
 async def fetch_entity_by_id(update: Update, context: CallbackContext, entity_id: int) -> None:
     """
@@ -289,8 +301,9 @@ async def fetch_entity_by_id(update: Update, context: CallbackContext, entity_id
         text = await format_entity_info(entity_info)
         
         # 发送结果
-        msg = await update.effective_message.reply_text(
-            text,
+        msg = await context.bot.send_message(
+            chat_id=chat.id,
+            text=text,
             parse_mode='HTML'
         )
         
@@ -300,15 +313,26 @@ async def fetch_entity_by_id(update: Update, context: CallbackContext, entity_id
                 context=context,
                 chat_id=chat.id,
                 message_id=msg.message_id,
-                feature="command_response",
-                timeout=60  # 60秒后删除
+                feature="command_response"
             )
             
-    except BadRequest as e:
-        await update.effective_message.reply_text(f"❌ 找不到ID为 {entity_id} 的用户或群组")
+    except BadRequest:
+        try:
+            await context.bot.send_message(
+                chat_id=chat.id,
+                text=f"❌ 找不到ID为 {entity_id} 的用户或群组"
+            )
+        except Exception as e:
+            logger.error(f"发送错误信息失败: {e}", exc_info=True)
     except Exception as e:
         logger.error(f"通过ID获取实体信息时出错: {e}", exc_info=True)
-        await update.effective_message.reply_text(f"❌ 查询实体信息时出错: {str(e)}")
+        try:
+            await context.bot.send_message(
+                chat_id=chat.id,
+                text=f"❌ 查询实体信息时出错"
+            )
+        except Exception as sub_e:
+            logger.error(f"发送错误信息失败: {sub_e}", exc_info=True)
 
 async def format_entity_info(entity: Union[User, Chat]) -> str:
     """
