@@ -17,39 +17,39 @@ logger = logging.getLogger(__name__)
 async def handle_id_command(update: Update, context: CallbackContext) -> None:
     """处理/id命令，查询用户和群组ID"""
     # 检查必要组件
-    if not update.effective_chat or not update.effective_user:
-        logger.warning("无法获取聊天或用户信息")
+    if not update.effective_chat or not update.effective_user or not update.effective_message:
+        logger.warning("无法获取必要的信息")
         return
     
-    # 获取消息参数
-    args = context.args
-    
     try:
+        # 获取消息参数
+        args = context.args
+        
         # 如果命令有参数，优先处理参数
         if args:
             query = " ".join(args)
             await handle_id_query(update, context, query)
             return
         
-        # 如果是回复消息，显示被回复用户的ID和用户名
-        if update.effective_message and update.effective_message.reply_to_message:
-            await handle_reply_id(update, context)
-            return
+        # 检查是否是回复消息
+        has_reply = bool(update.effective_message.reply_to_message)
         
-        # 如果没有参数和回复，显示当前聊天的ID
-        await handle_current_chat_id(update, context)
+        if has_reply:
+            # 如果是回复消息，显示被回复用户的ID和用户名
+            await handle_reply_id(update, context)
+        else:
+            # 如果没有参数和回复，显示当前聊天的ID
+            await handle_current_chat_id(update, context)
     except Exception as e:
         logger.error(f"处理ID命令时出错: {e}", exc_info=True)
-        try:
-            # 简单直接地发送ID信息作为紧急备份措施
-            simple_text = f"👤 用户ID: {update.effective_user.id}\n💬 聊天ID: {update.effective_chat.id}"
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=simple_text
-            )
-        except Exception as sub_e:
-            logger.error(f"发送简化ID信息失败: {sub_e}", exc_info=True)
+        # 只有在主要处理函数完全失败时，才尝试发送简化消息
+        simple_text = f"👤 用户ID: {update.effective_user.id}\n💬 聊天ID: {update.effective_chat.id}"
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=simple_text
+        )
 
+@check_command_usage
 async def handle_current_chat_id(update: Update, context: CallbackContext) -> None:
     """处理当前聊天的ID查询"""
     chat = update.effective_chat
@@ -109,12 +109,13 @@ async def handle_current_chat_id(update: Update, context: CallbackContext) -> No
                 timeout=60  # 60秒后删除
             )
     except Exception as e:
-        logger.error(f"发送ID信息失败: {e}", exc_info=True)
-        # 尝试不使用HTML格式发送
+        logger.error(f"发送HTML格式ID信息失败: {e}", exc_info=True)
+        # 此时才尝试发送纯文本格式
         await context.bot.send_message(
             chat_id=chat.id,
             text=f"用户ID: {user.id}\n聊天ID: {chat.id}"
         )
+        
 async def handle_reply_id(update: Update, context: CallbackContext) -> None:
     """处理回复消息的ID查询"""
     chat = update.effective_chat
