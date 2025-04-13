@@ -14,12 +14,12 @@ if not TELEGRAM_TOKEN:
     raise ValueError("TELEGRAM_TOKEN is not set in environment variables")
 
 # MongoDB配置
-MONGODB_URI = os.getenv('MONGODB_URI', 'mongodb://localhost:27017')
-MONGODB_DB = os.getenv('MONGODB_DB', 'telegram_bot')
+MONGODB_URI = "mongodb://localhost:27017" 
+MONGODB_DB = "telegram_bot" 
 
 # Web服务器配置
-WEB_HOST = os.getenv('WEB_HOST', '0.0.0.0')
-WEB_PORT = int(os.getenv('PORT', '8080'))
+WEB_HOST = "0.0.0.0" 
+WEB_PORT = 8080 
 
 # 默认超级管理员列表
 DEFAULT_SUPERADMINS = [
@@ -128,24 +128,24 @@ TIME_CALIBRATION_SETTINGS = {
     'missed_broadcast_interval': 30,
     
     # 是否启用时间校准功能
-    'enable_calibration': True,
+    'enable_calibration': False,  # 禁用校准
     
     # Render.com相关设置
     'render': {
         # 是否为Render.com环境
-        'is_render_environment': True,
+        'is_render_environment': False,
         
         # Render.com免费版休眠时间（分钟）
-        'sleep_after_inactivity': 15,
+        'sleep_after_inactivity': 0,
         
         # 自动ping间隔（分钟）以保持活跃状态
-        'keep_alive_interval': 10,
+        'keep_alive_interval': 0,
         
         # 唤醒后的初始延迟（秒）
-        'wake_up_delay': 5,
+        'wake_up_delay': 0,
         
         # 唤醒后是否立即执行一次检查
-        'force_check_on_wake': True
+        'force_check_on_wake': False,
     }
 }
 # 验证配置函数 (用于config_validator.py)
