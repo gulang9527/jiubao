@@ -3,23 +3,18 @@
 """
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-class RecoveryManager:
+class SimpleRecoveryManager:
     """
-    恢复管理器
-    负责处理系统恢复和活动状态监控
+    简化版恢复管理器
+    仅负责监控系统活动状态
     """
     
     def __init__(self, bot_instance):
-        """
-        初始化恢复管理器
-        
-        参数:
-            bot_instance: 机器人实例
-        """
+        """初始化恢复管理器"""
         self.bot = bot_instance
         self.last_activity_time = datetime.now()
         self.check_interval = 60  # 每60秒检查一次
@@ -41,7 +36,7 @@ class RecoveryManager:
         self.last_activity_time = datetime.now()
         
     async def _monitor_loop(self):
-        """监控循环，检查系统活动状态"""
+        """简化的监控循环，只记录系统不活动状态"""
         try:
             while self._running:
                 # 检测系统是否长时间不活动
