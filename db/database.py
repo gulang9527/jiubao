@@ -26,16 +26,7 @@ class Database:
         self.connected = asyncio.Event()
         
     async def connect(self, mongodb_uri: str, database: str) -> bool:
-        """
-        连接到MongoDB
-        
-        参数:
-            mongodb_uri: MongoDB连接URI
-            database: 数据库名称
-            
-        返回:
-            bool: 连接是否成功
-        """
+        """连接到MongoDB"""
         self.uri = mongodb_uri
         self.database = database
         
@@ -64,11 +55,8 @@ class Database:
             # 设置连接状态
             self.connected.set()
             
-            # 启动重连任务
+            # 只启动重连任务，不启动保活任务
             self._start_reconnect_task()
-
-            # 启动保活任务 - 添加此行
-            await self._start_keepalive_task()
         
             return True
         except Exception as e:
